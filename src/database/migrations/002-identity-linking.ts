@@ -3,6 +3,31 @@ import type { Migration } from "kysely/migration";
 
 export const identityLinkingMigration: Migration = {
   async up(db: Kysely<unknown>): Promise<void> {
+    await sql`alter table welcome_deliveries rename to start_response_deliveries`.execute(
+      db,
+    );
+    await sql`alter table start_response_deliveries rename constraint welcome_deliveries_trigger_unique to start_response_deliveries_trigger_unique`.execute(
+      db,
+    );
+    await sql`alter table start_response_deliveries rename constraint welcome_deliveries_state_check to start_response_deliveries_state_check`.execute(
+      db,
+    );
+    await sql`alter index welcome_deliveries_send_idx rename to start_response_deliveries_send_idx`.execute(
+      db,
+    );
+    await sql`alter table welcome_delivery_attempts rename column welcome_delivery_id to start_response_delivery_id`.execute(
+      db,
+    );
+    await sql`alter table welcome_delivery_attempts rename to start_response_delivery_attempts`.execute(
+      db,
+    );
+    await sql`alter table start_response_delivery_attempts rename constraint welcome_delivery_attempts_number_unique to start_response_delivery_attempts_number_unique`.execute(
+      db,
+    );
+    await sql`alter table start_response_delivery_attempts rename constraint welcome_delivery_attempts_outcome_check to start_response_delivery_attempts_outcome_check`.execute(
+      db,
+    );
+
     await db.schema
       .createTable("link_transactions")
       .addColumn("link_transaction_ref", "text", (column) =>
@@ -75,5 +100,30 @@ export const identityLinkingMigration: Migration = {
     await db.schema.dropTable("identity_link_events").execute();
     await db.schema.dropTable("platform_links").execute();
     await db.schema.dropTable("link_transactions").execute();
+
+    await sql`alter table start_response_delivery_attempts rename constraint start_response_delivery_attempts_number_unique to welcome_delivery_attempts_number_unique`.execute(
+      db,
+    );
+    await sql`alter table start_response_delivery_attempts rename constraint start_response_delivery_attempts_outcome_check to welcome_delivery_attempts_outcome_check`.execute(
+      db,
+    );
+    await sql`alter table start_response_delivery_attempts rename to welcome_delivery_attempts`.execute(
+      db,
+    );
+    await sql`alter table welcome_delivery_attempts rename column start_response_delivery_id to welcome_delivery_id`.execute(
+      db,
+    );
+    await sql`alter index start_response_deliveries_send_idx rename to welcome_deliveries_send_idx`.execute(
+      db,
+    );
+    await sql`alter table start_response_deliveries rename constraint start_response_deliveries_trigger_unique to welcome_deliveries_trigger_unique`.execute(
+      db,
+    );
+    await sql`alter table start_response_deliveries rename constraint start_response_deliveries_state_check to welcome_deliveries_state_check`.execute(
+      db,
+    );
+    await sql`alter table start_response_deliveries rename to welcome_deliveries`.execute(
+      db,
+    );
   },
 };

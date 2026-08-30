@@ -22,7 +22,7 @@ remain explicit later gates.
   missing or bot senders do not create contacts. Tokenized starts create/reactivate the same
   independent contact even when their token is malformed, unknown, expired, or replayed.
 - `BotContacts.observeStart` atomically creates/reactivates the contact, records Contactability
-  history, and creates one welcome delivery intent. It stores exact decimal Telegram IDs in
+  history, and creates one start-response delivery intent. It stores exact decimal Telegram IDs in
   PostgreSQL and never keys identity by username.
 - Private `my_chat_member` block observations preserve the contact and history; a later `/start`
   restores Contactability.

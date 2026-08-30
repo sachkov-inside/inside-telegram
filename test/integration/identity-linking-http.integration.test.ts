@@ -54,8 +54,8 @@ beforeEach(async () => {
       identity_link_events,
       platform_links,
       link_transactions,
-      welcome_delivery_attempts,
-      welcome_deliveries,
+      start_response_delivery_attempts,
+      start_response_deliveries,
       bot_contact_events,
       bot_contacts,
       telegram_updates
@@ -165,7 +165,7 @@ describe("Platform identity-linking HTTP contract", () => {
     });
     await application.get(TelegramUpdateProcessor).processAvailable();
     const transactionalResponses = await database
-      .selectFrom("welcome_deliveries")
+      .selectFrom("start_response_deliveries")
       .select("message_text")
       .orderBy("trigger_update_id")
       .execute();

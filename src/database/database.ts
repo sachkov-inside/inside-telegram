@@ -2,7 +2,7 @@ import type { ColumnType, Generated, Kysely } from "kysely";
 
 export type Contactability = "blocked" | "reachable";
 export type UpdateState = "failed" | "pending" | "processed" | "processing";
-export type WelcomeDeliveryState =
+export type StartResponseDeliveryState =
   | "delivered"
   | "pending"
   | "rejected"
@@ -64,7 +64,7 @@ export interface BotContactEventsTable {
   update_id: BigIntColumn;
 }
 
-export interface WelcomeDeliveriesTable {
+export interface StartResponseDeliveriesTable {
   attempt_count: number;
   available_at: Timestamp;
   bot_identity: string;
@@ -75,13 +75,13 @@ export interface WelcomeDeliveriesTable {
   locked_at: Timestamp | null;
   message_text: string;
   private_chat_id: BigIntColumn;
-  state: WelcomeDeliveryState;
+  state: StartResponseDeliveryState;
   telegram_user_id: BigIntColumn;
   trigger_update_id: BigIntColumn;
   updated_at: Timestamp;
 }
 
-export interface WelcomeDeliveryAttemptsTable {
+export interface StartResponseDeliveryAttemptsTable {
   attempt_number: number;
   attempted_at: Timestamp;
   diagnostic_code: string | null;
@@ -89,7 +89,7 @@ export interface WelcomeDeliveryAttemptsTable {
   outcome: DeliveryAttemptOutcome;
   provider_error_code: number | null;
   provider_message_id: BigIntColumn | null;
-  welcome_delivery_id: BigIntColumn;
+  start_response_delivery_id: BigIntColumn;
 }
 
 export interface LinkTransactionsTable {
@@ -129,8 +129,8 @@ export interface DatabaseSchema {
   link_transactions: LinkTransactionsTable;
   platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;
-  welcome_deliveries: WelcomeDeliveriesTable;
-  welcome_delivery_attempts: WelcomeDeliveryAttemptsTable;
+  start_response_deliveries: StartResponseDeliveriesTable;
+  start_response_delivery_attempts: StartResponseDeliveryAttemptsTable;
 }
 
 export type Database = Kysely<DatabaseSchema>;

@@ -4,14 +4,14 @@ import {
   DATABASE,
   type Database,
   type DeliveryAttemptOutcome,
-  type WelcomeDeliveryState,
+  type StartResponseDeliveryState,
 } from "../../database/database.js";
 import type { TelegramDeliveryResult } from "./telegram-messages.js";
 
 const MAX_DELIVERY_ATTEMPTS = 3;
 const SEND_LEASE_MILLISECONDS = 60_000;
 
-export interface ClaimedWelcomeDelivery {
+export interface ClaimedStartResponseDelivery {
   readonly attemptNumber: number;
   readonly id: string;
   readonly messageText: string;
@@ -19,13 +19,15 @@ export interface ClaimedWelcomeDelivery {
 }
 
 @Injectable()
-export class WelcomeDeliveryQueue {
+export class StartResponseDeliveryQueue {
   constructor(@Inject(DATABASE) private readonly database: Database) {}
 
-  async claimNext(now: Date): Promise<ClaimedWelcomeDelivery | undefined> {
+  async claimNext(
+    now: Date,
+  ): Promise<ClaimedStartResponseDelivery | undefined> {
     return this.database.transaction().execute(async (transaction) => {
       const stale = await transaction
-        .selectFrom("welcome_deliveries")
+        .selectFrom("start_response_deliveries")
         .select(["attempt_count", "id"])
         .where("state", "=", "sending")
         .where(
@@ -40,7 +42,7 @@ export class WelcomeDeliveryQueue {
 
       if (stale) {
         await transaction
-          .insertInto("welcome_delivery_attempts")
+          .insertInto("start_response_delivery_attempts")
           .values({
             attempt_number: stale.attempt_count,
             attempted_at: now,
@@ -48,13 +50,13 @@ export class WelcomeDeliveryQueue {
             outcome: "transport_unknown",
             provider_error_code: null,
             provider_message_id: null,
-            welcome_delivery_id: stale.id,
+            start_response_delivery_id: stale.id,
           })
           .onConflict((conflict) => conflict.doNothing())
           .execute();
 
         await transaction
-          .updateTable("welcome_deliveries")
+          .updateTable("start_response_deliveries")
           .set({
             available_at: now,
             diagnostic_code: "worker_lease_expired",
@@ -70,7 +72,7 @@ export class WelcomeDeliveryQueue {
       }
 
       const delivery = await transaction
-        .selectFrom("welcome_deliveries")
+        .selectFrom("start_response_deliveries")
         .select(["attempt_count", "id", "message_text", "private_chat_id"])
         .where("state", "in", ["pending", "retry_scheduled"])
         .where("available_at", "<=", now)
@@ -85,7 +87,7 @@ export class WelcomeDeliveryQueue {
 
       const attemptNumber = delivery.attempt_count + 1;
       await transaction
-        .updateTable("welcome_deliveries")
+        .updateTable("start_response_deliveries")
         .set({
           attempt_count: attemptNumber,
           diagnostic_code: null,
@@ -106,7 +108,7 @@ export class WelcomeDeliveryQueue {
   }
 
   async recordResult(
-    delivery: ClaimedWelcomeDelivery,
+    delivery: ClaimedStartResponseDelivery,
     result: TelegramDeliveryResult,
     attemptedAt: Date,
   ): Promise<void> {
@@ -117,7 +119,7 @@ export class WelcomeDeliveryQueue {
     );
     await this.database.transaction().execute(async (transaction) => {
       await transaction
-        .insertInto("welcome_delivery_attempts")
+        .insertInto("start_response_delivery_attempts")
         .values({
           attempt_number: delivery.attemptNumber,
           attempted_at: attemptedAt,
@@ -125,12 +127,12 @@ export class WelcomeDeliveryQueue {
           outcome: persistence.attempt.outcome,
           provider_error_code: persistence.attempt.providerErrorCode,
           provider_message_id: persistence.attempt.providerMessageId,
-          welcome_delivery_id: delivery.id,
+          start_response_delivery_id: delivery.id,
         })
         .execute();
 
       await transaction
-        .updateTable("welcome_deliveries")
+        .updateTable("start_response_deliveries")
         .set({
           available_at: persistence.delivery.availableAt,
           delivered_at: persistence.delivery.deliveredAt,
@@ -156,7 +158,7 @@ interface DeliveryOutcomePersistence {
     readonly availableAt: Date;
     readonly deliveredAt: Date | null;
     readonly diagnosticCode: string | null;
-    readonly state: WelcomeDeliveryState;
+    readonly state: StartResponseDeliveryState;
   };
 }
 

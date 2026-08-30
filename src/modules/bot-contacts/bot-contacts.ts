@@ -28,7 +28,7 @@ export interface VerifiedPrivateContactability {
 
 export interface ContactOutcome {
   readonly contact: "created" | "reactivated" | "refreshed";
-  readonly welcomePlanned: boolean;
+  readonly responsePlanned: boolean;
 }
 
 export type StartResponseKind = "link-receipt" | "welcome";
@@ -98,8 +98,8 @@ export class BotContacts {
         .onConflict((conflict) => conflict.doNothing())
         .execute();
 
-      const welcome = await transaction
-        .insertInto("welcome_deliveries")
+      const responseDelivery = await transaction
+        .insertInto("start_response_deliveries")
         .values({
           attempt_count: 0,
           available_at: start.observedAt,
@@ -124,7 +124,7 @@ export class BotContacts {
 
       return {
         contact,
-        welcomePlanned: welcome !== undefined,
+        responsePlanned: responseDelivery !== undefined,
       };
     });
   }

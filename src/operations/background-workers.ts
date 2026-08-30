@@ -10,7 +10,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../config/application-config.js";
-import { WelcomeDeliveryProcessor } from "../modules/outbound/welcome-delivery-processor.js";
+import { StartResponseDeliveryProcessor } from "../modules/outbound/start-response-delivery-processor.js";
 import { TelegramUpdateProcessor } from "../modules/update-inbox/telegram-update-processor.js";
 
 @Injectable()
@@ -28,8 +28,8 @@ export class BackgroundWorkers
     private readonly config: ApplicationConfig,
     @Inject(TelegramUpdateProcessor)
     private readonly updates: TelegramUpdateProcessor,
-    @Inject(WelcomeDeliveryProcessor)
-    private readonly deliveries: WelcomeDeliveryProcessor,
+    @Inject(StartResponseDeliveryProcessor)
+    private readonly deliveries: StartResponseDeliveryProcessor,
   ) {}
 
   onApplicationBootstrap(): void {

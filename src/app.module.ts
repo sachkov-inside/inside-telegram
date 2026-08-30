@@ -20,8 +20,8 @@ import {
   TELEGRAM_MESSAGES,
   type TelegramMessages,
 } from "./modules/outbound/telegram-messages.js";
-import { WelcomeDeliveryProcessor } from "./modules/outbound/welcome-delivery-processor.js";
-import { WelcomeDeliveryQueue } from "./modules/outbound/welcome-delivery-queue.js";
+import { StartResponseDeliveryProcessor } from "./modules/outbound/start-response-delivery-processor.js";
+import { StartResponseDeliveryQueue } from "./modules/outbound/start-response-delivery-queue.js";
 import { TelegramUpdateInbox } from "./modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "./modules/update-inbox/telegram-update-processor.js";
 import { TelegramWebhook } from "./modules/webhook/telegram-webhook.js";
@@ -73,8 +73,8 @@ export class AppModule {
         TelegramUpdateInbox,
         TelegramUpdateProcessor,
         TelegramWebhook,
-        WelcomeDeliveryProcessor,
-        WelcomeDeliveryQueue,
+        StartResponseDeliveryProcessor,
+        StartResponseDeliveryQueue,
       ],
     };
   }
