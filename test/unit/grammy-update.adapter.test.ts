@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 
-import { GrammyUpdateAdapter } from "../../src/adapters/telegram/grammy-update.adapter.js";
+import {
+  GrammyUpdateAdapter,
+  prepareTelegramUpdateForInbox,
+} from "../../src/adapters/telegram/grammy-update.adapter.js";
 import {
   privateContactabilityUpdate,
   privateStartUpdate,
@@ -23,11 +26,84 @@ describe("GrammyUpdateAdapter", () => {
     expect(command).toEqual({
       kind: "start",
       value: {
-        botIdentity: "inside",
-        observedAt,
-        privateChatId: String(largestDocumentedSafeId),
-        telegramUserId: String(largestDocumentedSafeId),
-        updateId: "7",
+        contact: {
+          botIdentity: "inside",
+          observedAt,
+          privateChatId: String(largestDocumentedSafeId),
+          telegramUserId: String(largestDocumentedSafeId),
+          updateId: "7",
+        },
+      },
+    });
+  });
+
+  it("replaces a valid link bearer with its digest before durable storage", () => {
+    const rawToken = "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678";
+    const prepared = prepareTelegramUpdateForInbox(
+      privateStartUpdate(8, 42, { text: `/start ${rawToken}` }),
+    );
+
+    expect(JSON.stringify(prepared)).not.toContain(rawToken);
+    expect(adapter.translate("inside", "8", prepared, observedAt)).toEqual({
+      kind: "start",
+      value: {
+        contact: {
+          botIdentity: "inside",
+          observedAt,
+          privateChatId: "42",
+          telegramUserId: "42",
+          updateId: "8",
+        },
+        linkToken: {
+          digest: "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8",
+          kind: "digest",
+        },
+      },
+    });
+  });
+
+  it.each([
+    ["42 characters", "A".repeat(42), "malformed"],
+    ["43 characters", "A".repeat(43), "digest"],
+    ["64 characters", "A".repeat(64), "digest"],
+    ["65 characters", "A".repeat(65), "malformed"],
+    ["outside base64url", `${"A".repeat(42)}+`, "malformed"],
+  ])("classifies a %s link bearer", (_name, token, expectedKind) => {
+    const prepared = prepareTelegramUpdateForInbox(
+      privateStartUpdate(9, 42, { text: `/start ${token}` }),
+    );
+    const command = adapter.translate("inside", "9", prepared, observedAt);
+
+    expect(command).toMatchObject({
+      kind: "start",
+      value: { linkToken: { kind: expectedKind } },
+    });
+    expect(JSON.stringify(prepared)).not.toContain(token);
+  });
+
+  it("trusts only link metadata derived at Telegram ingress", () => {
+    const update = privateStartUpdate(10, 42);
+    const prepared = prepareTelegramUpdateForInbox({
+      ...update,
+      message: {
+        ...update.message,
+        _inside_link_token: {
+          digest: "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8",
+          kind: "digest",
+        },
+      },
+    });
+
+    expect(adapter.translate("inside", "10", prepared, observedAt)).toEqual({
+      kind: "start",
+      value: {
+        contact: {
+          botIdentity: "inside",
+          observedAt,
+          privateChatId: "42",
+          telegramUserId: "42",
+          updateId: "10",
+        },
       },
     });
   });

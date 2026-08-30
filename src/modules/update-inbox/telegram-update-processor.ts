@@ -2,6 +2,7 @@ import { Inject, Injectable } from "@nestjs/common";
 
 import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
 import { BotContacts } from "../bot-contacts/bot-contacts.js";
+import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import { TelegramUpdateInbox } from "./telegram-update-inbox.js";
 
@@ -12,6 +13,8 @@ export class TelegramUpdateProcessor {
   constructor(
     @Inject(TelegramUpdateInbox) private readonly inbox: TelegramUpdateInbox,
     @Inject(BotContacts) private readonly botContacts: BotContacts,
+    @Inject(IdentityLinking)
+    private readonly identityLinking: IdentityLinking,
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
   ) {}
 
@@ -32,7 +35,18 @@ export class TelegramUpdateProcessor {
         );
 
         if (command.kind === "start") {
-          await this.botContacts.observeStart(command.value);
+          await this.botContacts.observeStart(
+            command.value.contact,
+            command.value.linkToken ? "link-receipt" : "welcome",
+          );
+          if (command.value.linkToken) {
+            await this.identityLinking.acceptStart({
+              botIdentity: command.value.contact.botIdentity,
+              linkToken: command.value.linkToken,
+              observedAt: command.value.contact.observedAt,
+              telegramUserId: command.value.contact.telegramUserId,
+            });
+          }
         } else if (command.kind === "contactability") {
           await this.botContacts.observeContactability(command.value);
         }

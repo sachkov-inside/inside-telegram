@@ -16,8 +16,8 @@ import type {
   TelegramMessages,
   TelegramTextMessage,
 } from "../../src/modules/outbound/telegram-messages.js";
-import { WelcomeDeliveryProcessor } from "../../src/modules/outbound/welcome-delivery-processor.js";
-import { WelcomeDeliveryQueue } from "../../src/modules/outbound/welcome-delivery-queue.js";
+import { StartResponseDeliveryProcessor } from "../../src/modules/outbound/start-response-delivery-processor.js";
+import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-response-delivery-queue.js";
 import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
@@ -36,6 +36,8 @@ const config: ApplicationConfig = {
   databaseUrl,
   deliveryMode: "disabled",
   host: "127.0.0.1",
+  linkReceiptText: "Synthetic link receipt",
+  platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_secret",
   welcomeText: "Synthetic welcome",
@@ -64,8 +66,11 @@ beforeAll(async () => {
 beforeEach(async () => {
   await sql`
     truncate table
-      welcome_delivery_attempts,
-      welcome_deliveries,
+      identity_link_events,
+      platform_links,
+      link_transactions,
+      start_response_delivery_attempts,
+      start_response_deliveries,
       bot_contact_events,
       bot_contacts,
       telegram_updates
@@ -79,18 +84,26 @@ afterAll(async () => {
 });
 
 describe("database foundation", () => {
-  it("rebuilds the first migration down and forward", async () => {
+  it("rebuilds the identity-linking migration down and forward", async () => {
     await migrateDown(database);
-    await migrateToLatest(database);
-
-    const table = await sql<{ exists: boolean }>`
+    const removed = await sql<{ exists: boolean }>`
       select exists (
         select 1
         from information_schema.tables
-        where table_schema = 'public' and table_name = 'bot_contacts'
+        where table_schema = 'public' and table_name = 'link_transactions'
       ) as exists
     `.execute(database);
-    expect(table.rows[0]?.exists).toBe(true);
+    expect(removed.rows[0]?.exists).toBe(false);
+
+    await migrateToLatest(database);
+    const restored = await sql<{ exists: boolean }>`
+      select exists (
+        select 1
+        from information_schema.tables
+        where table_schema = 'public' and table_name = 'link_transactions'
+      ) as exists
+    `.execute(database);
+    expect(restored.rows[0]?.exists).toBe(true);
   });
 });
 
@@ -101,11 +114,11 @@ describe("BotContacts", () => {
 
     await expect(contacts.observeStart(start)).resolves.toEqual({
       contact: "created",
-      welcomePlanned: true,
+      responsePlanned: true,
     });
     await expect(contacts.observeStart(start)).resolves.toEqual({
       contact: "refreshed",
-      welcomePlanned: false,
+      responsePlanned: false,
     });
 
     const stored = await database
@@ -116,7 +129,7 @@ describe("BotContacts", () => {
     expect(stored.private_chat_id).toBe("4503599627370495");
     await expect(tableCount("bot_contacts")).resolves.toBe(1);
     await expect(tableCount("bot_contact_events")).resolves.toBe(1);
-    await expect(tableCount("welcome_deliveries")).resolves.toBe(1);
+    await expect(tableCount("start_response_deliveries")).resolves.toBe(1);
   });
 
   it("reactivates a blocked contact without replacing its history", async () => {
@@ -136,7 +149,7 @@ describe("BotContacts", () => {
       ),
     ).resolves.toEqual({
       contact: "reactivated",
-      welcomePlanned: true,
+      responsePlanned: true,
     });
 
     const stored = await database
@@ -152,7 +165,7 @@ describe("BotContacts", () => {
     );
     await expect(tableCount("bot_contacts")).resolves.toBe(1);
     await expect(tableCount("bot_contact_events")).resolves.toBe(3);
-    await expect(tableCount("welcome_deliveries")).resolves.toBe(2);
+    await expect(tableCount("start_response_deliveries")).resolves.toBe(2);
   });
 });
 
@@ -209,12 +222,11 @@ describe("Telegram webhook contract", () => {
     expect(inbox).toEqual({ state: "pending", update_id: "11" });
   });
 
-  it("ignores group, bot, missing-sender and tokenized starts", async () => {
+  it("ignores starts that cannot prove a private human sender", async () => {
     const payloads = [
       privateStartUpdate(20, 42, { chatType: "group" }),
       privateStartUpdate(21, 42, { isBot: true }),
       privateStartUpdate(22, 42, { omitSender: true }),
-      privateStartUpdate(23, 42, { text: "/start token" }),
       { update_id: 24, message: {} },
     ];
     for (const payload of payloads) {
@@ -223,17 +235,45 @@ describe("Telegram webhook contract", () => {
     }
 
     const processor = application.get(TelegramUpdateProcessor);
-    await expect(processor.processAvailable()).resolves.toBe(5);
+    await expect(processor.processAvailable()).resolves.toBe(4);
 
     await expect(tableCount("bot_contacts")).resolves.toBe(0);
-    await expect(tableCount("welcome_deliveries")).resolves.toBe(0);
+    await expect(tableCount("start_response_deliveries")).resolves.toBe(0);
     const updates = await database
       .selectFrom("telegram_updates")
       .select(["payload", "state"])
       .execute();
-    expect(updates).toHaveLength(5);
+    expect(updates).toHaveLength(4);
     expect(updates.every((update) => update.state === "processed")).toBe(true);
     expect(updates.every((update) => update.payload === null)).toBe(true);
+  });
+
+  it("creates a BotContact for a malformed tokenized start without linking", async () => {
+    const rawToken = "not+a+base64url+token";
+    await injectWebhook(
+      privateStartUpdate(25, 42, { text: `/start ${rawToken}` }),
+      config.webhookSecret,
+    );
+
+    const storedInbox = await database
+      .selectFrom("telegram_updates")
+      .select("payload")
+      .executeTakeFirstOrThrow();
+    expect(JSON.stringify(storedInbox.payload)).not.toContain(rawToken);
+    await application.get(TelegramUpdateProcessor).processAvailable();
+
+    await expect(tableCount("bot_contacts")).resolves.toBe(1);
+    await expect(tableCount("start_response_deliveries")).resolves.toBe(1);
+    const response = await database
+      .selectFrom("start_response_deliveries")
+      .select("message_text")
+      .executeTakeFirstOrThrow();
+    expect(response.message_text).toBe(config.linkReceiptText);
+    const links = await database
+      .selectFrom("platform_links")
+      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .executeTakeFirstOrThrow();
+    expect(Number(links.count)).toBe(0);
   });
 
   it("runs ordinary start through durable processing and restores contactability", async () => {
@@ -262,7 +302,7 @@ describe("Telegram webhook contract", () => {
     expect(restored.contactability).toBe("reachable");
     await expect(tableCount("bot_contacts")).resolves.toBe(1);
     await expect(tableCount("bot_contact_events")).resolves.toBe(3);
-    await expect(tableCount("welcome_deliveries")).resolves.toBe(2);
+    await expect(tableCount("start_response_deliveries")).resolves.toBe(2);
   });
 
   it("recovers an update whose worker lease expired", async () => {
@@ -285,7 +325,7 @@ describe("Telegram webhook contract", () => {
   });
 });
 
-describe("durable welcome delivery", () => {
+describe("durable start response delivery", () => {
   it("persists successful and stable API-rejected outcomes without retry", async () => {
     const now = new Date("2026-08-30T12:00:00.000Z");
     const success = await prepareDelivery(
@@ -295,12 +335,12 @@ describe("durable welcome delivery", () => {
     await success.processor.processAvailable(1, now);
 
     let delivery = await database
-      .selectFrom("welcome_deliveries")
+      .selectFrom("start_response_deliveries")
       .select(["attempt_count", "state"])
       .executeTakeFirstOrThrow();
     expect(delivery).toEqual({ attempt_count: 1, state: "delivered" });
     const attempt = await database
-      .selectFrom("welcome_delivery_attempts")
+      .selectFrom("start_response_delivery_attempts")
       .select(["outcome", "provider_message_id"])
       .executeTakeFirstOrThrow();
     expect(attempt).toEqual({
@@ -316,12 +356,12 @@ describe("durable welcome delivery", () => {
     await rejected.processor.processAvailable(1, now);
 
     delivery = await database
-      .selectFrom("welcome_deliveries")
+      .selectFrom("start_response_deliveries")
       .select(["attempt_count", "state"])
       .executeTakeFirstOrThrow();
     expect(delivery).toEqual({ attempt_count: 1, state: "rejected" });
     const rejectedAttempt = await database
-      .selectFrom("welcome_delivery_attempts")
+      .selectFrom("start_response_delivery_attempts")
       .select(["outcome", "provider_error_code"])
       .executeTakeFirstOrThrow();
     expect(rejectedAttempt).toEqual({
@@ -354,12 +394,12 @@ describe("durable welcome delivery", () => {
     );
 
     const stored = await database
-      .selectFrom("welcome_deliveries")
+      .selectFrom("start_response_deliveries")
       .select(["attempt_count", "state"])
       .executeTakeFirstOrThrow();
     expect(stored).toEqual({ attempt_count: 2, state: "delivered" });
     const attempts = await database
-      .selectFrom("welcome_delivery_attempts")
+      .selectFrom("start_response_delivery_attempts")
       .select(["attempt_number", "diagnostic_code", "outcome"])
       .orderBy("attempt_number")
       .execute();
@@ -405,12 +445,12 @@ describe("durable welcome delivery", () => {
     );
 
     const stored = await database
-      .selectFrom("welcome_deliveries")
+      .selectFrom("start_response_deliveries")
       .select(["attempt_count", "state"])
       .executeTakeFirstOrThrow();
     expect(stored).toEqual({ attempt_count: 2, state: "delivered" });
     const attempts = await database
-      .selectFrom("welcome_delivery_attempts")
+      .selectFrom("start_response_delivery_attempts")
       .select(["attempt_number", "outcome", "provider_error_code"])
       .orderBy("attempt_number")
       .execute();
@@ -456,11 +496,13 @@ describe("durable welcome delivery", () => {
     ).resolves.toBe(0);
 
     const stored = await database
-      .selectFrom("welcome_deliveries")
+      .selectFrom("start_response_deliveries")
       .select(["attempt_count", "state"])
       .executeTakeFirstOrThrow();
     expect(stored).toEqual({ attempt_count: 3, state: "unknown_exhausted" });
-    await expect(tableCount("welcome_delivery_attempts")).resolves.toBe(3);
+    await expect(tableCount("start_response_delivery_attempts")).resolves.toBe(
+      3,
+    );
   });
 });
 
@@ -495,8 +537,8 @@ async function tableCount(
     | "bot_contact_events"
     | "bot_contacts"
     | "telegram_updates"
-    | "welcome_deliveries"
-    | "welcome_delivery_attempts",
+    | "start_response_deliveries"
+    | "start_response_delivery_attempts",
 ): Promise<number> {
   const result = await database
     .selectFrom(table)
@@ -508,8 +550,11 @@ async function tableCount(
 async function resetTables(): Promise<void> {
   await sql`
     truncate table
-      welcome_delivery_attempts,
-      welcome_deliveries,
+      identity_link_events,
+      platform_links,
+      link_transactions,
+      start_response_delivery_attempts,
+      start_response_deliveries,
       bot_contact_events,
       bot_contacts,
       telegram_updates
@@ -544,8 +589,8 @@ async function prepareDelivery(
     observedAt,
   });
   const messages = new ControlledMessages(results);
-  const processor = new WelcomeDeliveryProcessor(
-    new WelcomeDeliveryQueue(database),
+  const processor = new StartResponseDeliveryProcessor(
+    new StartResponseDeliveryQueue(database),
     messages,
     new RuntimeMetrics(),
   );

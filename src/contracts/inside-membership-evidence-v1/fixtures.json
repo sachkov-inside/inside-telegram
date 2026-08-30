@@ -1,0 +1,186 @@
+{
+  "fixtureVersion": "inside.membership-evidence-fixtures.v1",
+  "clock": "2030-01-01T00:04:00Z",
+  "fixtures": [
+    {
+      "name": "linked-member-fresh",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2030-01-01T00:00:00Z",
+        "validUntil": "2030-01-01T00:05:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-4",
+        "evidenceVersion": 4
+      },
+      "expected": "accept_member"
+    },
+    {
+      "name": "linked-non-member",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "not_member",
+        "reasonCode": "chat_not_member",
+        "checkedAt": "2030-01-01T00:00:00Z",
+        "validUntil": "2030-01-01T00:05:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-5",
+        "evidenceVersion": 5
+      },
+      "expected": "accept_not_member"
+    },
+    {
+      "name": "member-removed",
+      "currentEvidenceVersion": 4,
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "not_member",
+        "reasonCode": "chat_not_member",
+        "checkedAt": "2030-01-01T00:01:00Z",
+        "validUntil": "2030-01-01T00:06:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-5",
+        "evidenceVersion": 5
+      },
+      "expected": "replace_with_not_member"
+    },
+    {
+      "name": "member-rejoined",
+      "currentEvidenceVersion": 5,
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2030-01-01T00:02:00Z",
+        "validUntil": "2030-01-01T00:07:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-6",
+        "evidenceVersion": 6
+      },
+      "expected": "replace_with_member"
+    },
+    {
+      "name": "identity-not-linked",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-b",
+        "decision": "identity_not_linked",
+        "reasonCode": "identity_not_linked"
+      },
+      "expected": "accept_without_entitlement"
+    },
+    {
+      "name": "identity-conflict",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-b",
+        "decision": "identity_conflict",
+        "reasonCode": "identity_conflict",
+        "telegramIdentityRef": "telegram-ref-a"
+      },
+      "expected": "accept_without_entitlement"
+    },
+    {
+      "name": "provider-unavailable",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "unavailable",
+        "reasonCode": "provider_unavailable"
+      },
+      "expected": "accept_without_entitlement"
+    },
+    {
+      "name": "positive-expired",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2029-12-31T23:55:00Z",
+        "validUntil": "2030-01-01T00:00:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-3",
+        "evidenceVersion": 3
+      },
+      "expected": "expired_evidence"
+    },
+    {
+      "name": "positive-over-five-minutes",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2030-01-01T00:00:00Z",
+        "validUntil": "2030-01-01T00:05:01Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-7",
+        "evidenceVersion": 7
+      },
+      "expected": "invalid_evidence"
+    },
+    {
+      "name": "principal-mismatch",
+      "requestPrincipalRef": "principal-ref-b",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2030-01-01T00:00:00Z",
+        "validUntil": "2030-01-01T00:05:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-4",
+        "evidenceVersion": 4
+      },
+      "expected": "principal_mismatch"
+    },
+    {
+      "name": "replayed-version",
+      "currentEvidenceVersion": 4,
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2030-01-01T00:00:00Z",
+        "validUntil": "2030-01-01T00:05:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-3",
+        "evidenceVersion": 3
+      },
+      "expected": "replayed_evidence"
+    },
+    {
+      "name": "unsupported-major",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v2",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member",
+        "checkedAt": "2030-01-01T00:00:00Z",
+        "validUntil": "2030-01-01T00:05:00Z",
+        "telegramIdentityRef": "telegram-ref-a",
+        "evidenceRef": "evidence-ref-a-8",
+        "evidenceVersion": 8
+      },
+      "expected": "unsupported_contract"
+    },
+    {
+      "name": "malformed-envelope",
+      "evidence": {
+        "contractVersion": "inside.membership-evidence.v1",
+        "principalRef": "principal-ref-a",
+        "decision": "member",
+        "reasonCode": "chat_member"
+      },
+      "expected": "invalid_evidence"
+    }
+  ]
+}

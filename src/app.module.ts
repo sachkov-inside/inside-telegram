@@ -12,12 +12,16 @@ import { createDatabase } from "./database/create-database.js";
 import { DATABASE } from "./database/database.js";
 import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
+import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
+import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
+import { IdentityLinkingController } from "./modules/identity-linking/identity-linking.controller.js";
+import { InMemoryIdentityLinkingAdapter } from "./modules/identity-linking/in-memory-identity-linking.adapter.js";
 import {
   TELEGRAM_MESSAGES,
   type TelegramMessages,
 } from "./modules/outbound/telegram-messages.js";
-import { WelcomeDeliveryProcessor } from "./modules/outbound/welcome-delivery-processor.js";
-import { WelcomeDeliveryQueue } from "./modules/outbound/welcome-delivery-queue.js";
+import { StartResponseDeliveryProcessor } from "./modules/outbound/start-response-delivery-processor.js";
+import { StartResponseDeliveryQueue } from "./modules/outbound/start-response-delivery-queue.js";
 import { TelegramUpdateInbox } from "./modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "./modules/update-inbox/telegram-update-processor.js";
 import { TelegramWebhook } from "./modules/webhook/telegram-webhook.js";
@@ -31,9 +35,14 @@ export class AppModule {
   static register(config: ApplicationConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [OperationsController, TelegramWebhookController],
+      controllers: [
+        IdentityLinkingController,
+        OperationsController,
+        TelegramWebhookController,
+      ],
       providers: [
         { provide: APPLICATION_CONFIG, useValue: config },
+        { provide: CLOCK, useValue: systemClock },
         {
           provide: DATABASE,
           inject: [APPLICATION_CONFIG],
@@ -58,12 +67,14 @@ export class AppModule {
         BackgroundWorkers,
         BotContacts,
         DatabaseLifecycle,
+        IdentityLinking,
+        InMemoryIdentityLinkingAdapter,
         RuntimeMetrics,
         TelegramUpdateInbox,
         TelegramUpdateProcessor,
         TelegramWebhook,
-        WelcomeDeliveryProcessor,
-        WelcomeDeliveryQueue,
+        StartResponseDeliveryProcessor,
+        StartResponseDeliveryQueue,
       ],
     };
   }

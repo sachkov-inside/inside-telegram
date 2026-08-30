@@ -1,0 +1,17 @@
+{
+  "contractVersion": "inside.membership-evidence.v1",
+  "sourceRepository": "sachkov-inside/workspace",
+  "sourceCommit": "345fbdbb8e4ac8eacff203a8fa91a40032adecc1",
+  "importedAt": "2026-08-30",
+  "artifacts": {
+    "schema.json": {
+      "sourcePath": "docs/contracts/identity-membership-v1.schema.json",
+      "sha256": "4fd818665f46dae9ec0590d5d8a3888fb572d94b26957e93c46aaf7be03743ed"
+    },
+    "fixtures.json": {
+      "sourcePath": "docs/contracts/identity-membership-v1.fixtures.json",
+      "sha256": "d7d47bcc43f0fb6f73bb64e1cf9053a0443b9d4573605ea9f601e1e17e611dc4"
+    }
+  },
+  "driftCheck": "Compare each vendored artifact SHA-256 with the named Workspace path at sourceCommit; update this snapshot only through a reviewed contract change."
+}

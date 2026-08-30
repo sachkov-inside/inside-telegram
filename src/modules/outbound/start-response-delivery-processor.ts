@@ -5,13 +5,13 @@ import {
   TELEGRAM_MESSAGES,
   type TelegramMessages,
 } from "./telegram-messages.js";
-import { WelcomeDeliveryQueue } from "./welcome-delivery-queue.js";
+import { StartResponseDeliveryQueue } from "./start-response-delivery-queue.js";
 
 @Injectable()
-export class WelcomeDeliveryProcessor {
+export class StartResponseDeliveryProcessor {
   constructor(
-    @Inject(WelcomeDeliveryQueue)
-    private readonly queue: WelcomeDeliveryQueue,
+    @Inject(StartResponseDeliveryQueue)
+    private readonly queue: StartResponseDeliveryQueue,
     @Inject(TELEGRAM_MESSAGES)
     private readonly messages: TelegramMessages,
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,

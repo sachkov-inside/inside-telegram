@@ -1,0 +1,191 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sachkov-inside/inside-telegram/blob/main/src/modules/identity-linking/contracts/inside-identity-linking-v1/schema.json",
+  "title": "Inside Identity Linking v1",
+  "oneOf": [
+    { "$ref": "#/$defs/beginLink" },
+    { "$ref": "#/$defs/linkChallenge" },
+    { "$ref": "#/$defs/confirmation" },
+    { "$ref": "#/$defs/tokenReceipt" },
+    { "$ref": "#/$defs/linkOutcome" },
+    { "$ref": "#/$defs/pendingLinkOutcome" }
+  ],
+  "$defs": {
+    "contractVersion": {
+      "const": "inside.identity-linking.v1"
+    },
+    "opaqueRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256,
+      "pattern": ".*\\S.*"
+    },
+    "tokenDigest": {
+      "type": "string",
+      "pattern": "^[A-Za-z0-9_-]{43}$"
+    },
+    "beginLink": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accountRef",
+        "contractVersion",
+        "expiresAt",
+        "returnCorrelation",
+        "tokenDigest"
+      ],
+      "properties": {
+        "accountRef": { "$ref": "#/$defs/opaqueRef" },
+        "contractVersion": { "$ref": "#/$defs/contractVersion" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "returnCorrelation": { "$ref": "#/$defs/opaqueRef" },
+        "tokenDigest": { "$ref": "#/$defs/tokenDigest" }
+      }
+    },
+    "linkChallenge": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "expiresAt",
+        "linkTransactionRef",
+        "returnCorrelation",
+        "status"
+      ],
+      "properties": {
+        "contractVersion": { "$ref": "#/$defs/contractVersion" },
+        "expiresAt": { "type": "string", "format": "date-time" },
+        "linkTransactionRef": { "$ref": "#/$defs/opaqueRef" },
+        "returnCorrelation": { "$ref": "#/$defs/opaqueRef" },
+        "status": { "const": "pending" }
+      }
+    },
+    "confirmation": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["accountRef", "contractVersion", "returnCorrelation"],
+      "properties": {
+        "accountRef": { "$ref": "#/$defs/opaqueRef" },
+        "contractVersion": { "$ref": "#/$defs/contractVersion" },
+        "returnCorrelation": { "$ref": "#/$defs/opaqueRef" }
+      }
+    },
+    "tokenReceipt": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "botIdentity",
+            "contractVersion",
+            "observedAt",
+            "operation",
+            "telegramUserId",
+            "tokenDigest"
+          ],
+          "properties": {
+            "botIdentity": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "contractVersion": { "$ref": "#/$defs/contractVersion" },
+            "observedAt": { "type": "string", "format": "date-time" },
+            "operation": { "const": "accept-start" },
+            "telegramUserId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,15}$"
+            },
+            "tokenDigest": { "$ref": "#/$defs/tokenDigest" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "botIdentity",
+            "contractVersion",
+            "observedAt",
+            "operation",
+            "telegramUserId",
+            "tokenStatus"
+          ],
+          "properties": {
+            "botIdentity": {
+              "type": "string",
+              "pattern": "^[a-z][a-z0-9_-]{0,63}$"
+            },
+            "contractVersion": { "$ref": "#/$defs/contractVersion" },
+            "observedAt": { "type": "string", "format": "date-time" },
+            "operation": { "const": "accept-start" },
+            "telegramUserId": {
+              "type": "string",
+              "pattern": "^[1-9][0-9]{0,15}$"
+            },
+            "tokenStatus": { "const": "malformed" }
+          }
+        }
+      ]
+    },
+    "linkOutcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "linkTransactionRef",
+            "returnCorrelation",
+            "status"
+          ],
+          "properties": {
+            "contractVersion": { "$ref": "#/$defs/contractVersion" },
+            "linkTransactionRef": { "$ref": "#/$defs/opaqueRef" },
+            "returnCorrelation": { "$ref": "#/$defs/opaqueRef" },
+            "status": {
+              "enum": ["pending", "expired", "recovery-required"]
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "contractVersion",
+            "linkTransactionRef",
+            "returnCorrelation",
+            "status",
+            "telegramIdentityRef"
+          ],
+          "properties": {
+            "contractVersion": { "$ref": "#/$defs/contractVersion" },
+            "linkTransactionRef": { "$ref": "#/$defs/opaqueRef" },
+            "returnCorrelation": { "$ref": "#/$defs/opaqueRef" },
+            "status": { "enum": ["linked", "idempotent"] },
+            "telegramIdentityRef": { "$ref": "#/$defs/opaqueRef" }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["contractVersion", "status"],
+          "properties": {
+            "contractVersion": { "$ref": "#/$defs/contractVersion" },
+            "status": { "const": "malformed" }
+          }
+        }
+      ]
+    },
+    "pendingLinkOutcome": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["contractVersion", "operation", "status"],
+      "properties": {
+        "contractVersion": { "$ref": "#/$defs/contractVersion" },
+        "operation": { "const": "accept-start" },
+        "status": {
+          "enum": ["pending", "expired", "replayed", "malformed", "conflict"]
+        }
+      }
+    }
+  }
+}

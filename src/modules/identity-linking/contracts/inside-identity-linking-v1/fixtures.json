@@ -1,0 +1,173 @@
+{
+  "fixtureVersion": "inside.identity-linking-fixtures.v1",
+  "messages": [
+    {
+      "name": "begin-link",
+      "parseAs": "begin",
+      "expectedValid": true,
+      "envelope": {
+        "accountRef": "account-ref-a",
+        "contractVersion": "inside.identity-linking.v1",
+        "expiresAt": "2030-01-01T00:10:00Z",
+        "returnCorrelation": "return-ref-a",
+        "tokenDigest": "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8"
+      }
+    },
+    {
+      "name": "link-challenge",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "expiresAt": "2030-01-01T00:10:00Z",
+        "linkTransactionRef": "link-transaction-ref-a",
+        "returnCorrelation": "return-ref-a",
+        "status": "pending"
+      }
+    },
+    {
+      "name": "confirmation",
+      "parseAs": "confirmation",
+      "expectedValid": true,
+      "envelope": {
+        "accountRef": "account-ref-a",
+        "contractVersion": "inside.identity-linking.v1",
+        "returnCorrelation": "return-ref-a"
+      }
+    },
+    {
+      "name": "token-receipt",
+      "parseAs": "receipt",
+      "expectedValid": true,
+      "envelope": {
+        "botIdentity": "inside",
+        "contractVersion": "inside.identity-linking.v1",
+        "observedAt": "2030-01-01T00:01:00Z",
+        "operation": "accept-start",
+        "telegramUserId": "42",
+        "tokenDigest": "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8"
+      }
+    },
+    {
+      "name": "malformed-token-receipt",
+      "parseAs": "receipt",
+      "expectedValid": true,
+      "envelope": {
+        "botIdentity": "inside",
+        "contractVersion": "inside.identity-linking.v1",
+        "observedAt": "2030-01-01T00:01:00Z",
+        "operation": "accept-start",
+        "telegramUserId": "42",
+        "tokenStatus": "malformed"
+      }
+    },
+    {
+      "name": "pending-token-receipt",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "operation": "accept-start",
+        "status": "pending"
+      }
+    },
+    {
+      "name": "replayed-token-receipt",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "operation": "accept-start",
+        "status": "replayed"
+      }
+    },
+    {
+      "name": "conflicting-token-receipt",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "operation": "accept-start",
+        "status": "conflict"
+      }
+    },
+    {
+      "name": "linked",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "linkTransactionRef": "link-transaction-ref-a",
+        "returnCorrelation": "return-ref-a",
+        "status": "linked",
+        "telegramIdentityRef": "telegram-identity-ref-a"
+      }
+    },
+    {
+      "name": "recovery-required",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "linkTransactionRef": "link-transaction-ref-b",
+        "returnCorrelation": "return-ref-b",
+        "status": "recovery-required"
+      }
+    },
+    {
+      "name": "malformed-outcome",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "status": "malformed"
+      }
+    },
+    {
+      "name": "raw-token-is-forbidden",
+      "parseAs": "begin",
+      "expectedValid": false,
+      "envelope": {
+        "accountRef": "account-ref-a",
+        "contractVersion": "inside.identity-linking.v1",
+        "expiresAt": "2030-01-01T00:10:00Z",
+        "returnCorrelation": "return-ref-a",
+        "token": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678"
+      }
+    },
+    {
+      "name": "raw-token-receipt-is-forbidden",
+      "parseAs": "receipt",
+      "expectedValid": false,
+      "envelope": {
+        "botIdentity": "inside",
+        "contractVersion": "inside.identity-linking.v1",
+        "observedAt": "2030-01-01T00:01:00Z",
+        "operation": "accept-start",
+        "telegramUserId": "42",
+        "token": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678"
+      }
+    },
+    {
+      "name": "unsupported-contract",
+      "parseAs": "confirmation",
+      "expectedValid": false,
+      "envelope": {
+        "accountRef": "account-ref-a",
+        "contractVersion": "inside.identity-linking.v2",
+        "returnCorrelation": "return-ref-a"
+      }
+    },
+    {
+      "name": "unknown-field",
+      "parseAs": "confirmation",
+      "expectedValid": false,
+      "envelope": {
+        "accountRef": "account-ref-a",
+        "contractVersion": "inside.identity-linking.v1",
+        "email": "must-not-cross-the-seam@example.test",
+        "returnCorrelation": "return-ref-a"
+      }
+    }
+  ]
+}

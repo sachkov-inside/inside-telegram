@@ -2,7 +2,7 @@ import type { ColumnType, Generated, Kysely } from "kysely";
 
 export type Contactability = "blocked" | "reachable";
 export type UpdateState = "failed" | "pending" | "processed" | "processing";
-export type WelcomeDeliveryState =
+export type StartResponseDeliveryState =
   | "delivered"
   | "pending"
   | "rejected"
@@ -11,6 +11,18 @@ export type WelcomeDeliveryState =
   | "unknown_exhausted";
 export type DeliveryAttemptOutcome =
   "api_rejected" | "api_retryable" | "delivered" | "transport_unknown";
+export type LinkTransactionState =
+  "conflict" | "linked" | "received" | "registered";
+export type IdentityLinkEventType =
+  | "confirmation_expired"
+  | "confirmation_idempotent"
+  | "confirmed"
+  | "receipt_accepted"
+  | "receipt_conflict"
+  | "receipt_expired"
+  | "receipt_replayed"
+  | "recovery_required"
+  | "registered";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 type BigIntColumn = ColumnType<
@@ -52,7 +64,7 @@ export interface BotContactEventsTable {
   update_id: BigIntColumn;
 }
 
-export interface WelcomeDeliveriesTable {
+export interface StartResponseDeliveriesTable {
   attempt_count: number;
   available_at: Timestamp;
   bot_identity: string;
@@ -63,13 +75,13 @@ export interface WelcomeDeliveriesTable {
   locked_at: Timestamp | null;
   message_text: string;
   private_chat_id: BigIntColumn;
-  state: WelcomeDeliveryState;
+  state: StartResponseDeliveryState;
   telegram_user_id: BigIntColumn;
   trigger_update_id: BigIntColumn;
   updated_at: Timestamp;
 }
 
-export interface WelcomeDeliveryAttemptsTable {
+export interface StartResponseDeliveryAttemptsTable {
   attempt_number: number;
   attempted_at: Timestamp;
   diagnostic_code: string | null;
@@ -77,15 +89,48 @@ export interface WelcomeDeliveryAttemptsTable {
   outcome: DeliveryAttemptOutcome;
   provider_error_code: number | null;
   provider_message_id: BigIntColumn | null;
-  welcome_delivery_id: BigIntColumn;
+  start_response_delivery_id: BigIntColumn;
+}
+
+export interface LinkTransactionsTable {
+  account_ref: string;
+  bot_identity: string | null;
+  candidate_telegram_user_id: BigIntColumn | null;
+  confirmed_at: Timestamp | null;
+  expires_at: Timestamp;
+  link_transaction_ref: string;
+  received_at: Timestamp | null;
+  registered_at: Timestamp;
+  return_correlation: string;
+  state: LinkTransactionState;
+  token_digest: string;
+}
+
+export interface PlatformLinksTable {
+  account_ref: string;
+  bot_identity: string;
+  link_transaction_ref: string;
+  linked_at: Timestamp;
+  telegram_identity_ref: string;
+  telegram_user_id: BigIntColumn;
+}
+
+export interface IdentityLinkEventsTable {
+  event_type: IdentityLinkEventType;
+  id: Generated<string>;
+  link_transaction_ref: string;
+  occurred_at: Timestamp;
 }
 
 export interface DatabaseSchema {
   bot_contact_events: BotContactEventsTable;
   bot_contacts: BotContactsTable;
+  identity_link_events: IdentityLinkEventsTable;
+  link_transactions: LinkTransactionsTable;
+  platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;
-  welcome_deliveries: WelcomeDeliveriesTable;
-  welcome_delivery_attempts: WelcomeDeliveryAttemptsTable;
+  start_response_deliveries: StartResponseDeliveriesTable;
+  start_response_delivery_attempts: StartResponseDeliveryAttemptsTable;
 }
 
 export type Database = Kysely<DatabaseSchema>;

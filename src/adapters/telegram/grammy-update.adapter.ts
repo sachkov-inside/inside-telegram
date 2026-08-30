@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Update } from "grammy/types";
 
 import type {
@@ -11,7 +13,51 @@ export type TelegramUpdateCommand =
       readonly value: VerifiedPrivateContactability;
     }
   | { readonly kind: "ignored" }
-  | { readonly kind: "start"; readonly value: VerifiedPrivateStart };
+  | {
+      readonly kind: "start";
+      readonly value: {
+        readonly contact: VerifiedPrivateStart;
+        readonly linkToken?:
+          | { readonly digest: string; readonly kind: "digest" }
+          | { readonly kind: "malformed" };
+      };
+    };
+
+const LINK_TOKEN_FIELD = "_inside_link_token";
+
+export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
+  if (!isRecord(payload) || !isRecord(payload.message)) {
+    return payload;
+  }
+
+  const message = { ...payload.message };
+  delete message[LINK_TOKEN_FIELD];
+  const text = message.text;
+  if (typeof text !== "string") {
+    return { ...payload, message };
+  }
+
+  const start = parseStart(text);
+  if (!start || start.argument === undefined) {
+    return { ...payload, message };
+  }
+
+  const linkToken = /^[A-Za-z0-9_-]{43,64}$/.test(start.argument)
+    ? {
+        digest: createHash("sha256").update(start.argument).digest("base64url"),
+        kind: "digest" as const,
+      }
+    : { kind: "malformed" as const };
+
+  return {
+    ...payload,
+    message: {
+      ...message,
+      [LINK_TOKEN_FIELD]: linkToken,
+      text: start.command,
+    },
+  };
+}
 
 export class GrammyUpdateAdapter {
   translate(
@@ -48,7 +94,7 @@ export class GrammyUpdateAdapter {
     updateId: string,
     update: Partial<Update>,
     observedAt: Date,
-  ): VerifiedPrivateStart | undefined {
+  ): Extract<TelegramUpdateCommand, { kind: "start" }>["value"] | undefined {
     const message: unknown = update.message;
     if (!isRecord(message)) {
       return undefined;
@@ -60,9 +106,12 @@ export class GrammyUpdateAdapter {
       chat.type !== "private" ||
       !isRecord(from) ||
       from.is_bot !== false ||
-      typeof message.text !== "string" ||
-      !isOrdinaryStart(message.text)
+      typeof message.text !== "string"
     ) {
+      return undefined;
+    }
+    const start = parseStart(message.text);
+    if (!start || start.argument !== undefined) {
       return undefined;
     }
 
@@ -72,12 +121,16 @@ export class GrammyUpdateAdapter {
       return undefined;
     }
 
+    const linkToken = readLinkToken(message);
     return {
-      botIdentity,
-      observedAt,
-      privateChatId,
-      telegramUserId,
-      updateId,
+      contact: {
+        botIdentity,
+        observedAt,
+        privateChatId,
+        telegramUserId,
+        updateId,
+      },
+      ...(linkToken ? { linkToken } : {}),
     };
   }
 
@@ -124,8 +177,39 @@ export class GrammyUpdateAdapter {
   }
 }
 
-function isOrdinaryStart(text: string): boolean {
-  return /^\/start(?:@[A-Za-z0-9_]+)?$/.test(text.trim());
+function parseStart(
+  text: string,
+): { readonly argument?: string; readonly command: string } | undefined {
+  const match = /^(\/start(?:@[A-Za-z0-9_]+)?)(?:\s+([\s\S]+))?$/.exec(
+    text.trim(),
+  );
+  if (!match?.[1]) {
+    return undefined;
+  }
+  return {
+    command: match[1],
+    ...(match[2] !== undefined ? { argument: match[2] } : {}),
+  };
+}
+
+function readLinkToken(
+  message: Record<string, unknown>,
+): Extract<TelegramUpdateCommand, { kind: "start" }>["value"]["linkToken"] {
+  const value = message[LINK_TOKEN_FIELD];
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (value.kind === "malformed") {
+    return { kind: "malformed" };
+  }
+  if (
+    value.kind === "digest" &&
+    typeof value.digest === "string" &&
+    /^[A-Za-z0-9_-]{43}$/.test(value.digest)
+  ) {
+    return { digest: value.digest, kind: "digest" };
+  }
+  return { kind: "malformed" };
 }
 
 function telegramId(value: unknown): string | undefined {
