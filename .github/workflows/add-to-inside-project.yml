@@ -1,0 +1,88 @@
+name: Add to Inside project
+
+on:
+  issues:
+    types: [opened, reopened, transferred, closed]
+  pull_request:
+    types: [opened, reopened, closed]
+
+permissions: {}
+
+env:
+  INSIDE_PROJECT_ID: PVT_kwDOEviKY84Bg8D6
+  INSIDE_STATUS_FIELD_ID: PVTSSF_lADOEviKY84Bg8D6zhf5tfs
+
+jobs:
+  add-to-project:
+    if: github.event.action != 'closed'
+    runs-on: ubuntu-latest
+    steps:
+      - id: add-to-project
+        uses: actions/add-to-project@5afcf98fcd03f1c2f92c3c83f58ae24323cc57fd # v2.0.0
+        with:
+          project-url: https://github.com/orgs/sachkov-inside/projects/1
+          github-token: ${{ secrets.INSIDE_PROJECT_TOKEN }}
+      - name: Set the initial project status
+        env:
+          GH_TOKEN: ${{ secrets.INSIDE_PROJECT_TOKEN }}
+          STATUS_OPTION_ID: ${{ github.event_name == 'pull_request' && 'f61aa86e' || 'a2cf7574' }}
+        run: >-
+          gh project item-edit
+          --id "${{ steps.add-to-project.outputs.itemId }}"
+          --project-id "$INSIDE_PROJECT_ID"
+          --field-id "$INSIDE_STATUS_FIELD_ID"
+          --single-select-option-id "$STATUS_OPTION_ID"
+
+  mark-done:
+    if: >-
+      github.event.action == 'closed' &&
+      (github.event_name == 'issues' || github.event.pull_request.merged == true)
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.INSIDE_PROJECT_TOKEN }}
+      CONTENT_NODE_ID: ${{ github.event.issue.node_id || github.event.pull_request.node_id }}
+    steps:
+      - name: Move the project item to Done
+        shell: bash
+        run: |
+          # GraphQL variables must reach GitHub unchanged.
+          # shellcheck disable=SC2016
+          item_id="$(
+            gh api graphql \
+              -f query='query($contentId: ID!) {
+                node(id: $contentId) {
+                  ... on Issue {
+                    projectItems(first: 100) { nodes { id project { id } } }
+                  }
+                  ... on PullRequest {
+                    projectItems(first: 100) { nodes { id project { id } } }
+                  }
+                }
+              }' \
+              -F contentId="$CONTENT_NODE_ID" \
+              --jq '.data.node.projectItems.nodes[] |
+                select(.project.id == "PVT_kwDOEviKY84Bg8D6") | .id'
+          )"
+          if [[ -z "$item_id" ]]; then
+            exit 0
+          fi
+          gh project item-edit \
+            --id "$item_id" \
+            --project-id "$INSIDE_PROJECT_ID" \
+            --field-id "$INSIDE_STATUS_FIELD_ID" \
+            --single-select-option-id 8a1118e3
+
+  close-completed-parent-chain:
+    if: github.event_name == 'issues' && github.event.action == 'closed'
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.INSIDE_PROJECT_TOKEN }}
+      REPOSITORY: ${{ github.repository }}
+      ISSUE_NUMBER: ${{ github.event.issue.number }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          token: ${{ secrets.INSIDE_PROJECT_TOKEN }}
+          persist-credentials: false
+      - name: Close completed parent issues
+        run: .github/scripts/close-completed-parents.sh

@@ -33,19 +33,22 @@
 - Positive evidence validity не превышает пять минут; stale/unavailable state fails closed.
 - Exceptional identity transfer выполняется только audited owner procedure.
 
-## Existing technical baseline to carry into the application specification
+## Confirmed starting production baseline
 
-The Workspace delivery contract currently recommends TypeScript, Node.js 24 LTS, NestJS with
-Fastify, grammY, PostgreSQL, and Kysely with `pg`. Exact versions, module boundaries, process shape,
-HTTP authentication, webhook topology, worker mechanism, schemas, and deployment remain unresolved
-until the repository harness and root application Specification are confirmed.
+- Application stack starts with TypeScript, Node.js 24 LTS, NestJS with Fastify, grammY,
+  PostgreSQL, and Kysely with `pg`.
+- PostgreSQL + Kysely is the production persistence baseline from the first runtime slice; it does
+  not require a separate database-selection proof.
+- Exact dependency versions, process shape, HTTP authentication, webhook topology, worker
+  mechanism, physical schemas, and deployment remain decisions of the applicable vertical ticket
+  or later application ADR.
 
-## Required synchronization before implementation
+## Implementation gate
 
-Existing Workspace documents still describe Telegram OIDC and exclude general BotContact state.
-Before implementation begins, the cross-repository contract and Platform integration contract must
-be synchronized with the confirmed `/start` flow while preserving the normalized Membership
-Evidence authority boundary.
+Workspace PR [#88](https://github.com/sachkov-inside/workspace/pull/88) synchronizes the shared and
+Platform contracts with the confirmed `/start`, BotContact, linking and asynchronous Membership
+Evidence flow. Runtime ticket #3 begins only after that contract PR and repository bootstrap #2
+are merged; this gate has no remaining product decision to repeat.
 
 ## Unresolved next-artifact decisions
 
@@ -55,5 +58,4 @@ Evidence authority boundary.
 - webhook/public callback environment and secret custody for credentialed proof;
 - durable update acknowledgement, reconciliation worker, retry and scheduling mechanics;
 - physical PostgreSQL schema and data minimization/privacy policy details;
-- repository harness manifest, tracker automation and verification commands;
 - production release topology and every post-v1 messaging/marketing capability.
