@@ -1,0 +1,59 @@
+# Seed decisions
+
+Подтверждено владельцем 2026-08-30.
+
+## Repository and ownership
+
+- GitHub repository: private `sachkov-inside/inside-telegram`.
+- Local checkout convention: `repositories/telegram` inside the Workspace multi-root checkout.
+- Default branch: `main`.
+- Dedicated new bot; display name direction: `Sachkov Inside`.
+- Кирилл является primary BotFather owner; recovery должна быть документирована до credentialed
+  proof.
+- Exact bot username остаётся открытым до проверки доступности и отдельного BotFather write.
+
+## Product boundary
+
+- Первый release — Membership bridge, а не campaign platform.
+- Linking использует `/start`, а не Telegram OIDC.
+- Обычный `/start` создаёт BotContact без требования Platform link.
+- V1 outbound messages только transactional.
+- В будущем тот же bot владеет communications и marketing capabilities через отдельные specs.
+- Все BotContacts являются будущей messaging audience; отдельного consent/category state нет.
+- Пользователь останавливает delivery через Telegram block; `/stop` не входит.
+- Contact/link/history автоматически не удаляются; повторный `/start` реактивирует contactability.
+
+## Membership and authority
+
+- Один canonical closed Telegram chat является Membership Signal.
+- Tribute/payment state не является identity, evidence, entitlement или content access.
+- Telegram application владеет Telegram identity proof, BotContact, link invariants, member-status
+  events, reconciliation и normalized evidence.
+- Platform владеет Account, permission, Membership Entitlement и финальным ContentAccess.
+- Positive evidence validity не превышает пять минут; stale/unavailable state fails closed.
+- Exceptional identity transfer выполняется только audited owner procedure.
+
+## Existing technical baseline to carry into the application specification
+
+The Workspace delivery contract currently recommends TypeScript, Node.js 24 LTS, NestJS with
+Fastify, grammY, PostgreSQL, and Kysely with `pg`. Exact versions, module boundaries, process shape,
+HTTP authentication, webhook topology, worker mechanism, schemas, and deployment remain unresolved
+until the repository harness and root application Specification are confirmed.
+
+## Required synchronization before implementation
+
+Existing Workspace documents still describe Telegram OIDC and exclude general BotContact state.
+Before implementation begins, the cross-repository contract and Platform integration contract must
+be synchronized with the confirmed `/start` flow while preserving the normalized Membership
+Evidence authority boundary.
+
+## Unresolved next-artifact decisions
+
+- exact bot username and BotFather registration result;
+- exact canonical/test chat and minimum bot administrator rights;
+- Platform-to-Telegram and Telegram-to-Platform authentication mechanism;
+- webhook/public callback environment and secret custody for credentialed proof;
+- durable update acknowledgement, reconciliation worker, retry and scheduling mechanics;
+- physical PostgreSQL schema and data minimization/privacy policy details;
+- repository harness manifest, tracker automation and verification commands;
+- production release topology and every post-v1 messaging/marketing capability.
