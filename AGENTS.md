@@ -19,7 +19,24 @@ the authority for Accounts, permissions, entitlements, profiles, and every conte
 ## Current verification
 
 Application build and test commands are `N/A` until the approved scaffold ticket creates them.
-For harness-only changes, verify the managed snapshot through its Workspace release lifecycle.
+For repository bootstrap changes, run from this repository:
+
+```bash
+git diff --check
+test "$(readlink .agents/skills)" = "../.inside-harness/skills"
+test "$(readlink .claude/skills)" = "../.inside-harness/skills"
+test -f .inside-harness/skills/REGISTRY.md
+```
+
+For a managed harness release, additionally run from the canonical Workspace root:
+
+```bash
+harness/bin/inside-harness health repositories/telegram
+harness/bin/inside-harness diff repositories/telegram
+```
+
+The Workspace commands verify release provenance; application build, test and runtime remain
+self-contained in this repository.
 
 ## Boundaries
 

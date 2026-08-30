@@ -9,6 +9,12 @@
 `Membership bridge v1`; она не заменяет application Specification и не подтверждает поведение,
 которое возможно проверить только с реальным bot token и временным закрытым chat.
 
+Нормативный статус: **none**. Императивные формулировки ниже — исследовательские следствия для
+обсуждения и traceability к источникам, а не второй application contract. Принятые requirements
+живут только в [Telegram Specification #1](https://github.com/sachkov-inside/inside-telegram/issues/1)
+и её native tickets; при расхождении implementation следует им. Эта заметка остаётся evidence и
+не должна использоваться как самостоятельный handoff для кода.
+
 ## Краткий вывод
 
 - Private deep link имеет форму `https://t.me/<bot_username>?start=<parameter>`. Параметр допускает

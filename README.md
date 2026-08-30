@@ -33,6 +33,26 @@ Issues and pull requests are projected into
 verification and owner-merge rules. The first user-visible implementation ticket is
 [#3: ordinary `/start`](https://github.com/sachkov-inside/inside-telegram/issues/3).
 
+## Current verification
+
+Until #3 creates the application toolchain, a fresh clone verifies its local bootstrap with:
+
+```bash
+git diff --check
+test "$(readlink .agents/skills)" = "../.inside-harness/skills"
+test "$(readlink .claude/skills)" = "../.inside-harness/skills"
+test -f .inside-harness/skills/REGISTRY.md
+```
+
+A managed harness release is additionally checked from the canonical Workspace root:
+
+```bash
+harness/bin/inside-harness health repositories/telegram
+harness/bin/inside-harness diff repositories/telegram
+```
+
+These Workspace-only release checks do not create an application build/runtime dependency.
+
 ## Repository boundary
 
 This repository will own Telegram bot identity handling, bot contacts, linking, member-status
