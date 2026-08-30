@@ -1,0 +1,52 @@
+{
+  "name": "@inside/telegram",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": "24.x"
+  },
+  "packageManager": "pnpm@11.22.0",
+  "scripts": {
+    "build": "tsc -p tsconfig.build.json",
+    "check": "pnpm format:check && pnpm lint && pnpm typecheck && pnpm guardrails && pnpm test && pnpm build",
+    "check:full": "pnpm check && pnpm test:integration",
+    "db:migrate": "tsx src/database/migrate.ts",
+    "dev": "tsx watch src/main.ts",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "guardrails": "node scripts/check-architecture.mjs",
+    "infra:down": "docker compose down",
+    "infra:up": "docker compose up -d --wait postgres",
+    "lint": "eslint .",
+    "start": "node dist/main.js",
+    "test": "vitest run --config vitest.config.ts",
+    "test:integration": "vitest run --config vitest.integration.config.ts",
+    "typecheck": "tsc --noEmit -p tsconfig.json"
+  },
+  "dependencies": {
+    "@nestjs/common": "12.0.1",
+    "@nestjs/core": "12.0.1",
+    "@nestjs/platform-fastify": "12.0.1",
+    "dotenv": "17.4.2",
+    "fastify": "5.12.1",
+    "grammy": "1.46.0",
+    "kysely": "0.29.5",
+    "pg": "8.23.0",
+    "reflect-metadata": "0.2.2",
+    "rxjs": "7.8.2"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@nestjs/testing": "12.0.1",
+    "@types/node": "24.13.3",
+    "@types/pg": "8.23.1",
+    "eslint": "10.9.1",
+    "globals": "17.11.0",
+    "prettier": "3.9.6",
+    "tsx": "4.23.12",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.68.0",
+    "vitest": "4.1.11"
+  }
+}

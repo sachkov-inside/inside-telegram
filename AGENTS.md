@@ -18,15 +18,21 @@ the authority for Accounts, permissions, entitlements, profiles, and every conte
 
 ## Current verification
 
-Application build and test commands are `N/A` until the approved scaffold ticket creates them.
-For repository bootstrap changes, run from this repository:
+Run from this repository with Node from `.node-version`:
 
 ```bash
+pnpm install --frozen-lockfile
+pnpm infra:up
+DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm check:full
 git diff --check origin/main...HEAD -- . ':(exclude).inside-harness/skills/**'
 test "$(readlink .agents/skills)" = "../.inside-harness/skills"
 test "$(readlink .claude/skills)" = "../.inside-harness/skills"
 test -f .inside-harness/skills/REGISTRY.md
 ```
+
+Use `pnpm infra:down` when the local PostgreSQL service is no longer needed. `pnpm check` runs all
+checks that do not require PostgreSQL; `pnpm test:integration` always uses a real PostgreSQL
+database through `DATABASE_URL`.
 
 For a managed harness release, additionally run from the canonical Workspace root:
 

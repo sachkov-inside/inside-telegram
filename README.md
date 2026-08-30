@@ -7,11 +7,32 @@ surface for Inside communications and marketing. Its first delivery connects a T
 to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
 evidence to Platform without making content requests wait for Telegram.
 
-Current stage: **Specification and delivery bootstrap**. The product boundary, root delivery
-Specification, vertical ticket hierarchy, project harness, Telegram API research and repository
-automation are defined. Application code begins with the ordinary `/start` slice after the
-cross-repository Workspace contract is synchronized. Bot registration, credentials, deployment,
-and production enablement remain explicit owner gates.
+Current stage: **ordinary `/start` vertical slice**. The application validates an authenticated
+Telegram webhook, commits every accepted update to PostgreSQL before `202`, creates or reactivates
+an independent `BotContact` in asynchronous durable processing, and plans a transactional welcome
+through a durable delivery queue. Bot registration, credentials, real external messages,
+deployment, and production enablement remain explicit owner gates.
+
+## Ordinary `/start` runtime
+
+- `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
+  acknowledged only after the unique `(bot_identity, update_id)` inbox record commits.
+- The update worker accepts only an ordinary private non-bot `/start`. Group/channel updates,
+  missing or bot senders, and tokenized starts do not create contacts in this slice.
+- `BotContacts.observeStart` atomically creates/reactivates the contact, records Contactability
+  history, and creates one welcome delivery intent. It stores exact decimal Telegram IDs in
+  PostgreSQL and never keys identity by username.
+- Private `my_chat_member` block observations preserve the contact and history; a later `/start`
+  restores Contactability.
+- Delivery records `delivered`, stable Telegram API rejection, retryable Telegram API rejection,
+  and unknown transport outcomes as distinct typed attempts. Retries stop after three attempts;
+  unknown outcomes retain the diagnosable duplicate risk.
+- `GET /health`, `GET /ready`, and `GET /metrics` expose redacted operational signals. Processed or
+  terminally failed inbox rows retain their deduplication key but discard the provider payload.
+
+`TELEGRAM_DELIVERY_MODE=disabled` is the safe default. It still processes starts and creates the
+durable welcome intent, but it never calls Telegram. Enabling `live` requires a bot token and the
+separate owner gate for external messaging.
 
 ## Durable documents
 
@@ -33,9 +54,32 @@ Issues and pull requests are projected into
 verification and owner-merge rules. The first user-visible implementation ticket is
 [#3: ordinary `/start`](https://github.com/sachkov-inside/inside-telegram/issues/3).
 
+## Local development
+
+Use Node from `.node-version`, then:
+
+```bash
+pnpm install --frozen-lockfile
+cp .env.example .env
+pnpm infra:up
+pnpm db:migrate
+pnpm dev
+```
+
+The example configuration binds locally, uses PostgreSQL on port `5433`, and keeps Telegram
+delivery disabled.
+
 ## Current verification
 
-Until #3 creates the application toolchain, a fresh clone verifies its local bootstrap with:
+The full repository check uses a real PostgreSQL database:
+
+```bash
+pnpm infra:up
+DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm check:full
+```
+
+The application CI runs the same command on Node 24 with PostgreSQL 18. The repository harness is
+verified with:
 
 ```bash
 git diff --check origin/main...HEAD -- . ':(exclude).inside-harness/skills/**'
@@ -51,7 +95,7 @@ harness/bin/inside-harness health repositories/telegram
 harness/bin/inside-harness diff repositories/telegram
 ```
 
-These Workspace-only release checks do not create an application build/runtime dependency.
+These Workspace-only harness checks do not create an application build/runtime dependency.
 
 ## Repository boundary
 
