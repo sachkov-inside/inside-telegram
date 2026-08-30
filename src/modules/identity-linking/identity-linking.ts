@@ -9,6 +9,7 @@ import {
   type DatabaseSchema,
 } from "../../database/database.js";
 import { CLOCK, type Clock } from "./clock.js";
+import { isOpaqueRef } from "./identity-linking-validation.js";
 
 const MAX_LINK_LIFETIME_MILLISECONDS = 10 * 60 * 1000;
 
@@ -138,28 +139,30 @@ export class IdentityLinking {
     const tokenDigest = receipt.linkToken.digest;
 
     return this.database.transaction().execute(async (transaction) => {
-      const candidate = await transaction
+      const linkTransaction = await transaction
         .selectFrom("link_transactions")
         .selectAll()
         .where("token_digest", "=", tokenDigest)
         .forUpdate()
         .executeTakeFirst();
-      if (!candidate) {
+      if (!linkTransaction) {
         return { status: "malformed" };
       }
-      if (candidate.state !== "registered") {
+      if (linkTransaction.state !== "registered") {
         await addEvent(
           transaction,
-          candidate.link_transaction_ref,
+          linkTransaction.link_transaction_ref,
           "receipt_replayed",
           receipt.observedAt,
         );
         return { status: "replayed" };
       }
-      if (candidate.expires_at.getTime() <= receipt.observedAt.getTime()) {
+      if (
+        linkTransaction.expires_at.getTime() <= receipt.observedAt.getTime()
+      ) {
         await addEvent(
           transaction,
-          candidate.link_transaction_ref,
+          linkTransaction.link_transaction_ref,
           "receipt_expired",
           receipt.observedAt,
         );
@@ -172,16 +175,9 @@ export class IdentityLinking {
         .where("bot_identity", "=", receipt.botIdentity)
         .where("telegram_user_id", "=", receipt.telegramUserId)
         .executeTakeFirst();
-      const accountLink = await transaction
-        .selectFrom("platform_links")
-        .select(["account_ref", "telegram_user_id"])
-        .where("account_ref", "=", candidate.account_ref)
-        .executeTakeFirst();
       const conflict =
-        (identityLink !== undefined &&
-          identityLink.account_ref !== candidate.account_ref) ||
-        (accountLink !== undefined &&
-          accountLink.telegram_user_id !== receipt.telegramUserId);
+        identityLink !== undefined &&
+        identityLink.account_ref !== linkTransaction.account_ref;
 
       await transaction
         .updateTable("link_transactions")
@@ -191,11 +187,15 @@ export class IdentityLinking {
           received_at: receipt.observedAt,
           state: conflict ? "conflict" : "received",
         })
-        .where("link_transaction_ref", "=", candidate.link_transaction_ref)
+        .where(
+          "link_transaction_ref",
+          "=",
+          linkTransaction.link_transaction_ref,
+        )
         .execute();
       await addEvent(
         transaction,
-        candidate.link_transaction_ref,
+        linkTransaction.link_transaction_ref,
         conflict ? "receipt_conflict" : "receipt_accepted",
         receipt.observedAt,
       );
@@ -213,7 +213,7 @@ export class IdentityLinking {
     }
 
     return this.database.transaction().execute(async (transaction) => {
-      const candidate = await transaction
+      const linkTransaction = await transaction
         .selectFrom("link_transactions")
         .selectAll()
         .where("link_transaction_ref", "=", confirmation.linkTransactionRef)
@@ -221,30 +221,33 @@ export class IdentityLinking {
         .where("return_correlation", "=", confirmation.returnCorrelation)
         .forUpdate()
         .executeTakeFirst();
-      if (!candidate) {
+      if (!linkTransaction) {
         return { status: "malformed" };
       }
 
       const base = {
-        linkTransactionRef: candidate.link_transaction_ref,
-        returnCorrelation: candidate.return_correlation,
+        linkTransactionRef: linkTransaction.link_transaction_ref,
+        returnCorrelation: linkTransaction.return_correlation,
       };
-      if (candidate.state === "linked") {
-        if (!candidate.bot_identity || !candidate.candidate_telegram_user_id) {
+      if (linkTransaction.state === "linked") {
+        if (
+          !linkTransaction.bot_identity ||
+          !linkTransaction.candidate_telegram_user_id
+        ) {
           throw new Error("Linked transaction has no Telegram candidate");
         }
         const link = await matchingLink(
           transaction,
-          candidate.account_ref,
-          candidate.bot_identity,
-          candidate.candidate_telegram_user_id,
+          linkTransaction.account_ref,
+          linkTransaction.bot_identity,
+          linkTransaction.candidate_telegram_user_id,
         );
         if (!link) {
           throw new Error("Linked transaction has no PlatformLink");
         }
         await addEvent(
           transaction,
-          candidate.link_transaction_ref,
+          linkTransaction.link_transaction_ref,
           "confirmation_idempotent",
           this.clock.now(),
         );
@@ -254,28 +257,31 @@ export class IdentityLinking {
           telegramIdentityRef: link.telegram_identity_ref,
         };
       }
-      if (candidate.state === "conflict") {
+      if (linkTransaction.state === "conflict") {
         await addEvent(
           transaction,
-          candidate.link_transaction_ref,
+          linkTransaction.link_transaction_ref,
           "recovery_required",
           this.clock.now(),
         );
         return { ...base, status: "recovery-required" };
       }
-      if (candidate.expires_at.getTime() <= this.clock.now().getTime()) {
+      if (linkTransaction.expires_at.getTime() <= this.clock.now().getTime()) {
         await addEvent(
           transaction,
-          candidate.link_transaction_ref,
+          linkTransaction.link_transaction_ref,
           "confirmation_expired",
           this.clock.now(),
         );
         return { ...base, status: "expired" };
       }
-      if (candidate.state === "registered") {
+      if (linkTransaction.state === "registered") {
         return { ...base, status: "pending" };
       }
-      if (!candidate.bot_identity || !candidate.candidate_telegram_user_id) {
+      if (
+        !linkTransaction.bot_identity ||
+        !linkTransaction.candidate_telegram_user_id
+      ) {
         throw new Error("Received transaction has no Telegram candidate");
       }
 
@@ -283,12 +289,12 @@ export class IdentityLinking {
       const inserted = await transaction
         .insertInto("platform_links")
         .values({
-          account_ref: candidate.account_ref,
-          bot_identity: candidate.bot_identity,
-          link_transaction_ref: candidate.link_transaction_ref,
+          account_ref: linkTransaction.account_ref,
+          bot_identity: linkTransaction.bot_identity,
+          link_transaction_ref: linkTransaction.link_transaction_ref,
           linked_at: this.clock.now(),
           telegram_identity_ref: telegramIdentityRef,
-          telegram_user_id: candidate.candidate_telegram_user_id,
+          telegram_user_id: linkTransaction.candidate_telegram_user_id,
         })
         .onConflict((conflict) => conflict.doNothing())
         .returning("telegram_identity_ref")
@@ -298,19 +304,23 @@ export class IdentityLinking {
         inserted ??
         (await matchingLink(
           transaction,
-          candidate.account_ref,
-          candidate.bot_identity,
-          candidate.candidate_telegram_user_id,
+          linkTransaction.account_ref,
+          linkTransaction.bot_identity,
+          linkTransaction.candidate_telegram_user_id,
         ));
       if (!link) {
         await transaction
           .updateTable("link_transactions")
           .set({ state: "conflict" })
-          .where("link_transaction_ref", "=", candidate.link_transaction_ref)
+          .where(
+            "link_transaction_ref",
+            "=",
+            linkTransaction.link_transaction_ref,
+          )
           .execute();
         await addEvent(
           transaction,
-          candidate.link_transaction_ref,
+          linkTransaction.link_transaction_ref,
           "recovery_required",
           this.clock.now(),
         );
@@ -320,11 +330,15 @@ export class IdentityLinking {
       await transaction
         .updateTable("link_transactions")
         .set({ confirmed_at: this.clock.now(), state: "linked" })
-        .where("link_transaction_ref", "=", candidate.link_transaction_ref)
+        .where(
+          "link_transaction_ref",
+          "=",
+          linkTransaction.link_transaction_ref,
+        )
         .execute();
       await addEvent(
         transaction,
-        candidate.link_transaction_ref,
+        linkTransaction.link_transaction_ref,
         inserted ? "confirmed" : "confirmation_idempotent",
         this.clock.now(),
       );
@@ -351,15 +365,15 @@ function assertBeginLink(begin: BeginLink, now: Date): void {
   }
 }
 
-function challenge(transaction: {
+function challenge(storedLinkTransaction: {
   expires_at: Date;
   link_transaction_ref: string;
   return_correlation: string;
 }): LinkChallenge {
   return {
-    expiresAt: transaction.expires_at,
-    linkTransactionRef: transaction.link_transaction_ref,
-    returnCorrelation: transaction.return_correlation,
+    expiresAt: storedLinkTransaction.expires_at,
+    linkTransactionRef: storedLinkTransaction.link_transaction_ref,
+    returnCorrelation: storedLinkTransaction.return_correlation,
     status: "pending",
   };
 }
@@ -393,10 +407,6 @@ async function matchingLink(
     .where("bot_identity", "=", botIdentity)
     .where("telegram_user_id", "=", telegramUserId)
     .executeTakeFirst();
-}
-
-function isOpaqueRef(value: string): boolean {
-  return value.length >= 1 && value.length <= 256 && value.trim().length > 0;
 }
 
 function isInternalIdentity(value: string): boolean {

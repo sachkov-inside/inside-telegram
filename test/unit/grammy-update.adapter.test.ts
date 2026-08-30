@@ -26,11 +26,13 @@ describe("GrammyUpdateAdapter", () => {
     expect(command).toEqual({
       kind: "start",
       value: {
-        botIdentity: "inside",
-        observedAt,
-        privateChatId: String(largestDocumentedSafeId),
-        telegramUserId: String(largestDocumentedSafeId),
-        updateId: "7",
+        contact: {
+          botIdentity: "inside",
+          observedAt,
+          privateChatId: String(largestDocumentedSafeId),
+          telegramUserId: String(largestDocumentedSafeId),
+          updateId: "7",
+        },
       },
     });
   });
@@ -45,15 +47,17 @@ describe("GrammyUpdateAdapter", () => {
     expect(adapter.translate("inside", "8", prepared, observedAt)).toEqual({
       kind: "start",
       value: {
-        botIdentity: "inside",
+        contact: {
+          botIdentity: "inside",
+          observedAt,
+          privateChatId: "42",
+          telegramUserId: "42",
+          updateId: "8",
+        },
         linkToken: {
           digest: "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8",
           kind: "digest",
         },
-        observedAt,
-        privateChatId: "42",
-        telegramUserId: "42",
-        updateId: "8",
       },
     });
   });
@@ -75,6 +79,33 @@ describe("GrammyUpdateAdapter", () => {
       value: { linkToken: { kind: expectedKind } },
     });
     expect(JSON.stringify(prepared)).not.toContain(token);
+  });
+
+  it("trusts only link metadata derived at Telegram ingress", () => {
+    const update = privateStartUpdate(10, 42);
+    const prepared = prepareTelegramUpdateForInbox({
+      ...update,
+      message: {
+        ...update.message,
+        _inside_link_token: {
+          digest: "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8",
+          kind: "digest",
+        },
+      },
+    });
+
+    expect(adapter.translate("inside", "10", prepared, observedAt)).toEqual({
+      kind: "start",
+      value: {
+        contact: {
+          botIdentity: "inside",
+          observedAt,
+          privateChatId: "42",
+          telegramUserId: "42",
+          updateId: "10",
+        },
+      },
+    });
   });
 
   it.each([

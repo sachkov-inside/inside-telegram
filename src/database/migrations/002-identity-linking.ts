@@ -45,7 +45,7 @@ export const identityLinkingMigration: Migration = {
       )
       .addColumn("bot_identity", "text", (column) => column.notNull())
       .addColumn("telegram_user_id", "bigint", (column) => column.notNull())
-      .addColumn("account_ref", "text", (column) => column.notNull().unique())
+      .addColumn("account_ref", "text", (column) => column.notNull())
       .addColumn("link_transaction_ref", "text", (column) =>
         column.notNull().references("link_transactions.link_transaction_ref"),
       )

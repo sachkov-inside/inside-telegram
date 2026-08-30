@@ -6,6 +6,7 @@ const validEnvironment = {
   DATABASE_URL: "postgresql://inside:inside@127.0.0.1:5432/inside",
   PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
   TELEGRAM_BOT_IDENTITY: "inside",
+  TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic link receipt",
   TELEGRAM_WEBHOOK_SECRET: "synthetic_secret",
   TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
 };

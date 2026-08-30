@@ -12,9 +12,6 @@ import {
 
 export interface VerifiedPrivateStart {
   readonly botIdentity: string;
-  readonly linkToken?:
-    | { readonly digest: string; readonly kind: "digest" }
-    | { readonly kind: "malformed" };
   readonly observedAt: Date;
   readonly privateChatId: string;
   readonly telegramUserId: string;
@@ -34,6 +31,8 @@ export interface ContactOutcome {
   readonly welcomePlanned: boolean;
 }
 
+export type StartResponseKind = "link-receipt" | "welcome";
+
 @Injectable()
 export class BotContacts {
   constructor(
@@ -42,7 +41,10 @@ export class BotContacts {
     private readonly config: ApplicationConfig,
   ) {}
 
-  async observeStart(start: VerifiedPrivateStart): Promise<ContactOutcome> {
+  async observeStart(
+    start: VerifiedPrivateStart,
+    responseKind: StartResponseKind = "welcome",
+  ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
       const existing = await transaction
         .selectFrom("bot_contacts")
@@ -106,7 +108,10 @@ export class BotContacts {
           delivered_at: null,
           diagnostic_code: null,
           locked_at: null,
-          message_text: this.config.welcomeText,
+          message_text:
+            responseKind === "link-receipt"
+              ? this.config.linkReceiptText
+              : this.config.welcomeText,
           private_chat_id: start.privateChatId,
           state: "pending",
           telegram_user_id: start.telegramUserId,

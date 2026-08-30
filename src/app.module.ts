@@ -15,6 +15,7 @@ import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
 import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
 import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
 import { IdentityLinkingController } from "./modules/identity-linking/identity-linking.controller.js";
+import { InMemoryIdentityLinkingAdapter } from "./modules/identity-linking/in-memory-identity-linking.adapter.js";
 import {
   TELEGRAM_MESSAGES,
   type TelegramMessages,
@@ -67,6 +68,7 @@ export class AppModule {
         BotContacts,
         DatabaseLifecycle,
         IdentityLinking,
+        InMemoryIdentityLinkingAdapter,
         RuntimeMetrics,
         TelegramUpdateInbox,
         TelegramUpdateProcessor,

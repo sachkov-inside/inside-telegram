@@ -48,14 +48,16 @@ separate owner gate for external messaging.
   link state or the wire response.
 - The first valid private `/start <token>` atomically consumes the transaction and records a
   Telegram candidate, but creates no `PlatformLink`, Membership Evidence, entitlement, or access.
+  Every tokenized start plans the same neutral link-receipt message, including malformed, expired,
+  replayed, and conflicting receipts, so the bot discloses no Account state.
 - `POST /integrations/platform/v1/identity-links/:linkTransactionRef/confirm` uses the same Bearer
   credential and requires the original Account reference and return correlation. Outcomes are
   `pending`, `linked`, `idempotent`, `expired`, `malformed`, or `recovery-required`; Telegram-side
   receipt outcomes additionally distinguish `replayed` and `conflict` while the bot response stays
   neutral.
-- One Telegram identity and one Platform Account form a historical pair. Repeating that pair is
-  idempotent; either side already bound differently requires the future audited owner recovery in
-  issue #9.
+- One Telegram identity remains historically bound to its first Platform Account. Repeating that
+  pair is idempotent; attempting the same identity with another Account requires the future audited
+  owner recovery in issue #9.
 
 The executable wire schema and named fixtures live in
 [`src/modules/identity-linking/contracts/inside-identity-linking-v1/`](src/modules/identity-linking/contracts/inside-identity-linking-v1/).

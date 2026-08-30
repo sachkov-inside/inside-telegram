@@ -36,6 +36,62 @@
       }
     },
     {
+      "name": "token-receipt",
+      "parseAs": "receipt",
+      "expectedValid": true,
+      "envelope": {
+        "botIdentity": "inside",
+        "contractVersion": "inside.identity-linking.v1",
+        "observedAt": "2030-01-01T00:01:00Z",
+        "operation": "accept-start",
+        "telegramUserId": "42",
+        "tokenDigest": "jKKh9RnjKMdeJyPGrUz3N7LTyO3qlo7dUNRlIji0Qk8"
+      }
+    },
+    {
+      "name": "malformed-token-receipt",
+      "parseAs": "receipt",
+      "expectedValid": true,
+      "envelope": {
+        "botIdentity": "inside",
+        "contractVersion": "inside.identity-linking.v1",
+        "observedAt": "2030-01-01T00:01:00Z",
+        "operation": "accept-start",
+        "telegramUserId": "42",
+        "tokenStatus": "malformed"
+      }
+    },
+    {
+      "name": "pending-token-receipt",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "operation": "accept-start",
+        "status": "pending"
+      }
+    },
+    {
+      "name": "replayed-token-receipt",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "operation": "accept-start",
+        "status": "replayed"
+      }
+    },
+    {
+      "name": "conflicting-token-receipt",
+      "parseAs": "response",
+      "expectedValid": true,
+      "envelope": {
+        "contractVersion": "inside.identity-linking.v1",
+        "operation": "accept-start",
+        "status": "conflict"
+      }
+    },
+    {
       "name": "linked",
       "parseAs": "response",
       "expectedValid": true,
@@ -76,6 +132,19 @@
         "contractVersion": "inside.identity-linking.v1",
         "expiresAt": "2030-01-01T00:10:00Z",
         "returnCorrelation": "return-ref-a",
+        "token": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678"
+      }
+    },
+    {
+      "name": "raw-token-receipt-is-forbidden",
+      "parseAs": "receipt",
+      "expectedValid": false,
+      "envelope": {
+        "botIdentity": "inside",
+        "contractVersion": "inside.identity-linking.v1",
+        "observedAt": "2030-01-01T00:01:00Z",
+        "operation": "accept-start",
+        "telegramUserId": "42",
         "token": "abcdefghijklmnopqrstuvwxyzABCDEFGH012345678"
       }
     },

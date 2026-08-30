@@ -6,6 +6,7 @@ export interface ApplicationConfig {
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
   readonly host: string;
+  readonly linkReceiptText: string;
   readonly platformIntegrationSecret: string;
   readonly port: number;
   readonly webhookSecret: string;
@@ -61,6 +62,7 @@ export function loadApplicationConfig(
     databaseUrl,
     deliveryMode,
     host: environment.HOST ?? "127.0.0.1",
+    linkReceiptText: required(environment, "TELEGRAM_LINK_RECEIPT_TEXT"),
     platformIntegrationSecret,
     port: parsePort(environment.PORT),
     webhookSecret,

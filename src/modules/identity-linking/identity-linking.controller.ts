@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import {
   BadRequestException,
   Body,
@@ -17,25 +15,20 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
+import { credentialsMatch } from "../../security/credentials.js";
+import { IDENTITY_LINKING_CONTRACT_VERSION } from "./identity-linking-http.contract.js";
 import {
-  IdentityLinking,
-  MalformedLinkRequestError,
-} from "./identity-linking.js";
-import {
-  IDENTITY_LINKING_CONTRACT_VERSION,
-  readBeginLinkEnvelope,
-  readConfirmationEnvelope,
-  writeLinkChallenge,
-  writeLinkOutcome,
-} from "./identity-linking-http.contract.js";
+  InMemoryIdentityLinkingAdapter,
+  MalformedIdentityLinkingEnvelopeError,
+} from "./in-memory-identity-linking.adapter.js";
 
 @Controller("integrations/platform/v1/identity-links")
 export class IdentityLinkingController {
   constructor(
     @Inject(APPLICATION_CONFIG)
     private readonly config: ApplicationConfig,
-    @Inject(IdentityLinking)
-    private readonly identityLinking: IdentityLinking,
+    @Inject(InMemoryIdentityLinkingAdapter)
+    private readonly identityLinking: InMemoryIdentityLinkingAdapter,
   ) {}
 
   @Post()
@@ -44,18 +37,7 @@ export class IdentityLinkingController {
     @Body() body: unknown,
   ) {
     this.authenticate(authorization);
-    const begin = readBeginLinkEnvelope(body);
-    if (!begin) {
-      throw malformedRequest();
-    }
-    try {
-      return writeLinkChallenge(await this.identityLinking.register(begin));
-    } catch (error) {
-      if (error instanceof MalformedLinkRequestError) {
-        throw malformedRequest();
-      }
-      throw error;
-    }
+    return this.useContract(() => this.identityLinking.register(body));
   }
 
   @Post(":linkTransactionRef/confirm")
@@ -66,11 +48,9 @@ export class IdentityLinkingController {
     @Body() body: unknown,
   ) {
     this.authenticate(authorization);
-    const confirmation = readConfirmationEnvelope(linkTransactionRef, body);
-    if (!confirmation) {
-      throw malformedRequest();
-    }
-    return writeLinkOutcome(await this.identityLinking.confirm(confirmation));
+    return this.useContract(() =>
+      this.identityLinking.confirm(linkTransactionRef, body),
+    );
   }
 
   private authenticate(authorization: string | undefined): void {
@@ -78,13 +58,24 @@ export class IdentityLinkingController {
     if (!authorization?.startsWith(prefix)) {
       throw new UnauthorizedException();
     }
-    const candidate = Buffer.from(authorization.slice(prefix.length));
-    const expected = Buffer.from(this.config.platformIntegrationSecret);
     if (
-      candidate.length !== expected.length ||
-      !timingSafeEqual(candidate, expected)
+      !credentialsMatch(
+        authorization.slice(prefix.length),
+        this.config.platformIntegrationSecret,
+      )
     ) {
       throw new UnauthorizedException();
+    }
+  }
+
+  private async useContract<T>(operation: () => Promise<T>): Promise<T> {
+    try {
+      return await operation();
+    } catch (error) {
+      if (error instanceof MalformedIdentityLinkingEnvelopeError) {
+        throw malformedRequest();
+      }
+      throw error;
     }
   }
 }

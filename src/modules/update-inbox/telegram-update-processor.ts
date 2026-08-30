@@ -35,13 +35,16 @@ export class TelegramUpdateProcessor {
         );
 
         if (command.kind === "start") {
-          await this.botContacts.observeStart(command.value);
+          await this.botContacts.observeStart(
+            command.value.contact,
+            command.value.linkToken ? "link-receipt" : "welcome",
+          );
           if (command.value.linkToken) {
             await this.identityLinking.acceptStart({
-              botIdentity: command.value.botIdentity,
+              botIdentity: command.value.contact.botIdentity,
               linkToken: command.value.linkToken,
-              observedAt: command.value.observedAt,
-              telegramUserId: command.value.telegramUserId,
+              observedAt: command.value.contact.observedAt,
+              telegramUserId: command.value.contact.telegramUserId,
             });
           }
         } else if (command.kind === "contactability") {

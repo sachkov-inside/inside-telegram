@@ -23,6 +23,7 @@ const config: ApplicationConfig = {
   databaseUrl,
   deliveryMode: "disabled",
   host: "127.0.0.1",
+  linkReceiptText: "Synthetic link receipt",
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_webhook_secret",
@@ -152,6 +153,26 @@ describe("Platform identity-linking HTTP contract", () => {
     expect(JSON.stringify(inbox.payload)).not.toContain(rawToken);
 
     await application.get(TelegramUpdateProcessor).processAvailable();
+    await fastify.inject({
+      headers: {
+        "x-telegram-bot-api-secret-token": config.webhookSecret,
+      },
+      method: "POST",
+      payload: privateStartUpdate(81, 42, {
+        text: `/start ${rawToken}`,
+      }),
+      url: "/webhooks/telegram",
+    });
+    await application.get(TelegramUpdateProcessor).processAvailable();
+    const transactionalResponses = await database
+      .selectFrom("welcome_deliveries")
+      .select("message_text")
+      .orderBy("trigger_update_id")
+      .execute();
+    expect(transactionalResponses).toEqual([
+      { message_text: config.linkReceiptText },
+      { message_text: config.linkReceiptText },
+    ]);
     const linksBeforeConfirmation = await database
       .selectFrom("platform_links")
       .select(({ fn }) => fn.countAll<number>().as("count"))

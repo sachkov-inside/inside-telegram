@@ -3,7 +3,10 @@ import type {
   BeginLink,
   LinkChallenge,
   LinkOutcome,
+  PendingLinkOutcome,
+  TokenReceipt,
 } from "./identity-linking.js";
+import { isOpaqueRef } from "./identity-linking-validation.js";
 
 export const IDENTITY_LINKING_CONTRACT_VERSION =
   "inside.identity-linking.v1" as const;
@@ -70,6 +73,61 @@ export function readConfirmationEnvelope(
   };
 }
 
+export function readTokenReceiptEnvelope(
+  body: unknown,
+): TokenReceipt | undefined {
+  if (
+    !isRecord(body) ||
+    body.contractVersion !== IDENTITY_LINKING_CONTRACT_VERSION ||
+    body.operation !== "accept-start" ||
+    typeof body.botIdentity !== "string" ||
+    !/^[a-z][a-z0-9_-]{0,63}$/.test(body.botIdentity) ||
+    typeof body.observedAt !== "string" ||
+    !isIsoDateTime(body.observedAt) ||
+    typeof body.telegramUserId !== "string" ||
+    !/^[1-9][0-9]{0,15}$/.test(body.telegramUserId)
+  ) {
+    return undefined;
+  }
+
+  const common = {
+    botIdentity: body.botIdentity,
+    observedAt: new Date(body.observedAt),
+    telegramUserId: body.telegramUserId,
+  };
+  if (
+    hasOnlyKeys(body, [
+      "botIdentity",
+      "contractVersion",
+      "observedAt",
+      "operation",
+      "telegramUserId",
+      "tokenDigest",
+    ]) &&
+    typeof body.tokenDigest === "string" &&
+    /^[A-Za-z0-9_-]{43}$/.test(body.tokenDigest)
+  ) {
+    return {
+      ...common,
+      linkToken: { digest: body.tokenDigest, kind: "digest" },
+    };
+  }
+  if (
+    hasOnlyKeys(body, [
+      "botIdentity",
+      "contractVersion",
+      "observedAt",
+      "operation",
+      "telegramUserId",
+      "tokenStatus",
+    ]) &&
+    body.tokenStatus === "malformed"
+  ) {
+    return { ...common, linkToken: { kind: "malformed" } };
+  }
+  return undefined;
+}
+
 export function writeLinkChallenge(challenge: LinkChallenge) {
   return {
     contractVersion: IDENTITY_LINKING_CONTRACT_VERSION,
@@ -87,6 +145,14 @@ export function writeLinkOutcome(outcome: LinkOutcome) {
   };
 }
 
+export function writePendingLinkOutcome(outcome: PendingLinkOutcome) {
+  return {
+    contractVersion: IDENTITY_LINKING_CONTRACT_VERSION,
+    operation: "accept-start" as const,
+    status: outcome.status,
+  };
+}
+
 function hasOnlyKeys(
   value: Record<string, unknown>,
   expectedKeys: readonly string[],
@@ -100,10 +166,6 @@ function hasOnlyKeys(
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
-}
-
-function isOpaqueRef(value: string): boolean {
-  return value.length >= 1 && value.length <= 256 && value.trim().length > 0;
 }
 
 function isIsoDateTime(value: string): boolean {

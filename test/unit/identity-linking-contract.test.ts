@@ -7,6 +7,7 @@ import schema from "../../src/modules/identity-linking/contracts/inside-identity
 import {
   readBeginLinkEnvelope,
   readConfirmationEnvelope,
+  readTokenReceiptEnvelope,
 } from "../../src/modules/identity-linking/identity-linking-http.contract.js";
 
 describe("inside.identity-linking.v1 contract", () => {
@@ -26,6 +27,10 @@ describe("inside.identity-linking.v1 contract", () => {
         readConfirmationEnvelope("link-transaction-ref-a", fixture.envelope) !==
           undefined,
       ).toBe(fixture.expectedValid);
+    } else if (fixture.parseAs === "receipt") {
+      expect(readTokenReceiptEnvelope(fixture.envelope) !== undefined).toBe(
+        fixture.expectedValid,
+      );
     }
   });
 });

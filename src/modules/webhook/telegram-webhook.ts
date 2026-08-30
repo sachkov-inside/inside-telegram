@@ -1,5 +1,3 @@
-import { timingSafeEqual } from "node:crypto";
-
 import {
   BadRequestException,
   Inject,
@@ -13,6 +11,7 @@ import {
 } from "../../config/application-config.js";
 import { prepareTelegramUpdateForInbox } from "../../adapters/telegram/grammy-update.adapter.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
+import { credentialsMatch } from "../../security/credentials.js";
 import { TelegramUpdateInbox } from "../update-inbox/telegram-update-inbox.js";
 
 @Injectable()
@@ -25,7 +24,7 @@ export class TelegramWebhook {
   ) {}
 
   async accept(secret: string | undefined, payload: unknown): Promise<void> {
-    if (!secretMatches(secret, this.config.webhookSecret)) {
+    if (!credentialsMatch(secret, this.config.webhookSecret)) {
       throw new UnauthorizedException();
     }
 
@@ -44,21 +43,6 @@ export class TelegramWebhook {
       result === "accepted" ? "webhook_accepted" : "webhook_duplicate",
     );
   }
-}
-
-function secretMatches(
-  candidate: string | undefined,
-  expected: string,
-): boolean {
-  if (!candidate) {
-    return false;
-  }
-  const candidateBytes = Buffer.from(candidate);
-  const expectedBytes = Buffer.from(expected);
-  return (
-    candidateBytes.length === expectedBytes.length &&
-    timingSafeEqual(candidateBytes, expectedBytes)
-  );
 }
 
 function readUpdateId(payload: unknown): string | undefined {

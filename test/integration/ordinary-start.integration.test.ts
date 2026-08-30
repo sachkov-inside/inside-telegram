@@ -36,6 +36,7 @@ const config: ApplicationConfig = {
   databaseUrl,
   deliveryMode: "disabled",
   host: "127.0.0.1",
+  linkReceiptText: "Synthetic link receipt",
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_secret",
@@ -263,6 +264,11 @@ describe("Telegram webhook contract", () => {
 
     await expect(tableCount("bot_contacts")).resolves.toBe(1);
     await expect(tableCount("welcome_deliveries")).resolves.toBe(1);
+    const response = await database
+      .selectFrom("welcome_deliveries")
+      .select("message_text")
+      .executeTakeFirstOrThrow();
+    expect(response.message_text).toBe(config.linkReceiptText);
     const links = await database
       .selectFrom("platform_links")
       .select(({ fn }) => fn.countAll<number>().as("count"))

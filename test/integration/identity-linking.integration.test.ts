@@ -10,6 +10,7 @@ import {
   IdentityLinking,
   MalformedLinkRequestError,
 } from "../../src/modules/identity-linking/identity-linking.js";
+import { InMemoryIdentityLinkingAdapter } from "../../src/modules/identity-linking/in-memory-identity-linking.adapter.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -278,6 +279,77 @@ describe("IdentityLinking", () => {
         returnCorrelation: "return-ref-a",
       }),
     ).resolves.toMatchObject({ status: "linked" });
+  });
+
+  it("does not invent reverse uniqueness for a Platform Account", async () => {
+    const first = await registerAndReceive(
+      "account-ref-a",
+      digest("first-token"),
+      "42",
+      "return-ref-a",
+    );
+    await linking.confirm({
+      accountRef: "account-ref-a",
+      linkTransactionRef: first.linkTransactionRef,
+      returnCorrelation: "return-ref-a",
+    });
+
+    const second = await registerAndReceive(
+      "account-ref-a",
+      digest("second-token"),
+      "43",
+      "return-ref-b",
+    );
+    await expect(
+      linking.confirm({
+        accountRef: "account-ref-a",
+        linkTransactionRef: second.linkTransactionRef,
+        returnCorrelation: "return-ref-b",
+      }),
+    ).resolves.toMatchObject({ status: "linked" });
+
+    const links = await database
+      .selectFrom("platform_links")
+      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .executeTakeFirstOrThrow();
+    expect(Number(links.count)).toBe(2);
+  });
+
+  it("exposes all three commands through the in-memory contract adapter", async () => {
+    const adapter = new InMemoryIdentityLinkingAdapter(linking);
+    const challenge = await adapter.register({
+      accountRef: "account-ref-a",
+      contractVersion: "inside.identity-linking.v1",
+      expiresAt: "2030-01-01T00:10:00Z",
+      returnCorrelation: "return-ref-a",
+      tokenDigest,
+    });
+
+    await expect(
+      adapter.acceptStart({
+        botIdentity: "inside",
+        contractVersion: "inside.identity-linking.v1",
+        observedAt: "2030-01-01T00:01:00Z",
+        operation: "accept-start",
+        telegramUserId: "42",
+        tokenDigest,
+      }),
+    ).resolves.toEqual({
+      contractVersion: "inside.identity-linking.v1",
+      operation: "accept-start",
+      status: "pending",
+    });
+    await expect(
+      adapter.confirm(challenge.linkTransactionRef, {
+        accountRef: "account-ref-a",
+        contractVersion: "inside.identity-linking.v1",
+        returnCorrelation: "return-ref-a",
+      }),
+    ).resolves.toMatchObject({
+      contractVersion: "inside.identity-linking.v1",
+      status: "linked",
+      telegramIdentityRef: expect.any(String),
+    });
   });
 });
 
