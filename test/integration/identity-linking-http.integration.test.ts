@@ -20,10 +20,16 @@ if (!databaseUrl) {
 
 const config: ApplicationConfig = {
   botIdentity: "inside",
+  canonicalChatId: "-1000000000000",
   databaseUrl,
   deliveryMode: "disabled",
+  evidenceDeliveryMode: "disabled",
   host: "127.0.0.1",
   linkReceiptText: "Synthetic link receipt",
+  linkedMemberText: "Synthetic member status",
+  linkedNonMemberText: "Synthetic non-member status",
+  linkedUnavailableText: "Synthetic unavailable status",
+  membershipMode: "disabled",
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_webhook_secret",

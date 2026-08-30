@@ -113,6 +113,7 @@ export class BotContacts {
               ? this.config.linkReceiptText
               : this.config.welcomeText,
           private_chat_id: start.privateChatId,
+          source_key: `telegram-update:${start.botIdentity}:${start.updateId}`,
           state: "pending",
           telegram_user_id: start.telegramUserId,
           trigger_update_id: start.updateId,

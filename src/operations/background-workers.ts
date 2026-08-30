@@ -10,6 +10,8 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../config/application-config.js";
+import { InitialMembershipCheckProcessor } from "../modules/membership-evidence/initial-membership-check-processor.js";
+import { MembershipEvidenceDeliveryProcessor } from "../modules/membership-evidence/membership-evidence-delivery-processor.js";
 import { StartResponseDeliveryProcessor } from "../modules/outbound/start-response-delivery-processor.js";
 import { TelegramUpdateProcessor } from "../modules/update-inbox/telegram-update-processor.js";
 
@@ -20,6 +22,10 @@ export class BackgroundWorkers
   private readonly logger = new Logger(BackgroundWorkers.name);
   private deliveryCycleRunning = false;
   private deliveryTimer?: NodeJS.Timeout;
+  private evidenceCycleRunning = false;
+  private evidenceTimer?: NodeJS.Timeout;
+  private membershipCycleRunning = false;
+  private membershipTimer?: NodeJS.Timeout;
   private updateCycleRunning = false;
   private updateTimer?: NodeJS.Timeout;
 
@@ -30,6 +36,10 @@ export class BackgroundWorkers
     private readonly updates: TelegramUpdateProcessor,
     @Inject(StartResponseDeliveryProcessor)
     private readonly deliveries: StartResponseDeliveryProcessor,
+    @Inject(InitialMembershipCheckProcessor)
+    private readonly membershipChecks: InitialMembershipCheckProcessor,
+    @Inject(MembershipEvidenceDeliveryProcessor)
+    private readonly evidenceDeliveries: MembershipEvidenceDeliveryProcessor,
   ) {}
 
   onApplicationBootstrap(): void {
@@ -46,11 +56,28 @@ export class BackgroundWorkers
       this.deliveryTimer.unref();
       void this.runDeliveryCycle();
     }
+
+    if (this.config.membershipMode === "live") {
+      this.membershipTimer = setInterval(
+        () => void this.runMembershipCycle(),
+        500,
+      );
+      this.membershipTimer.unref();
+      void this.runMembershipCycle();
+    }
+
+    if (this.config.evidenceDeliveryMode === "live") {
+      this.evidenceTimer = setInterval(() => void this.runEvidenceCycle(), 500);
+      this.evidenceTimer.unref();
+      void this.runEvidenceCycle();
+    }
   }
 
   onApplicationShutdown(): void {
     clearInterval(this.updateTimer);
     clearInterval(this.deliveryTimer);
+    clearInterval(this.evidenceTimer);
+    clearInterval(this.membershipTimer);
   }
 
   private async runUpdateCycle(): Promise<void> {
@@ -78,6 +105,34 @@ export class BackgroundWorkers
       this.logger.error("Telegram delivery worker cycle failed");
     } finally {
       this.deliveryCycleRunning = false;
+    }
+  }
+
+  private async runMembershipCycle(): Promise<void> {
+    if (this.membershipCycleRunning) {
+      return;
+    }
+    this.membershipCycleRunning = true;
+    try {
+      await this.membershipChecks.processAvailable();
+    } catch {
+      this.logger.error("Initial Membership check worker cycle failed");
+    } finally {
+      this.membershipCycleRunning = false;
+    }
+  }
+
+  private async runEvidenceCycle(): Promise<void> {
+    if (this.evidenceCycleRunning) {
+      return;
+    }
+    this.evidenceCycleRunning = true;
+    try {
+      await this.evidenceDeliveries.processAvailable();
+    } catch {
+      this.logger.error("Membership Evidence delivery worker cycle failed");
+    } finally {
+      this.evidenceCycleRunning = false;
     }
   }
 }

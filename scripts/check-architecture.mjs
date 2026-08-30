@@ -11,8 +11,7 @@ const forbiddenImports = [
 ];
 
 const requestedPaths = process.argv.slice(2);
-const paths =
-  requestedPaths.length > 0 ? requestedPaths : ["src/adapters/telegram"];
+const paths = requestedPaths.length > 0 ? requestedPaths : ["src/adapters"];
 const files = (
   await Promise.all(paths.map((candidate) => sourceFiles(candidate)))
 ).flat();
