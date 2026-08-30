@@ -13,6 +13,7 @@ Create an issue in the repository that owns the outcome:
 | Product discovery, owner decision, shared document, or cross-repository work | `workspace` |
 | Change or bug in the public landing | `inside-landing` |
 | Change or bug in the Membership platform | `platform` |
+| Change or bug in the Telegram application | `inside-telegram` |
 
 A cross-repository effort has a parent issue in Workspace and repository-local child issues.
 The issue holds discussion and execution history; record confirmed durable knowledge once in a
