@@ -38,7 +38,7 @@ verification and owner-merge rules. The first user-visible implementation ticket
 Until #3 creates the application toolchain, a fresh clone verifies its local bootstrap with:
 
 ```bash
-git diff --check
+git diff --check origin/main...HEAD -- . ':(exclude).inside-harness/skills/**'
 test "$(readlink .agents/skills)" = "../.inside-harness/skills"
 test "$(readlink .claude/skills)" = "../.inside-harness/skills"
 test -f .inside-harness/skills/REGISTRY.md

@@ -22,7 +22,7 @@ Application build and test commands are `N/A` until the approved scaffold ticket
 For repository bootstrap changes, run from this repository:
 
 ```bash
-git diff --check
+git diff --check origin/main...HEAD -- . ':(exclude).inside-harness/skills/**'
 test "$(readlink .agents/skills)" = "../.inside-harness/skills"
 test "$(readlink .claude/skills)" = "../.inside-harness/skills"
 test -f .inside-harness/skills/REGISTRY.md
