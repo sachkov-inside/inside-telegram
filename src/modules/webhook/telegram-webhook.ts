@@ -11,6 +11,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
+import { prepareTelegramUpdateForInbox } from "../../adapters/telegram/grammy-update.adapter.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import { TelegramUpdateInbox } from "../update-inbox/telegram-update-inbox.js";
 
@@ -36,7 +37,7 @@ export class TelegramWebhook {
     const result = await this.inbox.accept(
       this.config.botIdentity,
       updateId,
-      payload,
+      prepareTelegramUpdateForInbox(payload),
       new Date(),
     );
     this.metrics.increment(

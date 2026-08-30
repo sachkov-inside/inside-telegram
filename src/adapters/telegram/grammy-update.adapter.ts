@@ -1,3 +1,5 @@
+import { createHash } from "node:crypto";
+
 import type { Update } from "grammy/types";
 
 import type {
@@ -12,6 +14,40 @@ export type TelegramUpdateCommand =
     }
   | { readonly kind: "ignored" }
   | { readonly kind: "start"; readonly value: VerifiedPrivateStart };
+
+const LINK_TOKEN_FIELD = "_inside_link_token";
+
+export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
+  if (!isRecord(payload) || !isRecord(payload.message)) {
+    return payload;
+  }
+
+  const text = payload.message.text;
+  if (typeof text !== "string") {
+    return payload;
+  }
+
+  const start = parseStart(text);
+  if (!start || start.argument === undefined) {
+    return payload;
+  }
+
+  const linkToken = /^[A-Za-z0-9_-]{43,64}$/.test(start.argument)
+    ? {
+        digest: createHash("sha256").update(start.argument).digest("base64url"),
+        kind: "digest" as const,
+      }
+    : { kind: "malformed" as const };
+
+  return {
+    ...payload,
+    message: {
+      ...payload.message,
+      [LINK_TOKEN_FIELD]: linkToken,
+      text: start.command,
+    },
+  };
+}
 
 export class GrammyUpdateAdapter {
   translate(
@@ -72,8 +108,10 @@ export class GrammyUpdateAdapter {
       return undefined;
     }
 
+    const linkToken = readLinkToken(message);
     return {
       botIdentity,
+      ...(linkToken ? { linkToken } : {}),
       observedAt,
       privateChatId,
       telegramUserId,
@@ -126,6 +164,41 @@ export class GrammyUpdateAdapter {
 
 function isOrdinaryStart(text: string): boolean {
   return /^\/start(?:@[A-Za-z0-9_]+)?$/.test(text.trim());
+}
+
+function parseStart(
+  text: string,
+): { readonly argument?: string; readonly command: string } | undefined {
+  const match = /^(\/start(?:@[A-Za-z0-9_]+)?)(?:\s+([\s\S]+))?$/.exec(
+    text.trim(),
+  );
+  if (!match?.[1]) {
+    return undefined;
+  }
+  return {
+    command: match[1],
+    ...(match[2] !== undefined ? { argument: match[2] } : {}),
+  };
+}
+
+function readLinkToken(
+  message: Record<string, unknown>,
+): VerifiedPrivateStart["linkToken"] {
+  const value = message[LINK_TOKEN_FIELD];
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  if (value.kind === "malformed") {
+    return { kind: "malformed" };
+  }
+  if (
+    value.kind === "digest" &&
+    typeof value.digest === "string" &&
+    /^[A-Za-z0-9_-]{43}$/.test(value.digest)
+  ) {
+    return { digest: value.digest, kind: "digest" };
+  }
+  return { kind: "malformed" };
 }
 
 function telegramId(value: unknown): string | undefined {

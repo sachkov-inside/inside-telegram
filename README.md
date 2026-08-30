@@ -7,18 +7,20 @@ surface for Inside communications and marketing. Its first delivery connects a T
 to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
 evidence to Platform without making content requests wait for Telegram.
 
-Current stage: **ordinary `/start` vertical slice**. The application validates an authenticated
-Telegram webhook, commits every accepted update to PostgreSQL before `202`, creates or reactivates
-an independent `BotContact` in asynchronous durable processing, and plans a transactional welcome
-through a durable delivery queue. Bot registration, credentials, real external messages,
-deployment, and production enablement remain explicit owner gates.
+Current stage: **Platform Account linking through `/start <token>`**. In addition to the ordinary
+start lifecycle, an authenticated Platform integration can register a short-lived token digest,
+receive a private Telegram candidate, and finish a historical `PlatformLink` only through a
+separate confirmation bound to the original opaque Account reference. Bot registration,
+credentials, real external messages, Membership Evidence, deployment, and production enablement
+remain explicit later gates.
 
 ## Ordinary `/start` runtime
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
   acknowledged only after the unique `(bot_identity, update_id)` inbox record commits.
-- The update worker accepts only an ordinary private non-bot `/start`. Group/channel updates,
-  missing or bot senders, and tokenized starts do not create contacts in this slice.
+- The update worker accepts only private non-bot `/start` commands. Group/channel updates,
+  missing or bot senders do not create contacts. Tokenized starts create/reactivate the same
+  independent contact even when their token is malformed, unknown, expired, or replayed.
 - `BotContacts.observeStart` atomically creates/reactivates the contact, records Contactability
   history, and creates one welcome delivery intent. It stores exact decimal Telegram IDs in
   PostgreSQL and never keys identity by username.
@@ -33,6 +35,33 @@ deployment, and production enablement remain explicit owner gates.
 `TELEGRAM_DELIVERY_MODE=disabled` is the safe default. It still processes starts and creates the
 durable welcome intent, but it never calls Telegram. Enabling `live` requires a bot token and the
 separate owner gate for external messaging.
+
+## Platform identity-linking contract
+
+- `POST /integrations/platform/v1/identity-links` requires
+  `Authorization: Bearer <PLATFORM_INTEGRATION_SECRET>` and an
+  `inside.identity-linking.v1` envelope. Platform generates the raw bearer and sends only its
+  SHA-256/base64url digest, an opaque Account reference, expiry, and return correlation.
+- A raw deep-link token uses only base64url characters, is 43–64 characters long, and expires no
+  later than ten minutes after registration. Telegram ingress replaces it with the digest before
+  the durable update commit; neither the bearer nor Platform email/raw identifiers enter stored
+  link state or the wire response.
+- The first valid private `/start <token>` atomically consumes the transaction and records a
+  Telegram candidate, but creates no `PlatformLink`, Membership Evidence, entitlement, or access.
+- `POST /integrations/platform/v1/identity-links/:linkTransactionRef/confirm` uses the same Bearer
+  credential and requires the original Account reference and return correlation. Outcomes are
+  `pending`, `linked`, `idempotent`, `expired`, `malformed`, or `recovery-required`; Telegram-side
+  receipt outcomes additionally distinguish `replayed` and `conflict` while the bot response stays
+  neutral.
+- One Telegram identity and one Platform Account form a historical pair. Repeating that pair is
+  idempotent; either side already bound differently requires the future audited owner recovery in
+  issue #9.
+
+The executable wire schema and named fixtures live in
+[`src/modules/identity-linking/contracts/inside-identity-linking-v1/`](src/modules/identity-linking/contracts/inside-identity-linking-v1/).
+The Workspace-owned Membership Evidence schema and fixtures are vendored with a reviewed source
+commit and SHA-256 snapshot in
+[`src/contracts/inside-membership-evidence-v1/`](src/contracts/inside-membership-evidence-v1/).
 
 ## Durable documents
 

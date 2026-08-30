@@ -1,0 +1,185 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/sachkov-inside/workspace/blob/main/docs/contracts/identity-membership-v1.schema.json",
+  "title": "Inside Membership Evidence v1",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["contractVersion", "principalRef", "decision", "reasonCode"],
+  "properties": {
+    "contractVersion": {
+      "const": "inside.membership-evidence.v1"
+    },
+    "principalRef": {
+      "$ref": "#/$defs/opaqueRef"
+    },
+    "decision": {
+      "enum": [
+        "member",
+        "not_member",
+        "identity_not_linked",
+        "identity_conflict",
+        "unavailable"
+      ]
+    },
+    "reasonCode": {
+      "enum": [
+        "chat_member",
+        "chat_not_member",
+        "identity_not_linked",
+        "identity_conflict",
+        "provider_unavailable"
+      ]
+    },
+    "checkedAt": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "validUntil": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "telegramIdentityRef": {
+      "$ref": "#/$defs/opaqueRef"
+    },
+    "evidenceRef": {
+      "$ref": "#/$defs/opaqueRef"
+    },
+    "evidenceVersion": {
+      "type": "integer",
+      "minimum": 1
+    }
+  },
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "member"
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "reasonCode": {
+            "const": "chat_member"
+          }
+        },
+        "required": [
+          "checkedAt",
+          "validUntil",
+          "telegramIdentityRef",
+          "evidenceRef",
+          "evidenceVersion"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "not_member"
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "reasonCode": {
+            "const": "chat_not_member"
+          }
+        },
+        "required": [
+          "checkedAt",
+          "validUntil",
+          "telegramIdentityRef",
+          "evidenceRef",
+          "evidenceVersion"
+        ]
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "identity_not_linked"
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "reasonCode": {
+            "const": "identity_not_linked"
+          }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["checkedAt"] },
+            { "required": ["validUntil"] },
+            { "required": ["telegramIdentityRef"] },
+            { "required": ["evidenceRef"] },
+            { "required": ["evidenceVersion"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "identity_conflict"
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "reasonCode": {
+            "const": "identity_conflict"
+          }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["checkedAt"] },
+            { "required": ["validUntil"] },
+            { "required": ["evidenceRef"] },
+            { "required": ["evidenceVersion"] }
+          ]
+        }
+      }
+    },
+    {
+      "if": {
+        "properties": {
+          "decision": {
+            "const": "unavailable"
+          }
+        },
+        "required": ["decision"]
+      },
+      "then": {
+        "properties": {
+          "reasonCode": {
+            "const": "provider_unavailable"
+          }
+        },
+        "not": {
+          "anyOf": [
+            { "required": ["checkedAt"] },
+            { "required": ["validUntil"] },
+            { "required": ["evidenceRef"] },
+            { "required": ["evidenceVersion"] }
+          ]
+        }
+      }
+    }
+  ],
+  "$defs": {
+    "opaqueRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  }
+}

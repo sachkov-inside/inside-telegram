@@ -6,6 +6,7 @@ export interface ApplicationConfig {
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
   readonly host: string;
+  readonly platformIntegrationSecret: string;
   readonly port: number;
   readonly webhookSecret: string;
   readonly welcomeText: string;
@@ -34,6 +35,16 @@ export function loadApplicationConfig(
     );
   }
 
+  const platformIntegrationSecret = required(
+    environment,
+    "PLATFORM_INTEGRATION_SECRET",
+  );
+  if (!/^[A-Za-z0-9_-]{16,256}$/.test(platformIntegrationSecret)) {
+    throw new Error(
+      "PLATFORM_INTEGRATION_SECRET must be a base64url credential of at least 16 characters",
+    );
+  }
+
   const deliveryMode = environment.TELEGRAM_DELIVERY_MODE ?? "disabled";
   if (deliveryMode !== "disabled" && deliveryMode !== "live") {
     throw new Error("TELEGRAM_DELIVERY_MODE must be disabled or live");
@@ -50,6 +61,7 @@ export function loadApplicationConfig(
     databaseUrl,
     deliveryMode,
     host: environment.HOST ?? "127.0.0.1",
+    platformIntegrationSecret,
     port: parsePort(environment.PORT),
     webhookSecret,
     welcomeText: required(environment, "TELEGRAM_WELCOME_TEXT"),

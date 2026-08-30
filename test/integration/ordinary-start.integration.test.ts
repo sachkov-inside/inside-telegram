@@ -36,6 +36,7 @@ const config: ApplicationConfig = {
   databaseUrl,
   deliveryMode: "disabled",
   host: "127.0.0.1",
+  platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_secret",
   welcomeText: "Synthetic welcome",
@@ -64,6 +65,9 @@ beforeAll(async () => {
 beforeEach(async () => {
   await sql`
     truncate table
+      identity_link_events,
+      platform_links,
+      link_transactions,
       welcome_delivery_attempts,
       welcome_deliveries,
       bot_contact_events,
@@ -79,18 +83,26 @@ afterAll(async () => {
 });
 
 describe("database foundation", () => {
-  it("rebuilds the first migration down and forward", async () => {
+  it("rebuilds the identity-linking migration down and forward", async () => {
     await migrateDown(database);
-    await migrateToLatest(database);
-
-    const table = await sql<{ exists: boolean }>`
+    const removed = await sql<{ exists: boolean }>`
       select exists (
         select 1
         from information_schema.tables
-        where table_schema = 'public' and table_name = 'bot_contacts'
+        where table_schema = 'public' and table_name = 'link_transactions'
       ) as exists
     `.execute(database);
-    expect(table.rows[0]?.exists).toBe(true);
+    expect(removed.rows[0]?.exists).toBe(false);
+
+    await migrateToLatest(database);
+    const restored = await sql<{ exists: boolean }>`
+      select exists (
+        select 1
+        from information_schema.tables
+        where table_schema = 'public' and table_name = 'link_transactions'
+      ) as exists
+    `.execute(database);
+    expect(restored.rows[0]?.exists).toBe(true);
   });
 });
 
@@ -209,12 +221,11 @@ describe("Telegram webhook contract", () => {
     expect(inbox).toEqual({ state: "pending", update_id: "11" });
   });
 
-  it("ignores group, bot, missing-sender and tokenized starts", async () => {
+  it("ignores starts that cannot prove a private human sender", async () => {
     const payloads = [
       privateStartUpdate(20, 42, { chatType: "group" }),
       privateStartUpdate(21, 42, { isBot: true }),
       privateStartUpdate(22, 42, { omitSender: true }),
-      privateStartUpdate(23, 42, { text: "/start token" }),
       { update_id: 24, message: {} },
     ];
     for (const payload of payloads) {
@@ -223,7 +234,7 @@ describe("Telegram webhook contract", () => {
     }
 
     const processor = application.get(TelegramUpdateProcessor);
-    await expect(processor.processAvailable()).resolves.toBe(5);
+    await expect(processor.processAvailable()).resolves.toBe(4);
 
     await expect(tableCount("bot_contacts")).resolves.toBe(0);
     await expect(tableCount("welcome_deliveries")).resolves.toBe(0);
@@ -231,9 +242,32 @@ describe("Telegram webhook contract", () => {
       .selectFrom("telegram_updates")
       .select(["payload", "state"])
       .execute();
-    expect(updates).toHaveLength(5);
+    expect(updates).toHaveLength(4);
     expect(updates.every((update) => update.state === "processed")).toBe(true);
     expect(updates.every((update) => update.payload === null)).toBe(true);
+  });
+
+  it("creates a BotContact for a malformed tokenized start without linking", async () => {
+    const rawToken = "not+a+base64url+token";
+    await injectWebhook(
+      privateStartUpdate(25, 42, { text: `/start ${rawToken}` }),
+      config.webhookSecret,
+    );
+
+    const storedInbox = await database
+      .selectFrom("telegram_updates")
+      .select("payload")
+      .executeTakeFirstOrThrow();
+    expect(JSON.stringify(storedInbox.payload)).not.toContain(rawToken);
+    await application.get(TelegramUpdateProcessor).processAvailable();
+
+    await expect(tableCount("bot_contacts")).resolves.toBe(1);
+    await expect(tableCount("welcome_deliveries")).resolves.toBe(1);
+    const links = await database
+      .selectFrom("platform_links")
+      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .executeTakeFirstOrThrow();
+    expect(Number(links.count)).toBe(0);
   });
 
   it("runs ordinary start through durable processing and restores contactability", async () => {
@@ -508,6 +542,9 @@ async function tableCount(
 async function resetTables(): Promise<void> {
   await sql`
     truncate table
+      identity_link_events,
+      platform_links,
+      link_transactions,
       welcome_delivery_attempts,
       welcome_deliveries,
       bot_contact_events,

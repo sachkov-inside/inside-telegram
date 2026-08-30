@@ -12,6 +12,9 @@ import { createDatabase } from "./database/create-database.js";
 import { DATABASE } from "./database/database.js";
 import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
+import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
+import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
+import { IdentityLinkingController } from "./modules/identity-linking/identity-linking.controller.js";
 import {
   TELEGRAM_MESSAGES,
   type TelegramMessages,
@@ -31,9 +34,14 @@ export class AppModule {
   static register(config: ApplicationConfig): DynamicModule {
     return {
       module: AppModule,
-      controllers: [OperationsController, TelegramWebhookController],
+      controllers: [
+        IdentityLinkingController,
+        OperationsController,
+        TelegramWebhookController,
+      ],
       providers: [
         { provide: APPLICATION_CONFIG, useValue: config },
+        { provide: CLOCK, useValue: systemClock },
         {
           provide: DATABASE,
           inject: [APPLICATION_CONFIG],
@@ -58,6 +66,7 @@ export class AppModule {
         BackgroundWorkers,
         BotContacts,
         DatabaseLifecycle,
+        IdentityLinking,
         RuntimeMetrics,
         TelegramUpdateInbox,
         TelegramUpdateProcessor,

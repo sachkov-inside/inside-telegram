@@ -12,6 +12,9 @@ import {
 
 export interface VerifiedPrivateStart {
   readonly botIdentity: string;
+  readonly linkToken?:
+    | { readonly digest: string; readonly kind: "digest" }
+    | { readonly kind: "malformed" };
   readonly observedAt: Date;
   readonly privateChatId: string;
   readonly telegramUserId: string;
