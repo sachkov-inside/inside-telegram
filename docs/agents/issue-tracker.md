@@ -26,7 +26,7 @@ Workspace parent rather than duplicating its discussion. Platform implementation
 
 ## Cross-repository hierarchy
 
-The Telegram root Specification is a native child of Workspace Specification
+The Telegram root Specification is a native child of Workspace Initiative
 `sachkov-inside/workspace#65`. Telegram implementation tickets are native children of the Telegram
 Specification. Platform convergence remains owned by `sachkov-inside/platform#52` and depends on
 the independently passing Telegram provider contract.
