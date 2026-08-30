@@ -1,0 +1,49 @@
+{
+  "schemaVersion": 2,
+  "package": "inside-engineering",
+  "version": "0.3.8",
+  "managedSkills": [
+    "ask-matt",
+    "code-review",
+    "codebase-design",
+    "diagnosing-bugs",
+    "domain-modeling",
+    "frontend-design",
+    "grill-me",
+    "grill-with-docs",
+    "grilling",
+    "handoff",
+    "impeccable",
+    "implement",
+    "improve-codebase-architecture",
+    "karpathy-guidelines",
+    "modern-web-guidance",
+    "playwright-cli",
+    "prototype",
+    "research",
+    "resolving-merge-conflicts",
+    "setup-matt-pocock-skills",
+    "tdd",
+    "teach",
+    "to-questionnaire",
+    "to-spec",
+    "to-tickets",
+    "triage",
+    "vercel-react-best-practices",
+    "wait-what",
+    "wayfinder",
+    "web-design-guidelines",
+    "wizard",
+    "writing-for-agents"
+  ],
+  "snapshot": ".inside-harness/skills",
+  "managedFiles": [
+    "WORKFLOW.md",
+    "docs/agents/triage-labels.md",
+    ".github/scripts/close-completed-parents.sh"
+  ],
+  "targets": {
+    "portable": ".agents/skills",
+    "claude": ".claude/skills"
+  }
+}
