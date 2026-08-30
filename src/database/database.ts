@@ -135,13 +135,13 @@ export interface MembershipChecksTable {
   telegram_identity_ref: string;
 }
 
-export interface MembershipObservationsTable {
+export interface MembershipCheckResultsTable {
   diagnostic_code: string | null;
   evidence_ref: string | null;
   evidence_version: BigIntColumn | null;
   id: Generated<string>;
   normalized_state: NormalizedMembershipState;
-  observation_ref: string;
+  result_ref: string;
   observed_at: Timestamp;
   raw_is_member: boolean | null;
   raw_status: string | null;
@@ -156,7 +156,7 @@ export interface MembershipEvidenceOutboxTable {
   envelope: unknown;
   id: string;
   locked_at: Timestamp | null;
-  observation_ref: string;
+  result_ref: string;
   state: MembershipEvidenceDeliveryState;
   updated_at: Timestamp;
 }
@@ -183,7 +183,7 @@ export interface DatabaseSchema {
   link_transactions: LinkTransactionsTable;
   membership_checks: MembershipChecksTable;
   membership_evidence_outbox: MembershipEvidenceOutboxTable;
-  membership_observations: MembershipObservationsTable;
+  membership_check_results: MembershipCheckResultsTable;
   membership_provider_state: MembershipProviderStateTable;
   platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;

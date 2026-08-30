@@ -24,6 +24,7 @@ import type {
   TelegramTextMessage,
 } from "../../src/modules/outbound/telegram-messages.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
+import { OperationsController } from "../../src/operations/operations.controller.js";
 import type {
   PlatformEvidenceDelivery,
   PlatformEvidenceDeliveryRequest,
@@ -77,7 +78,7 @@ beforeEach(async () => {
   await sql`
     truncate table
       membership_evidence_outbox,
-      membership_observations,
+      membership_check_results,
       membership_checks,
       membership_provider_state,
       identity_link_events,
@@ -97,6 +98,53 @@ afterAll(async () => {
 });
 
 describe("initial Membership Evidence", () => {
+  it("keeps live readiness fail-closed until the bot is administrator", async () => {
+    const liveConfig: ApplicationConfig = {
+      ...config,
+      botToken: "synthetic-token",
+      membershipMode: "live",
+    };
+    const degradedTelegram = new ControlledTelegramMembership(
+      { kind: "observed", value: { status: "member" } },
+      { kind: "observed", value: { status: "member" } },
+    );
+    const degradedProvider = new MembershipEvidenceProvider(
+      database,
+      liveConfig,
+      clock,
+      degradedTelegram,
+    );
+    const degradedOperations = new OperationsController(
+      database,
+      new RuntimeMetrics(),
+      liveConfig,
+      degradedProvider,
+    );
+
+    await expect(degradedOperations.ready()).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(degradedTelegram.botRequests).toEqual([liveConfig.canonicalChatId]);
+
+    const readyProvider = new MembershipEvidenceProvider(
+      database,
+      liveConfig,
+      clock,
+      new ControlledTelegramMembership(
+        { kind: "observed", value: { status: "administrator" } },
+        { kind: "observed", value: { status: "member" } },
+      ),
+    );
+    await expect(
+      new OperationsController(
+        database,
+        new RuntimeMetrics(),
+        liveConfig,
+        readyProvider,
+      ).ready(),
+    ).resolves.toEqual({ status: "ready" });
+  });
+
   it("rebuilds its migration down and forward", async () => {
     const { migrateDown } = await import("../../src/database/migrator.js");
     await migrateDown(database);
@@ -314,6 +362,54 @@ describe("initial Membership Evidence", () => {
     ).toEqual([1, 2]);
   });
 
+  it("fails a Telegram timeout closed without advancing evidence freshness", async () => {
+    const confirmation = await confirmLink("42");
+    const telegram = new SequencedTelegramMembership([
+      { kind: "observed", value: { status: "member" } },
+      new Promise<TelegramChatMemberResult>(() => {}),
+      { kind: "observed", value: { status: "member" } },
+    ]);
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      telegram,
+    );
+
+    const initial = await provider.observe({
+      checkRef: "timeout-before",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    expect(initial.evidence).toMatchObject({ evidenceVersion: 1 });
+
+    const timedOut = await provider.observe({
+      checkRef: "timeout-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    expect(timedOut).toMatchObject({
+      evidence: {
+        decision: "unavailable",
+        reasonCode: "provider_unavailable",
+      },
+      providerState: "unavailable",
+    });
+    expect(timedOut.evidence).not.toHaveProperty("checkedAt");
+    expect(timedOut.evidence).not.toHaveProperty("validUntil");
+    expect(timedOut.evidence).not.toHaveProperty("evidenceVersion");
+    const linkAfterTimeout = await database
+      .selectFrom("platform_links")
+      .select("evidence_version")
+      .where("telegram_identity_ref", "=", confirmation.telegramIdentityRef)
+      .executeTakeFirstOrThrow();
+    expect(Number(linkAfterTimeout.evidence_version)).toBe(1);
+
+    const recovered = await provider.observe({
+      checkRef: "timeout-after",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    expect(recovered.evidence).toMatchObject({ evidenceVersion: 2 });
+  }, 10_000);
+
   it("retries the exact evidence delivery with one idempotency key", async () => {
     const confirmation = await confirmLink("42");
     const provider = new MembershipEvidenceProvider(
@@ -399,6 +495,7 @@ async function confirmLink(telegramUserId: string) {
 }
 
 class ControlledTelegramMembership implements TelegramMembership {
+  readonly botRequests: string[] = [];
   readonly subjectRequests: Array<{
     chatId: string;
     telegramUserId: string;
@@ -409,7 +506,8 @@ class ControlledTelegramMembership implements TelegramMembership {
     private readonly subjectResult: TelegramChatMemberResult,
   ) {}
 
-  async getBotChatMember(): Promise<TelegramChatMemberResult> {
+  async getBotChatMember(chatId: string): Promise<TelegramChatMemberResult> {
+    this.botRequests.push(chatId);
     return this.botResult;
   }
 
@@ -419,6 +517,26 @@ class ControlledTelegramMembership implements TelegramMembership {
   ): Promise<TelegramChatMemberResult> {
     this.subjectRequests.push({ chatId, telegramUserId });
     return this.subjectResult;
+  }
+}
+
+class SequencedTelegramMembership implements TelegramMembership {
+  constructor(
+    private readonly subjectResults: Array<
+      TelegramChatMemberResult | Promise<TelegramChatMemberResult>
+    >,
+  ) {}
+
+  async getBotChatMember(): Promise<TelegramChatMemberResult> {
+    return { kind: "observed", value: { status: "administrator" } };
+  }
+
+  async getChatMember(): Promise<TelegramChatMemberResult> {
+    const next = this.subjectResults.shift();
+    if (!next) {
+      throw new Error("No controlled Telegram Membership result remains");
+    }
+    return next;
   }
 }
 

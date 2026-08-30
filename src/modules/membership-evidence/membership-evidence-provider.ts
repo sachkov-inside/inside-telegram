@@ -55,6 +55,33 @@ export class MembershipEvidenceProvider {
     private readonly telegram: TelegramMembership,
   ) {}
 
+  async validateReadiness(): Promise<MembershipProviderState> {
+    if (this.config.membershipMode === "disabled") {
+      return "ready";
+    }
+    const prerequisite = await this.readProviderPrerequisite();
+    const checkedAt = this.clock.now();
+    await this.database
+      .insertInto("membership_provider_state")
+      .values({
+        bot_identity: this.config.botIdentity,
+        canonical_chat_id: this.config.canonicalChatId,
+        diagnostic_code: prerequisite.diagnosticCode,
+        state: prerequisite.providerState,
+        updated_at: checkedAt,
+      })
+      .onConflict((conflict) =>
+        conflict.column("bot_identity").doUpdateSet({
+          canonical_chat_id: this.config.canonicalChatId,
+          diagnostic_code: prerequisite.diagnosticCode,
+          state: prerequisite.providerState,
+          updated_at: checkedAt,
+        }),
+      )
+      .execute();
+    return prerequisite.providerState;
+  }
+
   async observe(check: LinkMembershipCheck): Promise<EvidenceOutcome> {
     assertCheck(check);
     const existing = await this.existingOutcome(check.checkRef);
@@ -107,11 +134,7 @@ export class MembershipEvidenceProvider {
       const alreadyStored = await transaction
         .selectFrom("membership_evidence_outbox")
         .select("envelope")
-        .where(
-          "membership_evidence_outbox.observation_ref",
-          "=",
-          check.checkRef,
-        )
+        .where("membership_evidence_outbox.result_ref", "=", check.checkRef)
         .executeTakeFirst();
       if (alreadyStored) {
         const providerState = await transaction
@@ -153,13 +176,13 @@ export class MembershipEvidenceProvider {
       const outboxId = randomUUID();
 
       await transaction
-        .insertInto("membership_observations")
+        .insertInto("membership_check_results")
         .values({
           diagnostic_code: observed.diagnosticCode,
           evidence_ref: evidenceRef ?? null,
           evidence_version: evidenceVersion ?? null,
           normalized_state: observed.normalizedState,
-          observation_ref: check.checkRef,
+          result_ref: check.checkRef,
           observed_at: observedAt,
           raw_is_member: observed.rawChatMember?.isMember ?? null,
           raw_status: observed.rawChatMember?.status ?? null,
@@ -176,7 +199,7 @@ export class MembershipEvidenceProvider {
           envelope: evidence,
           id: outboxId,
           locked_at: null,
-          observation_ref: check.checkRef,
+          result_ref: check.checkRef,
           state: "pending",
           updated_at: observedAt,
         })
@@ -235,14 +258,14 @@ export class MembershipEvidenceProvider {
     const stored = await this.database
       .selectFrom("membership_evidence_outbox")
       .innerJoin(
-        "membership_observations",
-        "membership_observations.observation_ref",
-        "membership_evidence_outbox.observation_ref",
+        "membership_check_results",
+        "membership_check_results.result_ref",
+        "membership_evidence_outbox.result_ref",
       )
       .innerJoin(
         "platform_links",
         "platform_links.telegram_identity_ref",
-        "membership_observations.telegram_identity_ref",
+        "membership_check_results.telegram_identity_ref",
       )
       .innerJoin(
         "membership_provider_state",
@@ -253,7 +276,7 @@ export class MembershipEvidenceProvider {
         "membership_evidence_outbox.envelope",
         "membership_provider_state.state",
       ])
-      .where("membership_evidence_outbox.observation_ref", "=", checkRef)
+      .where("membership_evidence_outbox.result_ref", "=", checkRef)
       .executeTakeFirst();
     return stored
       ? {
@@ -267,14 +290,13 @@ export class MembershipEvidenceProvider {
   private async readMembership(
     telegramUserId: string,
   ): Promise<ObservedMembership> {
-    const bot = await safeTelegramRead(() =>
-      this.telegram.getBotChatMember(this.config.canonicalChatId),
-    );
-    if (bot.kind === "unavailable") {
-      return unavailable("unavailable", bot.diagnosticCode);
-    }
-    if (!botHasMembershipPrerequisite(bot.value)) {
-      return unavailable("degraded", "bot_administrator_required", bot.value);
+    const prerequisite = await this.readProviderPrerequisite();
+    if (prerequisite.providerState !== "ready") {
+      return unavailable(
+        prerequisite.providerState,
+        prerequisite.diagnosticCode,
+        prerequisite.rawChatMember,
+      );
     }
 
     const subject = await safeTelegramRead(() =>
@@ -298,6 +320,36 @@ export class MembershipEvidenceProvider {
       rawChatMember: subject.value,
     };
   }
+
+  private async readProviderPrerequisite(): Promise<ProviderPrerequisite> {
+    const bot = await safeTelegramRead(() =>
+      this.telegram.getBotChatMember(this.config.canonicalChatId),
+    );
+    if (bot.kind === "unavailable") {
+      return {
+        diagnosticCode: bot.diagnosticCode,
+        providerState: "unavailable",
+      };
+    }
+    if (!botHasMembershipPrerequisite(bot.value)) {
+      return {
+        diagnosticCode: "bot_administrator_required",
+        providerState: "degraded",
+        rawChatMember: bot.value,
+      };
+    }
+    return {
+      diagnosticCode: null,
+      providerState: "ready",
+      rawChatMember: bot.value,
+    };
+  }
+}
+
+interface ProviderPrerequisite {
+  readonly diagnosticCode: string | null;
+  readonly providerState: MembershipProviderState;
+  readonly rawChatMember?: TelegramChatMember;
 }
 
 interface ObservedMembership {
@@ -308,8 +360,8 @@ interface ObservedMembership {
 }
 
 function unavailable(
-  providerState: "degraded" | "unavailable",
-  diagnosticCode: string,
+  providerState: Exclude<MembershipProviderState, "ready">,
+  diagnosticCode: string | null,
   rawChatMember?: TelegramChatMember,
 ): ObservedMembership {
   return {

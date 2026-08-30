@@ -42,14 +42,21 @@ export class GrammyMembershipAdapter implements TelegramMembership {
     );
     return {
       kind: "observed",
-      value: {
-        ...(typeof member.is_member === "boolean"
-          ? { isMember: member.is_member }
-          : {}),
-        status: member.status,
-      },
+      value: toTelegramChatMember(member),
     };
   }
+}
+
+export function toTelegramChatMember(member: {
+  readonly is_member?: boolean;
+  readonly status: string;
+}) {
+  return {
+    ...(typeof member.is_member === "boolean"
+      ? { isMember: member.is_member }
+      : {}),
+    status: member.status,
+  };
 }
 
 interface TelegramApi {

@@ -64,11 +64,9 @@ export const initialMembershipEvidenceMigration: Migration = {
     `.execute(db);
 
     await db.schema
-      .createTable("membership_observations")
+      .createTable("membership_check_results")
       .addColumn("id", "bigserial", (column) => column.primaryKey())
-      .addColumn("observation_ref", "text", (column) =>
-        column.notNull().unique(),
-      )
+      .addColumn("result_ref", "text", (column) => column.notNull().unique())
       .addColumn("telegram_identity_ref", "text", (column) =>
         column
           .notNull()
@@ -83,11 +81,11 @@ export const initialMembershipEvidenceMigration: Migration = {
       .addColumn("evidence_version", "bigint")
       .addColumn("observed_at", "timestamptz", (column) => column.notNull())
       .addCheckConstraint(
-        "membership_observations_state_check",
+        "membership_check_results_state_check",
         sql`normalized_state in ('member', 'non_member', 'unavailable')`,
       )
       .addCheckConstraint(
-        "membership_observations_evidence_check",
+        "membership_check_results_evidence_check",
         sql`(
           normalized_state = 'unavailable'
           and evidence_ref is null
@@ -103,11 +101,11 @@ export const initialMembershipEvidenceMigration: Migration = {
     await db.schema
       .createTable("membership_evidence_outbox")
       .addColumn("id", "text", (column) => column.primaryKey())
-      .addColumn("observation_ref", "text", (column) =>
+      .addColumn("result_ref", "text", (column) =>
         column
           .notNull()
           .unique()
-          .references("membership_observations.observation_ref")
+          .references("membership_check_results.result_ref")
           .onDelete("cascade"),
       )
       .addColumn("envelope", "jsonb", (column) => column.notNull())
@@ -209,7 +207,7 @@ export const initialMembershipEvidenceMigration: Migration = {
 
     await db.schema.dropTable("membership_provider_state").execute();
     await db.schema.dropTable("membership_evidence_outbox").execute();
-    await db.schema.dropTable("membership_observations").execute();
+    await db.schema.dropTable("membership_check_results").execute();
     await db.schema.dropTable("membership_checks").execute();
     await db.schema
       .alterTable("platform_links")
