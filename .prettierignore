@@ -1,0 +1,6 @@
+.inside-harness/
+*.md
+coverage/
+dist/
+node_modules/
+pnpm-lock.yaml

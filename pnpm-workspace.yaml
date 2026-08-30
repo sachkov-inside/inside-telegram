@@ -1,0 +1,6 @@
+engineStrict: true
+saveExact: true
+strictPeerDependencies: true
+minimumReleaseAge: 1440
+allowBuilds:
+  esbuild: true
