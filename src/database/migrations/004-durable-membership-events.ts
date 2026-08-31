@@ -10,8 +10,37 @@ export const durableMembershipEventsMigration: Migration = {
       .execute();
     await db.schema
       .alterTable("membership_provider_state")
-      .addColumn("last_provider_event_at", "timestamptz")
-      .addColumn("last_provider_event_update_id", "bigint")
+      .addColumn("last_provider_observation_at", "timestamptz")
+      .addColumn("last_provider_observation_update_id", "bigint")
+      .execute();
+    await db.schema
+      .createTable("membership_provider_observations")
+      .addColumn("id", "bigserial", (column) => column.primaryKey())
+      .addColumn("bot_identity", "text", (column) => column.notNull())
+      .addColumn("observed_at", "timestamptz", (column) => column.notNull())
+      .addColumn("source_kind", "text", (column) => column.notNull())
+      .addColumn("source_ref", "text", (column) => column.notNull())
+      .addColumn("source_update_id", "bigint")
+      .addColumn("state", "text", (column) => column.notNull())
+      .addColumn("diagnostic_code", "text")
+      .addUniqueConstraint("membership_provider_observations_source_unique", [
+        "bot_identity",
+        "source_kind",
+        "source_ref",
+      ])
+      .addCheckConstraint(
+        "membership_provider_observations_source_check",
+        sql`source_kind in ('direct', 'event')`,
+      )
+      .addCheckConstraint(
+        "membership_provider_observations_state_check",
+        sql`state in ('ready', 'degraded', 'unavailable')`,
+      )
+      .execute();
+    await db.schema
+      .createIndex("membership_provider_observations_order_idx")
+      .on("membership_provider_observations")
+      .columns(["bot_identity", "observed_at", "id"])
       .execute();
     await db.schema
       .createTable("membership_event_audit")
@@ -47,10 +76,11 @@ export const durableMembershipEventsMigration: Migration = {
 
   async down(db: Kysely<unknown>): Promise<void> {
     await db.schema.dropTable("membership_event_audit").execute();
+    await db.schema.dropTable("membership_provider_observations").execute();
     await db.schema
       .alterTable("membership_provider_state")
-      .dropColumn("last_provider_event_update_id")
-      .dropColumn("last_provider_event_at")
+      .dropColumn("last_provider_observation_update_id")
+      .dropColumn("last_provider_observation_at")
       .execute();
     await db.schema
       .alterTable("platform_links")

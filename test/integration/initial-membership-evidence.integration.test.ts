@@ -80,6 +80,7 @@ beforeEach(async () => {
       membership_evidence_outbox,
       membership_check_results,
       membership_checks,
+      membership_provider_observations,
       membership_provider_state,
       identity_link_events,
       platform_links,

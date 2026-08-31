@@ -23,6 +23,9 @@ export class MembershipEvidenceDeliveryProcessor {
     if (!delivery) {
       return undefined;
     }
+    if (!(await this.outbox.isClaimActive(delivery))) {
+      return "rejected";
+    }
     let result: PlatformEvidenceDeliveryResult;
     try {
       result = await this.platform.deliver({

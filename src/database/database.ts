@@ -169,10 +169,21 @@ export interface MembershipProviderStateTable {
   bot_identity: string;
   canonical_chat_id: BigIntColumn;
   diagnostic_code: string | null;
-  last_provider_event_at: Timestamp | null;
-  last_provider_event_update_id: BigIntColumn | null;
+  last_provider_observation_at: Timestamp | null;
+  last_provider_observation_update_id: BigIntColumn | null;
   state: MembershipProviderState;
   updated_at: Timestamp;
+}
+
+export interface MembershipProviderObservationsTable {
+  bot_identity: string;
+  diagnostic_code: string | null;
+  id: Generated<string>;
+  observed_at: Timestamp;
+  source_kind: "direct" | "event";
+  source_ref: string;
+  source_update_id: BigIntColumn | null;
+  state: MembershipProviderState;
 }
 
 export interface MembershipEventAuditTable {
@@ -205,6 +216,7 @@ export interface DatabaseSchema {
   membership_evidence_outbox: MembershipEvidenceOutboxTable;
   membership_event_audit: MembershipEventAuditTable;
   membership_check_results: MembershipCheckResultsTable;
+  membership_provider_observations: MembershipProviderObservationsTable;
   membership_provider_state: MembershipProviderStateTable;
   platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;

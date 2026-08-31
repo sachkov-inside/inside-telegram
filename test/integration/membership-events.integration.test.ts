@@ -65,6 +65,7 @@ beforeEach(async () => {
       membership_event_audit,
       membership_check_results,
       membership_checks,
+      membership_provider_observations,
       membership_provider_state,
       identity_link_events,
       platform_links,
@@ -656,6 +657,57 @@ describe("durable Membership events", () => {
     expect(staleDirect.evidence).toEqual(removal?.evidence);
   });
 
+  it("does not let a stale direct provider check recover a newer demotion", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:20:00.000Z"),
+      kind: "provider",
+      updateId: "2000",
+    });
+
+    const staleDirect = await new MembershipEvidenceProvider(
+      database,
+      config,
+      { now: () => new Date("2030-01-01T00:19:00.000Z") },
+      new ControlledTelegramMembership(),
+    ).observe({
+      checkRef: "stale-provider-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    expect(staleDirect).toMatchObject({
+      evidence: { decision: "unavailable" },
+      providerState: "degraded",
+    });
+
+    const laterPositive = await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:21:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "2100",
+    });
+    expect(laterPositive).toMatchObject({
+      evidence: { decision: "unavailable" },
+      providerState: "degraded",
+    });
+  });
+
   it("cancels a pending positive that was observed after delayed admin loss", async () => {
     const confirmation = await confirmLink("42");
     const provider = new MembershipEvidenceProvider(
@@ -702,6 +754,96 @@ describe("durable Membership events", () => {
     await expect(
       deliveries.processNext(new Date("2030-01-01T00:18:00.000Z")),
     ).resolves.toBeUndefined();
+    expect(platform.requests).toHaveLength(1);
+  });
+
+  it("cancels a positive inside a delayed loss and recovery interval", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    const platform = new ControlledPlatformEvidenceDelivery();
+    const deliveries = new MembershipEvidenceDeliveryProcessor(
+      new MembershipEvidenceOutbox(database),
+      platform,
+    );
+    await deliveries.processNext(linkedAt);
+
+    await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:17:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1701",
+    });
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "administrator" },
+      eventAt: new Date("2030-01-01T00:18:00.000Z"),
+      kind: "provider",
+      updateId: "1800",
+    });
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:16:00.000Z"),
+      kind: "provider",
+      updateId: "1600",
+    });
+
+    await expect(
+      deliveries.processNext(new Date("2030-01-01T00:19:00.000Z")),
+    ).resolves.toBeUndefined();
+    expect(platform.requests).toHaveLength(1);
+  });
+
+  it("rechecks a claimed positive after a concurrent provider loss", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    const platform = new ControlledPlatformEvidenceDelivery();
+    await new MembershipEvidenceDeliveryProcessor(
+      new MembershipEvidenceOutbox(database),
+      platform,
+    ).processNext(linkedAt);
+    await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:17:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1701",
+    });
+
+    const processor = new MembershipEvidenceDeliveryProcessor(
+      new ProviderLossAfterClaimOutbox(database, provider),
+      platform,
+    );
+    await expect(
+      processor.processNext(new Date("2030-01-01T00:18:00.000Z")),
+    ).resolves.toBe("rejected");
     expect(platform.requests).toHaveLength(1);
   });
 });
@@ -765,5 +907,29 @@ class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
   ): Promise<{ kind: "delivered" }> {
     this.requests.push(request);
     return { kind: "delivered" };
+  }
+}
+
+class ProviderLossAfterClaimOutbox extends MembershipEvidenceOutbox {
+  constructor(
+    database: Database,
+    private readonly provider: MembershipEvidenceProvider,
+  ) {
+    super(database);
+  }
+
+  override async claimNext(now: Date) {
+    const delivery = await super.claimNext(now);
+    if (delivery) {
+      await this.provider.accept({
+        botIdentity: config.botIdentity,
+        canonicalChatId: config.canonicalChatId,
+        chatMember: { status: "member" },
+        eventAt: new Date("2030-01-01T00:16:00.000Z"),
+        kind: "provider",
+        updateId: "1600",
+      });
+    }
+    return delivery;
   }
 }

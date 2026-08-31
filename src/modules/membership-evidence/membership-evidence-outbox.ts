@@ -115,6 +115,17 @@ export class MembershipEvidenceOutbox {
       .where("state", "=", "delivering")
       .execute();
   }
+
+  async isClaimActive(
+    delivery: ClaimedMembershipEvidenceDelivery,
+  ): Promise<boolean> {
+    const stored = await this.database
+      .selectFrom("membership_evidence_outbox")
+      .select("state")
+      .where("id", "=", delivery.idempotencyKey)
+      .executeTakeFirst();
+    return stored?.state === "delivering";
+  }
 }
 
 function deliveryState(

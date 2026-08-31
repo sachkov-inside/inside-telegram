@@ -79,25 +79,19 @@ export class MembershipEvidenceProvider {
     }
     const prerequisite = await this.readProviderPrerequisite();
     const checkedAt = this.clock.now();
-    await this.database
-      .insertInto("membership_provider_state")
-      .values({
-        bot_identity: this.config.botIdentity,
-        canonical_chat_id: this.config.canonicalChatId,
-        diagnostic_code: prerequisite.diagnosticCode,
+    return this.database.transaction().execute(async (transaction) => {
+      const observation = await recordProviderObservation(transaction, {
+        botIdentity: this.config.botIdentity,
+        canonicalChatId: this.config.canonicalChatId,
+        diagnosticCode: prerequisite.diagnosticCode,
+        observedAt: checkedAt,
+        sourceKind: "direct",
+        sourceRef: `readiness:${checkedAt.toISOString()}`,
+        sourceUpdateId: null,
         state: prerequisite.providerState,
-        updated_at: checkedAt,
-      })
-      .onConflict((conflict) =>
-        conflict.column("bot_identity").doUpdateSet({
-          canonical_chat_id: this.config.canonicalChatId,
-          diagnostic_code: prerequisite.diagnosticCode,
-          state: prerequisite.providerState,
-          updated_at: checkedAt,
-        }),
-      )
-      .execute();
-    return prerequisite.providerState;
+      });
+      return observation.currentState;
+    });
   }
 
   async accept(
@@ -238,74 +232,39 @@ export class MembershipEvidenceProvider {
   ): Promise<void> {
     const transition = providerTransition(envelope.chatMember);
     await this.database.transaction().execute(async (transaction) => {
-      const inserted = await transaction
-        .insertInto("membership_provider_state")
-        .values({
-          bot_identity: envelope.botIdentity,
-          canonical_chat_id: envelope.canonicalChatId,
-          diagnostic_code: transition.diagnosticCode,
-          last_provider_event_at: envelope.eventAt,
-          last_provider_event_update_id: envelope.updateId,
-          state: transition.state,
-          updated_at: envelope.eventAt,
-        })
-        .onConflict((conflict) => conflict.column("bot_identity").doNothing())
-        .returning("bot_identity")
-        .executeTakeFirst();
-      if (inserted) {
-        if (transition.state !== "ready") {
-          await rejectUnsafePositiveEvidence(transaction, envelope.eventAt);
-        }
-        await recordMembershipEventAudit(transaction, envelope, {
-          diagnosticCode: transition.diagnosticCode,
-          disposition: "provider_state",
-          normalizedState: normalizeChatMember(envelope.chatMember),
-          resultRef: null,
-          subjectLinked: null,
-        });
-        return;
-      }
-
-      const current = await transaction
-        .selectFrom("membership_provider_state")
-        .select(["last_provider_event_at", "last_provider_event_update_id"])
-        .where("bot_identity", "=", envelope.botIdentity)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      if (
-        !isNewerMembershipEvent(
-          envelope,
-          current.last_provider_event_at,
-          current.last_provider_event_update_id,
-        )
-      ) {
-        await recordMembershipEventAudit(transaction, envelope, {
-          diagnosticCode: "older_provider_event",
-          disposition: "ignored_older",
-          normalizedState: normalizeChatMember(envelope.chatMember),
-          resultRef: null,
-          subjectLinked: null,
-        });
-        return;
-      }
-      await transaction
-        .updateTable("membership_provider_state")
-        .set({
-          canonical_chat_id: envelope.canonicalChatId,
-          diagnostic_code: transition.diagnosticCode,
-          last_provider_event_at: envelope.eventAt,
-          last_provider_event_update_id: envelope.updateId,
-          state: transition.state,
-          updated_at: envelope.eventAt,
-        })
-        .where("bot_identity", "=", envelope.botIdentity)
-        .execute();
+      const observation = await recordProviderObservation(transaction, {
+        botIdentity: envelope.botIdentity,
+        canonicalChatId: envelope.canonicalChatId,
+        diagnosticCode: transition.diagnosticCode,
+        observedAt: envelope.eventAt,
+        sourceKind: "event",
+        sourceRef: envelope.updateId,
+        sourceUpdateId: envelope.updateId,
+        state: transition.state,
+      });
       if (transition.state !== "ready") {
-        await rejectUnsafePositiveEvidence(transaction, envelope.eventAt);
+        const recovery = await transaction
+          .selectFrom("membership_provider_observations")
+          .select("observed_at")
+          .where("bot_identity", "=", envelope.botIdentity)
+          .where("state", "=", "ready")
+          .where("observed_at", ">", envelope.eventAt)
+          .orderBy("observed_at")
+          .orderBy("id")
+          .executeTakeFirst();
+        await rejectUnsafePositiveEvidence(
+          transaction,
+          envelope.eventAt,
+          recovery?.observed_at,
+        );
       }
       await recordMembershipEventAudit(transaction, envelope, {
-        diagnosticCode: transition.diagnosticCode,
-        disposition: "provider_state",
+        diagnosticCode: observation.acceptedAsCurrent
+          ? transition.diagnosticCode
+          : "older_provider_event",
+        disposition: observation.acceptedAsCurrent
+          ? "provider_state"
+          : "ignored_older",
         normalizedState: normalizeChatMember(envelope.chatMember),
         resultRef: null,
         subjectLinked: null,
@@ -384,6 +343,16 @@ export class MembershipEvidenceProvider {
           responsePlanned: false,
         };
       }
+      const providerObservation = await recordProviderObservation(transaction, {
+        botIdentity: lockedLink.bot_identity,
+        canonicalChatId: this.config.canonicalChatId,
+        diagnosticCode: observed.diagnosticCode,
+        observedAt,
+        sourceKind: "direct",
+        sourceRef: `membership-check:${check.checkRef}`,
+        sourceUpdateId: null,
+        state: observed.providerState,
+      });
       if (
         observed.normalizedState !== "unavailable" &&
         lockedLink.last_membership_observation_at !== null &&
@@ -396,33 +365,27 @@ export class MembershipEvidenceProvider {
         );
       }
 
+      const normalizedState =
+        observed.normalizedState === "member" &&
+        providerObservation.currentState !== "ready"
+          ? "unavailable"
+          : observed.normalizedState;
+      const diagnosticCode =
+        normalizedState === "unavailable" &&
+        observed.normalizedState === "member"
+          ? (providerObservation.currentDiagnosticCode ??
+            "bot_administrator_required")
+          : observed.diagnosticCode;
+
       const evidence = await recordEvidence(transaction, {
         accountRef: lockedLink.account_ref,
-        diagnosticCode: observed.diagnosticCode,
-        normalizedState: observed.normalizedState,
+        diagnosticCode,
+        normalizedState,
         observedAt,
         rawChatMember: observed.rawChatMember,
         resultRef: check.checkRef,
         telegramIdentityRef: check.telegramIdentityRef,
       });
-      await transaction
-        .insertInto("membership_provider_state")
-        .values({
-          bot_identity: lockedLink.bot_identity,
-          canonical_chat_id: this.config.canonicalChatId,
-          diagnostic_code: observed.diagnosticCode,
-          state: observed.providerState,
-          updated_at: observedAt,
-        })
-        .onConflict((conflict) =>
-          conflict.column("bot_identity").doUpdateSet({
-            canonical_chat_id: this.config.canonicalChatId,
-            diagnostic_code: observed.diagnosticCode,
-            state: observed.providerState,
-            updated_at: observedAt,
-          }),
-        )
-        .execute();
       const response = await transaction
         .insertInto("start_response_deliveries")
         .values({
@@ -433,7 +396,7 @@ export class MembershipEvidenceProvider {
           delivered_at: null,
           diagnostic_code: null,
           locked_at: null,
-          message_text: responseText(this.config, observed.normalizedState),
+          message_text: responseText(this.config, normalizedState),
           private_chat_id: link.private_chat_id,
           source_key: `membership-check:${check.checkRef}`,
           state: "pending",
@@ -447,7 +410,7 @@ export class MembershipEvidenceProvider {
 
       return {
         evidence,
-        providerState: observed.providerState,
+        providerState: providerObservation.currentState,
         responsePlanned: response !== undefined,
       };
     });
@@ -802,16 +765,31 @@ function isNewerMembershipEvent(
   lastEventAt: Date | null,
   lastUpdateId: string | null,
 ): boolean {
-  if (!lastEventAt) {
+  return isNewerObservation(
+    envelope.eventAt,
+    envelope.updateId,
+    lastEventAt,
+    lastUpdateId,
+  );
+}
+
+function isNewerObservation(
+  observedAt: Date,
+  sourceUpdateId: string | null,
+  lastObservedAt: Date | null,
+  lastUpdateId: string | null,
+): boolean {
+  if (!lastObservedAt) {
     return true;
   }
-  const timeDifference = envelope.eventAt.getTime() - lastEventAt.getTime();
-  return (
-    timeDifference > 0 ||
-    (timeDifference === 0 &&
-      lastUpdateId !== null &&
-      BigInt(envelope.updateId) > BigInt(lastUpdateId))
-  );
+  const timeDifference = observedAt.getTime() - lastObservedAt.getTime();
+  if (timeDifference !== 0) {
+    return timeDifference > 0;
+  }
+  if (sourceUpdateId === null) {
+    return lastUpdateId === null;
+  }
+  return lastUpdateId === null || BigInt(sourceUpdateId) > BigInt(lastUpdateId);
 }
 
 function providerTransition(chatMember: TelegramChatMember): {
@@ -833,15 +811,123 @@ function providerTransition(chatMember: TelegramChatMember): {
   };
 }
 
+interface ProviderObservationRecord {
+  readonly botIdentity: string;
+  readonly canonicalChatId: string;
+  readonly diagnosticCode: string | null;
+  readonly observedAt: Date;
+  readonly sourceKind: "direct" | "event";
+  readonly sourceRef: string;
+  readonly sourceUpdateId: string | null;
+  readonly state: MembershipProviderState;
+}
+
+async function recordProviderObservation(
+  transaction: Transaction<DatabaseSchema>,
+  record: ProviderObservationRecord,
+): Promise<{
+  readonly acceptedAsCurrent: boolean;
+  readonly currentDiagnosticCode: string | null;
+  readonly currentState: MembershipProviderState;
+}> {
+  await transaction
+    .insertInto("membership_provider_observations")
+    .values({
+      bot_identity: record.botIdentity,
+      diagnostic_code: record.diagnosticCode,
+      observed_at: record.observedAt,
+      source_kind: record.sourceKind,
+      source_ref: record.sourceRef,
+      source_update_id: record.sourceUpdateId,
+      state: record.state,
+    })
+    .onConflict((conflict) =>
+      conflict
+        .columns(["bot_identity", "source_kind", "source_ref"])
+        .doNothing(),
+    )
+    .execute();
+
+  const inserted = await transaction
+    .insertInto("membership_provider_state")
+    .values({
+      bot_identity: record.botIdentity,
+      canonical_chat_id: record.canonicalChatId,
+      diagnostic_code: record.diagnosticCode,
+      last_provider_observation_at: record.observedAt,
+      last_provider_observation_update_id: record.sourceUpdateId,
+      state: record.state,
+      updated_at: record.observedAt,
+    })
+    .onConflict((conflict) => conflict.column("bot_identity").doNothing())
+    .returning("bot_identity")
+    .executeTakeFirst();
+  if (inserted) {
+    return {
+      acceptedAsCurrent: true,
+      currentDiagnosticCode: record.diagnosticCode,
+      currentState: record.state,
+    };
+  }
+
+  const current = await transaction
+    .selectFrom("membership_provider_state")
+    .select([
+      "diagnostic_code",
+      "last_provider_observation_at",
+      "last_provider_observation_update_id",
+      "state",
+    ])
+    .where("bot_identity", "=", record.botIdentity)
+    .forUpdate()
+    .executeTakeFirstOrThrow();
+  if (
+    !isNewerObservation(
+      record.observedAt,
+      record.sourceUpdateId,
+      current.last_provider_observation_at,
+      current.last_provider_observation_update_id,
+    )
+  ) {
+    return {
+      acceptedAsCurrent: false,
+      currentDiagnosticCode: current.diagnostic_code,
+      currentState: current.state,
+    };
+  }
+
+  await transaction
+    .updateTable("membership_provider_state")
+    .set({
+      canonical_chat_id: record.canonicalChatId,
+      diagnostic_code: record.diagnosticCode,
+      last_provider_observation_at: record.observedAt,
+      last_provider_observation_update_id: record.sourceUpdateId,
+      state: record.state,
+      updated_at: record.observedAt,
+    })
+    .where("bot_identity", "=", record.botIdentity)
+    .execute();
+  return {
+    acceptedAsCurrent: true,
+    currentDiagnosticCode: record.diagnosticCode,
+    currentState: record.state,
+  };
+}
+
 async function rejectUnsafePositiveEvidence(
   transaction: Transaction<DatabaseSchema>,
   providerLostAt: Date,
+  providerRecoveredAt?: Date,
 ): Promise<void> {
   const unsafeResults = transaction
     .selectFrom("membership_check_results")
     .select("result_ref")
     .where("normalized_state", "=", "member")
     .where("observed_at", ">=", providerLostAt);
+  const boundedUnsafeResults = providerRecoveredAt
+    ? unsafeResults.where("observed_at", "<", providerRecoveredAt)
+    : unsafeResults;
   await transaction
     .updateTable("membership_evidence_outbox")
     .set({
@@ -851,7 +937,7 @@ async function rejectUnsafePositiveEvidence(
       updated_at: providerLostAt,
     })
     .where("state", "in", ["pending", "retry_scheduled", "delivering"])
-    .where("result_ref", "in", unsafeResults)
+    .where("result_ref", "in", boundedUnsafeResults)
     .execute();
 }
 
