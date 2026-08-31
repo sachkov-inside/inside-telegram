@@ -3,12 +3,14 @@ import { Migrator, type MigrationProvider } from "kysely/migration";
 import type { Database } from "./database.js";
 import { ordinaryStartMigration } from "./migrations/001-ordinary-start.js";
 import { identityLinkingMigration } from "./migrations/002-identity-linking.js";
+import { initialMembershipEvidenceMigration } from "./migrations/003-initial-membership-evidence.js";
 
 const migrationProvider: MigrationProvider = {
   async getMigrations() {
     return {
       "001-ordinary-start": ordinaryStartMigration,
       "002-identity-linking": identityLinkingMigration,
+      "003-initial-membership-evidence": initialMembershipEvidenceMigration,
     };
   },
 };

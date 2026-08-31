@@ -1,0 +1,57 @@
+{
+  "fixtureVersion": "inside.telegram-membership-normalization.v1",
+  "fixtures": [
+    {
+      "name": "creator",
+      "direct": { "status": "creator" },
+      "event": { "new_chat_member": { "status": "creator" } },
+      "expected": "member"
+    },
+    {
+      "name": "administrator",
+      "direct": { "status": "administrator" },
+      "event": { "new_chat_member": { "status": "administrator" } },
+      "expected": "member"
+    },
+    {
+      "name": "member",
+      "direct": { "status": "member" },
+      "event": { "new_chat_member": { "status": "member" } },
+      "expected": "member"
+    },
+    {
+      "name": "restricted-member",
+      "direct": { "status": "restricted", "is_member": true },
+      "event": {
+        "new_chat_member": { "status": "restricted", "is_member": true }
+      },
+      "expected": "member"
+    },
+    {
+      "name": "restricted-non-member",
+      "direct": { "status": "restricted", "is_member": false },
+      "event": {
+        "new_chat_member": { "status": "restricted", "is_member": false }
+      },
+      "expected": "non_member"
+    },
+    {
+      "name": "left",
+      "direct": { "status": "left" },
+      "event": { "new_chat_member": { "status": "left" } },
+      "expected": "non_member"
+    },
+    {
+      "name": "kicked",
+      "direct": { "status": "kicked" },
+      "event": { "new_chat_member": { "status": "kicked" } },
+      "expected": "non_member"
+    },
+    {
+      "name": "unknown",
+      "direct": { "status": "future_status" },
+      "event": { "new_chat_member": { "status": "future_status" } },
+      "expected": "unavailable"
+    }
+  ]
+}

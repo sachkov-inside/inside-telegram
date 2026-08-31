@@ -7,12 +7,12 @@ surface for Inside communications and marketing. Its first delivery connects a T
 to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
 evidence to Platform without making content requests wait for Telegram.
 
-Current stage: **Platform Account linking through `/start <token>`**. In addition to the ordinary
-start lifecycle, an authenticated Platform integration can register a short-lived token digest,
-receive a private Telegram candidate, and finish a historical `PlatformLink` only through a
-separate confirmation bound to the original opaque Account reference. Bot registration,
-credentials, real external messages, Membership Evidence, deployment, and production enablement
-remain explicit later gates.
+Current stage: **initial Membership Evidence after `/start <token>` linking**. Final Platform
+confirmation durably schedules a canonical-chat check; a worker verifies the bot administrator
+prerequisite, calls `getChatMember`, normalizes the result, and creates a finite versioned envelope
+for asynchronous authenticated delivery to Platform. Bot registration, real credentials,
+member-status events, reconciliation, deployment, and production enablement remain explicit later
+gates.
 
 ## Ordinary `/start` runtime
 
@@ -65,6 +65,24 @@ The Workspace-owned Membership Evidence schema and fixtures are vendored with a 
 commit and SHA-256 snapshot in
 [`src/contracts/inside-membership-evidence-v1/`](src/contracts/inside-membership-evidence-v1/).
 
+## Initial Membership Evidence
+
+- `TELEGRAM_CANONICAL_CHAT_ID` is required configuration and contains no committed real chat
+  identifier. `TELEGRAM_MEMBERSHIP_MODE=disabled` is the safe default; `live` additionally requires
+  `TELEGRAM_BOT_TOKEN`.
+- A final link confirmation creates one durable initial check. Telegram reads happen in the worker,
+  never in Platform confirmation or a content request.
+- `creator`, `administrator`, `member`, and `restricted + is_member=true` normalize to `member`;
+  `left`, `kicked`, and `restricted + is_member=false` normalize to `not_member`; unknown values,
+  API errors, timeouts, or a missing bot administrator prerequisite fail closed as `unavailable`.
+- Successful observations atomically allocate a monotonic per-link evidence version. Positive
+  evidence expires after five minutes; unavailable results carry no revision or new validity.
+- The exact `inside.membership-evidence.v1` envelope enters a durable outbox. Retries reuse one
+  `Idempotency-Key`; `PLATFORM_EVIDENCE_DELIVERY_MODE=live` requires a separate endpoint and Bearer
+  credential.
+- A separate Telegram delivery intent reports linked member, non-member, or temporary unavailable
+  state without promising content access before Platform accepts the evidence.
+
 ## Durable documents
 
 - [`docs/product/telegram-application-brief.md`](docs/product/telegram-application-brief.md) —
@@ -82,8 +100,8 @@ commit and SHA-256 snapshot in
 Issues and pull requests are projected into
 [Inside — Developer Pipeline](https://github.com/orgs/sachkov-inside/projects/1). Read
 [`AGENTS.md`](AGENTS.md) first, then [`WORKFLOW.md`](WORKFLOW.md) for branch, pull-request,
-verification and owner-merge rules. The first user-visible implementation ticket is
-[#3: ordinary `/start`](https://github.com/sachkov-inside/inside-telegram/issues/3).
+verification and owner-merge rules. The active delivery chain is rooted at
+[#1: Telegram Membership bridge v1](https://github.com/sachkov-inside/inside-telegram/issues/1).
 
 ## Local development
 

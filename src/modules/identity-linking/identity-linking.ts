@@ -251,6 +251,12 @@ export class IdentityLinking {
           "confirmation_idempotent",
           this.clock.now(),
         );
+        await planInitialMembershipCheck(
+          transaction,
+          linkTransaction.link_transaction_ref,
+          link.telegram_identity_ref,
+          this.clock.now(),
+        );
         return {
           ...base,
           status: "idempotent",
@@ -291,6 +297,7 @@ export class IdentityLinking {
         .values({
           account_ref: linkTransaction.account_ref,
           bot_identity: linkTransaction.bot_identity,
+          evidence_version: 0,
           link_transaction_ref: linkTransaction.link_transaction_ref,
           linked_at: this.clock.now(),
           telegram_identity_ref: telegramIdentityRef,
@@ -342,6 +349,12 @@ export class IdentityLinking {
         inserted ? "confirmed" : "confirmation_idempotent",
         this.clock.now(),
       );
+      await planInitialMembershipCheck(
+        transaction,
+        linkTransaction.link_transaction_ref,
+        link.telegram_identity_ref,
+        this.clock.now(),
+      );
       return {
         ...base,
         status: inserted ? "linked" : "idempotent",
@@ -349,6 +362,29 @@ export class IdentityLinking {
       };
     });
   }
+}
+
+async function planInitialMembershipCheck(
+  transaction: Transaction<DatabaseSchema>,
+  sourceRef: string,
+  telegramIdentityRef: string,
+  createdAt: Date,
+): Promise<void> {
+  await transaction
+    .insertInto("membership_checks")
+    .values({
+      attempt_count: 0,
+      available_at: createdAt,
+      completed_at: null,
+      created_at: createdAt,
+      diagnostic_code: null,
+      locked_at: null,
+      source_ref: sourceRef,
+      state: "pending",
+      telegram_identity_ref: telegramIdentityRef,
+    })
+    .onConflict((conflict) => conflict.column("source_ref").doNothing())
+    .execute();
 }
 
 function assertBeginLink(begin: BeginLink, now: Date): void {

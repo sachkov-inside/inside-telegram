@@ -23,6 +23,11 @@ export type IdentityLinkEventType =
   | "receipt_replayed"
   | "recovery_required"
   | "registered";
+export type MembershipCheckState = "completed" | "pending" | "processing";
+export type MembershipEvidenceDeliveryState =
+  "delivered" | "delivering" | "pending" | "rejected" | "retry_scheduled";
+export type MembershipProviderState = "degraded" | "ready" | "unavailable";
+export type NormalizedMembershipState = "member" | "non_member" | "unavailable";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 type BigIntColumn = ColumnType<
@@ -75,9 +80,10 @@ export interface StartResponseDeliveriesTable {
   locked_at: Timestamp | null;
   message_text: string;
   private_chat_id: BigIntColumn;
+  source_key: string;
   state: StartResponseDeliveryState;
   telegram_user_id: BigIntColumn;
-  trigger_update_id: BigIntColumn;
+  trigger_update_id: BigIntColumn | null;
   updated_at: Timestamp;
 }
 
@@ -109,10 +115,58 @@ export interface LinkTransactionsTable {
 export interface PlatformLinksTable {
   account_ref: string;
   bot_identity: string;
+  evidence_version: BigIntColumn;
   link_transaction_ref: string;
   linked_at: Timestamp;
   telegram_identity_ref: string;
   telegram_user_id: BigIntColumn;
+}
+
+export interface MembershipChecksTable {
+  attempt_count: number;
+  available_at: Timestamp;
+  completed_at: Timestamp | null;
+  created_at: Timestamp;
+  diagnostic_code: string | null;
+  id: Generated<string>;
+  locked_at: Timestamp | null;
+  source_ref: string;
+  state: MembershipCheckState;
+  telegram_identity_ref: string;
+}
+
+export interface MembershipCheckResultsTable {
+  diagnostic_code: string | null;
+  evidence_ref: string | null;
+  evidence_version: BigIntColumn | null;
+  id: Generated<string>;
+  normalized_state: NormalizedMembershipState;
+  result_ref: string;
+  observed_at: Timestamp;
+  raw_is_member: boolean | null;
+  raw_status: string | null;
+  telegram_identity_ref: string;
+}
+
+export interface MembershipEvidenceOutboxTable {
+  attempt_count: number;
+  available_at: Timestamp;
+  delivered_at: Timestamp | null;
+  diagnostic_code: string | null;
+  envelope: unknown;
+  id: string;
+  locked_at: Timestamp | null;
+  result_ref: string;
+  state: MembershipEvidenceDeliveryState;
+  updated_at: Timestamp;
+}
+
+export interface MembershipProviderStateTable {
+  bot_identity: string;
+  canonical_chat_id: BigIntColumn;
+  diagnostic_code: string | null;
+  state: MembershipProviderState;
+  updated_at: Timestamp;
 }
 
 export interface IdentityLinkEventsTable {
@@ -127,6 +181,10 @@ export interface DatabaseSchema {
   bot_contacts: BotContactsTable;
   identity_link_events: IdentityLinkEventsTable;
   link_transactions: LinkTransactionsTable;
+  membership_checks: MembershipChecksTable;
+  membership_evidence_outbox: MembershipEvidenceOutboxTable;
+  membership_check_results: MembershipCheckResultsTable;
+  membership_provider_state: MembershipProviderStateTable;
   platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;
   start_response_deliveries: StartResponseDeliveriesTable;

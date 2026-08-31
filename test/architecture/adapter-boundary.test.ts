@@ -2,9 +2,9 @@ import { spawnSync } from "node:child_process";
 
 import { describe, expect, it } from "vitest";
 
-describe("Telegram transport adapter boundary", () => {
+describe("transport adapter boundary", () => {
   it("accepts adapters that depend only on application interfaces", () => {
-    const result = runGuardrail("src/adapters/telegram");
+    const result = runGuardrail("src/adapters");
 
     expect(result.status).toBe(0);
     expect(result.stdout).toBe("");
