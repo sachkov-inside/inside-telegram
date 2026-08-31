@@ -37,11 +37,13 @@ never read a Workspace or sibling checkout at build/test/runtime.
 
 ## Two-application journey
 
-A temporary orchestration process started the production-shaped Nest/Fastify applications on
-separate loopback ports. Platform called Telegram's real begin/confirm endpoints through
-`HttpTelegramLinkProvider`; Telegram called Platform's real evidence ingress through
-`HttpPlatformEvidenceAdapter`. A synthetic ES384/JWKS Account proof and temporary base64url
-integration credentials existed only in process memory. The journey proved:
+The durable split harness starts the production-shaped Nest/Fastify applications on separate
+loopback ports. This repository owns `pnpm conformance:platform-provider`; Platform owns
+`pnpm conformance:telegram-membership`. Each command imports only its own application and accepts
+the other process as an HTTP endpoint. Platform calls Telegram's real begin/confirm endpoints
+through `HttpTelegramLinkProvider`; Telegram calls Platform's real evidence ingress through
+`HttpPlatformEvidenceAdapter`. A synthetic ES384/JWKS Account proof and non-production base64url
+integration credentials are confined to the controlled run. The journey proved:
 
 | Case | Observed outcome |
 |---|---|
@@ -80,7 +82,32 @@ DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/<task-db> pnpm check:full
 
 Results: format, lint, typecheck, architecture guardrails, build, 95 unit tests, and 66 PostgreSQL
 integration tests passed. The cross-application run then migrated fresh task-specific databases and
-completed `inside.telegram-platform-conformance.v1` with every assertion true.
+completed `inside.telegram-platform-conformance.v1` with every assertion true. To reproduce it,
+provision two fresh local databases whose names include `proof` or `conformance`, then start these
+commands in separate terminals:
+
+```bash
+# Telegram repository
+DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/<telegram-proof-db> \
+CONFORMANCE_PLATFORM_EVIDENCE_URL=http://127.0.0.1:44101/integrations/telegram/v1/membership-evidence \
+CONFORMANCE_EVIDENCE_SECRET=issue8_evidence_proof_secret \
+CONFORMANCE_LINK_SECRET=issue8_linking_proof_secret \
+CONFORMANCE_WEBHOOK_SECRET=issue8_webhook_proof_secret \
+pnpm conformance:platform-provider
+
+# Platform repository
+DATABASE_URL=postgresql://inside:inside@127.0.0.1:5432/<platform-proof-db> \
+CONFORMANCE_TELEGRAM_URL=http://127.0.0.1:44102 \
+CONFORMANCE_TELEGRAM_CONTROL_URL=http://127.0.0.1:44103 \
+CONFORMANCE_EVIDENCE_SECRET=issue8_evidence_proof_secret \
+CONFORMANCE_LINK_SECRET=issue8_linking_proof_secret \
+CONFORMANCE_WEBHOOK_SECRET=issue8_webhook_proof_secret \
+pnpm conformance:telegram-membership
+```
+
+The scripts reject non-loopback endpoints and database names without an explicit proof/conformance
+marker. The Platform command exits after emitting a redacted `CONFORMANCE_RESULT`; stop the
+Telegram provider with `Ctrl-C` and dispose both task databases.
 
 The Workspace harness health/diff command separately reports pre-existing managed drift between
 the installed Telegram harness and the current Workspace package (`WORKFLOW.md` and
@@ -88,5 +115,5 @@ the installed Telegram harness and the current Workspace package (`WORKFLOW.md` 
 and this delivery does not rewrite the owner's harness state.
 
 No real bot token, Telegram user, chat identifier, email, production endpoint, or production secret
-was used or recorded. The temporary proof databases and runner files were removed after the
-redacted counts above were captured.
+was used or recorded. The temporary proof databases were removed after the redacted counts above
+were captured; the safe repeatable harness remains versioned in each owning repository.
