@@ -1,5 +1,5 @@
 import { randomInt } from "node:crypto";
-import { chmod, mkdir, readFile, writeFile } from "node:fs/promises";
+import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { sql } from "kysely";
@@ -26,6 +26,7 @@ export interface TelegramProofEnvironment {
   readonly botIdentity: string;
   readonly botToken: string;
   readonly botUsername: string;
+  readonly capturePath: string;
   readonly chatId?: string;
   readonly evidencePath: string;
   readonly webhookSecret?: string;
@@ -51,7 +52,14 @@ export async function runCredentialedProofCommand(
       allowed_updates: TELEGRAM_WEBHOOK_ALLOWED_UPDATES,
       timeout: 0,
     });
-    return latestGroupChatId(updates);
+    await writePrivateValue(
+      environment.capturePath,
+      latestGroupChatId(updates),
+    );
+    await recordObservation(environment.evidencePath, "chatUpdateCaptured", {
+      groupUpdateCaptured: true,
+    });
+    return { ok: true, stage: "chat-update-captured" };
   }
   if (command === "verify-chat") {
     const chatId = required(environment.chatId, "TELEGRAM_CANONICAL_CHAT_ID");
@@ -417,7 +425,10 @@ async function recordObservation(
   let current: Record<string, unknown>;
   try {
     current = providerRecord(JSON.parse(await readFile(path, "utf8")));
-  } catch {
+  } catch (error) {
+    if (!isMissingFile(error)) {
+      throw error;
+    }
     current = {};
   }
   const observations =
@@ -431,7 +442,18 @@ async function recordObservation(
     observations: { ...observations, [name]: observation },
   };
   await mkdir(dirname(path), { recursive: true });
-  await writeFile(path, `${JSON.stringify(next, null, 2)}\n`, { mode: 0o600 });
+  const temporaryPath = `${path}.${String(process.pid)}.tmp`;
+  await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, {
+    mode: 0o600,
+  });
+  await chmod(temporaryPath, 0o600);
+  await rename(temporaryPath, path);
+  await chmod(path, 0o600);
+}
+
+async function writePrivateValue(path: string, value: string): Promise<void> {
+  await mkdir(dirname(path), { recursive: true });
+  await writeFile(path, `${value}\n`, { mode: 0o600 });
   await chmod(path, 0o600);
 }
 
@@ -444,6 +466,14 @@ function providerRecord(value: unknown): Record<string, unknown> {
 
 function normalizeUsername(value: string): string {
   return value.replace(/^@/u, "").toLowerCase();
+}
+
+function isMissingFile(error: unknown): boolean {
+  return (
+    error instanceof Error &&
+    "code" in error &&
+    (error as NodeJS.ErrnoException).code === "ENOENT"
+  );
 }
 
 function required(value: string | undefined, name: string): string {

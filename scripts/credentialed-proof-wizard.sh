@@ -239,7 +239,9 @@ else
   step "Promote the bot to administrator; disable every optional permission the client permits while retaining administrator status."
   step "Send /proof_chat_id in that group so getUpdates can discover it before webhook setup."
   pause "Press Enter after the group update is visible"
-  TELEGRAM_CANONICAL_CHAT_ID="$(pnpm --silent credentialed-proof:probe -- capture-chat-id)"
+  probe capture-chat-id
+  TELEGRAM_CANONICAL_CHAT_ID="$(<.credentialed-proof/chat-id)"
+  rm .credentialed-proof/chat-id
 fi
 write_env TELEGRAM_CANONICAL_CHAT_ID "$TELEGRAM_CANONICAL_CHAT_ID"
 probe verify-chat

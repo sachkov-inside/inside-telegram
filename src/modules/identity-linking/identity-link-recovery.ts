@@ -1,5 +1,5 @@
 import { Inject, Injectable } from "@nestjs/common";
-import type { Selectable, Transaction } from "kysely";
+import { sql, type Selectable, type Transaction } from "kysely";
 
 import {
   DATABASE,
@@ -80,6 +80,9 @@ export class IdentityLinkRecovery {
       return invalid;
     }
     return this.database.transaction().execute(async (transaction) => {
+      await sql`
+        select pg_advisory_xact_lock(hashtextextended(${command.recoveryRef}, 0))
+      `.execute(transaction);
       const existing = await existingRecovery(transaction, command);
       if (existing) {
         return existing;

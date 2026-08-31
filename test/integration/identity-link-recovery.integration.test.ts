@@ -160,6 +160,33 @@ describe("IdentityLinkRecovery", () => {
       sql`delete from identity_link_recoveries`.execute(database),
     ).rejects.toThrow();
   });
+
+  it("serializes duplicate recovery references into one transfer and one idempotent result", async () => {
+    const fixture = await conflictingLinkFixture();
+    const command = {
+      confirmedSourceAccountRef: "principal-ref-source",
+      confirmedTargetAccountRef: "principal-ref-target",
+      operatorRef: "owner-kirill",
+      reasonRef: "inside-telegram-9-proof",
+      recoveryRef: "recovery-proof-concurrent",
+      sourceAccountRef: "principal-ref-source",
+      targetAccountRef: "principal-ref-target",
+      targetLinkTransactionRef: fixture.targetLinkTransactionRef,
+      telegramIdentityRef: fixture.telegramIdentityRef,
+    };
+
+    const results = await Promise.all([
+      recovery.execute(command),
+      recovery.execute(command),
+    ]);
+
+    expect(
+      results
+        .map((result) => (result.ok ? result.outcome : result.reason))
+        .sort(),
+    ).toEqual(["idempotent", "transferred"]);
+    expect(await recoveryAuditCount()).toBe(1);
+  });
 });
 
 async function conflictingLinkFixture(): Promise<{

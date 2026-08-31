@@ -30,6 +30,9 @@ if (!command || !botToken || !botId || !botUsername) {
         botIdentity: process.env.TELEGRAM_BOT_IDENTITY ?? "inside",
         botToken,
         botUsername,
+        capturePath:
+          process.env.TELEGRAM_PROOF_CHAT_CAPTURE_PATH ??
+          ".credentialed-proof/chat-id",
         chatId: process.env.TELEGRAM_CANONICAL_CHAT_ID,
         evidencePath:
           process.env.TELEGRAM_PROOF_EVIDENCE_PATH ??
