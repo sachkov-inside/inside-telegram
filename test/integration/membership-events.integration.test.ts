@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
-import { migrateToLatest } from "../../src/database/migrator.js";
+import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
 import type { Clock } from "../../src/modules/identity-linking/clock.js";
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
@@ -86,19 +86,19 @@ afterAll(async () => {
 
 describe("durable Membership events", () => {
   it("rebuilds the durable event migration down and forward", async () => {
-    const { migrateDown } = await import("../../src/database/migrator.js");
-    await migrateDown(database);
-    await migrateDown(database);
-    const removed = await sql<{ exists: boolean }>`
-      select exists (
-        select 1 from information_schema.tables
-        where table_schema = 'public'
-          and table_name = 'membership_event_audit'
-      ) as exists
-    `.execute(database);
-    expect(removed.rows[0]?.exists).toBe(false);
-
-    await migrateToLatest(database);
+    try {
+      await migrateTo(database, "003-initial-membership-evidence");
+      const removed = await sql<{ exists: boolean }>`
+        select exists (
+          select 1 from information_schema.tables
+          where table_schema = 'public'
+            and table_name = 'membership_event_audit'
+        ) as exists
+      `.execute(database);
+      expect(removed.rows[0]?.exists).toBe(false);
+    } finally {
+      await migrateToLatest(database);
+    }
     const restored = await sql<{ exists: boolean }>`
       select exists (
         select 1 from information_schema.tables
@@ -380,6 +380,7 @@ describe("durable Membership events", () => {
       decision: "not_member",
       evidenceVersion: 2,
     });
+    expect(platform.requests.at(-1)?.source).toBe("member_status_event");
 
     await webhook.accept(config.webhookSecret, update);
     await expect(processor.processAvailable(10, linkedAt)).resolves.toBe(0);

@@ -1,6 +1,9 @@
 export const MEMBERSHIP_EVIDENCE_CONTRACT_VERSION =
   "inside.membership-evidence.v1" as const;
 
+export type MembershipEvidenceSource =
+  "link_time" | "member_status_event" | "reconciliation";
+
 export type MembershipEvidence =
   | {
       readonly checkedAt: string;

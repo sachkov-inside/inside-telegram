@@ -1,8 +1,12 @@
-import type { MembershipEvidence } from "./membership-evidence.js";
+import type {
+  MembershipEvidence,
+  MembershipEvidenceSource,
+} from "./membership-evidence.js";
 
 export interface PlatformEvidenceDeliveryRequest {
   readonly evidence: MembershipEvidence;
   readonly idempotencyKey: string;
+  readonly source: MembershipEvidenceSource;
 }
 
 export type PlatformEvidenceDeliveryResult =

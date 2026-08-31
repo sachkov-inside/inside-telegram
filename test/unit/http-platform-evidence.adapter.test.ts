@@ -16,6 +16,7 @@ const request: PlatformEvidenceDeliveryRequest = {
     validUntil: "2030-01-01T00:05:00.000Z",
   },
   idempotencyKey: "delivery-ref-a",
+  source: "link_time",
 };
 
 describe("HttpPlatformEvidenceAdapter", () => {
@@ -40,6 +41,7 @@ describe("HttpPlatformEvidenceAdapter", () => {
         authorization: "Bearer synthetic_delivery_secret",
         "content-type": "application/json",
         "idempotency-key": request.idempotencyKey,
+        "x-inside-membership-evidence-source": request.source,
       },
       method: "POST",
     });

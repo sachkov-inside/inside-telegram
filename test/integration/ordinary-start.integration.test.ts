@@ -9,7 +9,11 @@ import { AppModule } from "../../src/app.module.js";
 import type { ApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
-import { migrateDown, migrateToLatest } from "../../src/database/migrator.js";
+import {
+  migrateDown,
+  migrateTo,
+  migrateToLatest,
+} from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
 import type {
   TelegramDeliveryResult,
@@ -92,30 +96,30 @@ afterAll(async () => {
 
 describe("database foundation", () => {
   it("rebuilds the identity-linking migration down and forward", async () => {
-    await migrateDown(database);
-    await migrateDown(database);
-    await migrateDown(database);
-    const membershipRemoved = await sql<{ exists: boolean }>`
-      select exists (
-        select 1
-        from information_schema.tables
-        where table_schema = 'public'
-          and table_name = 'membership_evidence_outbox'
-      ) as exists
-    `.execute(database);
-    expect(membershipRemoved.rows[0]?.exists).toBe(false);
+    try {
+      await migrateTo(database, "002-identity-linking");
+      const membershipRemoved = await sql<{ exists: boolean }>`
+        select exists (
+          select 1
+          from information_schema.tables
+          where table_schema = 'public'
+            and table_name = 'membership_evidence_outbox'
+        ) as exists
+      `.execute(database);
+      expect(membershipRemoved.rows[0]?.exists).toBe(false);
 
-    await migrateDown(database);
-    const removed = await sql<{ exists: boolean }>`
-      select exists (
-        select 1
-        from information_schema.tables
-        where table_schema = 'public' and table_name = 'link_transactions'
-      ) as exists
-    `.execute(database);
-    expect(removed.rows[0]?.exists).toBe(false);
-
-    await migrateToLatest(database);
+      await migrateTo(database, "001-ordinary-start");
+      const removed = await sql<{ exists: boolean }>`
+        select exists (
+          select 1
+          from information_schema.tables
+          where table_schema = 'public' and table_name = 'link_transactions'
+        ) as exists
+      `.execute(database);
+      expect(removed.rows[0]?.exists).toBe(false);
+    } finally {
+      await migrateToLatest(database);
+    }
     const restored = await sql<{ exists: boolean }>`
       select exists (
         select 1

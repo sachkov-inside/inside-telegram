@@ -30,6 +30,7 @@ export class MembershipEvidenceDeliveryProcessor {
           return await this.platform.deliver({
             evidence: delivery.evidence,
             idempotencyKey: delivery.idempotencyKey,
+            source: delivery.source,
           });
         } catch {
           return {

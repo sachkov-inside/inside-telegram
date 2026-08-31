@@ -23,6 +23,7 @@ export class HttpPlatformEvidenceAdapter implements PlatformEvidenceDelivery {
           authorization: `Bearer ${this.secret}`,
           "content-type": "application/json",
           "idempotency-key": request.idempotencyKey,
+          "x-inside-membership-evidence-source": request.source,
         },
         method: "POST",
         signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MILLISECONDS),

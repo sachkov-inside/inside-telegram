@@ -7,7 +7,7 @@ import type { ApplicationConfig } from "../../src/config/application-config.js";
 import evidenceSchema from "../../src/contracts/inside-membership-evidence-v1/schema.json" with { type: "json" };
 import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
-import { migrateToLatest } from "../../src/database/migrator.js";
+import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
 import type { Clock } from "../../src/modules/identity-linking/clock.js";
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
@@ -148,20 +148,19 @@ describe("initial Membership Evidence", () => {
   });
 
   it("rebuilds its migration down and forward", async () => {
-    const { migrateDown } = await import("../../src/database/migrator.js");
-    await migrateDown(database);
-    await migrateDown(database);
-    await migrateDown(database);
-    const removed = await sql<{ exists: boolean }>`
-      select exists (
-        select 1 from information_schema.tables
-        where table_schema = 'public'
-          and table_name = 'membership_evidence_outbox'
-      ) as exists
-    `.execute(database);
-    expect(removed.rows[0]?.exists).toBe(false);
-
-    await migrateToLatest(database);
+    try {
+      await migrateTo(database, "002-identity-linking");
+      const removed = await sql<{ exists: boolean }>`
+        select exists (
+          select 1 from information_schema.tables
+          where table_schema = 'public'
+            and table_name = 'membership_evidence_outbox'
+        ) as exists
+      `.execute(database);
+      expect(removed.rows[0]?.exists).toBe(false);
+    } finally {
+      await migrateToLatest(database);
+    }
     const restored = await sql<{ exists: boolean }>`
       select exists (
         select 1 from information_schema.tables
@@ -219,6 +218,7 @@ describe("initial Membership Evidence", () => {
     await expect(deliveries.processNext(now)).resolves.toBe("delivered");
     await expect(deliveries.processNext(now)).resolves.toBeUndefined();
     expect(platform.requests).toHaveLength(1);
+    expect(platform.requests[0]?.source).toBe("link_time");
     expect(platform.requests[0]?.evidence).toEqual(outcome?.evidence);
     expect(platform.requests[0]?.evidence).not.toHaveProperty("telegramUserId");
     expect(platform.requests[0]?.evidence).not.toHaveProperty("rawStatus");

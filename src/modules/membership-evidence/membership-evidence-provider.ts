@@ -19,6 +19,7 @@ import { CLOCK, type Clock } from "../identity-linking/clock.js";
 import {
   MEMBERSHIP_EVIDENCE_CONTRACT_VERSION,
   type MembershipEvidence,
+  type MembershipEvidenceSource,
   readStoredMembershipEvidence,
 } from "./membership-evidence.js";
 import {
@@ -56,6 +57,7 @@ interface MembershipObservationCheck extends LinkMembershipCheck {
     "leaseExpiresAt" | "leaseToken"
   >;
   readonly timeoutMilliseconds: number;
+  readonly source: Exclude<MembershipEvidenceSource, "member_status_event">;
 }
 
 interface DurableMembershipEnvelopeBase {
@@ -235,6 +237,7 @@ export class MembershipEvidenceProvider {
         observedAt: envelope.eventAt,
         rawChatMember: envelope.chatMember,
         resultRef,
+        source: "member_status_event",
         telegramIdentityRef: link.telegram_identity_ref,
       });
       await recordMembershipEventAudit(transaction, envelope, {
@@ -283,6 +286,7 @@ export class MembershipEvidenceProvider {
     return this.observeMembership({
       ...check,
       planResponse: true,
+      source: "link_time",
       timeoutMilliseconds: TELEGRAM_OBSERVATION_TIMEOUT_MILLISECONDS,
     });
   }
@@ -406,6 +410,7 @@ export class MembershipEvidenceProvider {
         observedAt,
         rawChatMember: observed.rawChatMember,
         resultRef: check.checkRef,
+        source: check.source,
         telegramIdentityRef: check.telegramIdentityRef,
       });
       const response = check.planResponse
@@ -454,6 +459,7 @@ export class MembershipEvidenceProvider {
           checkRef: check.checkRef,
           planResponse: false,
           reconciliationLease: check,
+          source: "reconciliation",
           telegramIdentityRef: check.telegramIdentityRef,
           timeoutMilliseconds,
         }),
@@ -662,6 +668,7 @@ async function recordEvidence(
     readonly observedAt: Date;
     readonly rawChatMember?: TelegramChatMember;
     readonly resultRef: string;
+    readonly source: MembershipEvidenceSource;
     readonly telegramIdentityRef: string;
   },
 ): Promise<MembershipEvidence> {
@@ -739,6 +746,7 @@ async function recordEvidence(
       id: randomUUID(),
       locked_at: null,
       result_ref: record.resultRef,
+      source: record.source,
       state: "pending",
       updated_at: record.observedAt,
     })
