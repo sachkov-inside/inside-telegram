@@ -23,20 +23,24 @@ export class MembershipEvidenceDeliveryProcessor {
     if (!delivery) {
       return undefined;
     }
-    if (!(await this.outbox.isClaimActive(delivery))) {
+    const result = await this.outbox.deliverIfClaimActive(
+      delivery,
+      async (): Promise<PlatformEvidenceDeliveryResult> => {
+        try {
+          return await this.platform.deliver({
+            evidence: delivery.evidence,
+            idempotencyKey: delivery.idempotencyKey,
+          });
+        } catch {
+          return {
+            diagnosticCode: "platform_transport_unavailable",
+            kind: "retryable",
+          };
+        }
+      },
+    );
+    if (!result) {
       return "rejected";
-    }
-    let result: PlatformEvidenceDeliveryResult;
-    try {
-      result = await this.platform.deliver({
-        evidence: delivery.evidence,
-        idempotencyKey: delivery.idempotencyKey,
-      });
-    } catch {
-      result = {
-        diagnosticCode: "platform_transport_unavailable",
-        kind: "retryable",
-      };
     }
     await this.outbox.recordResult(delivery, result, now);
     return result.kind;

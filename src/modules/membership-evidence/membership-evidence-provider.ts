@@ -26,6 +26,7 @@ import {
   normalizeChatMember,
   type TelegramChatMember,
 } from "./membership-normalization.js";
+import { lockProviderStateChanges } from "./membership-provider-delivery-lock.js";
 import {
   TELEGRAM_MEMBERSHIP,
   type TelegramChatMemberResult,
@@ -80,13 +81,14 @@ export class MembershipEvidenceProvider {
     const prerequisite = await this.readProviderPrerequisite();
     const checkedAt = this.clock.now();
     return this.database.transaction().execute(async (transaction) => {
+      await lockProviderStateChanges(transaction, this.config.botIdentity);
       const observation = await recordProviderObservation(transaction, {
         botIdentity: this.config.botIdentity,
         canonicalChatId: this.config.canonicalChatId,
         diagnosticCode: prerequisite.diagnosticCode,
         observedAt: checkedAt,
         sourceKind: "direct",
-        sourceRef: `readiness:${checkedAt.toISOString()}`,
+        sourceRef: `readiness:${randomUUID()}`,
         sourceUpdateId: null,
         state: prerequisite.providerState,
       });
@@ -135,6 +137,7 @@ export class MembershipEvidenceProvider {
     const observedState = normalizeChatMember(envelope.chatMember);
 
     return this.database.transaction().execute(async (transaction) => {
+      await lockProviderStateChanges(transaction, envelope.botIdentity);
       const lockedLink = await transaction
         .selectFrom("platform_links")
         .select([
@@ -186,8 +189,21 @@ export class MembershipEvidenceProvider {
       let normalizedState = observedState;
       let diagnosticCode: string | null = null;
       if (observedState === "unavailable") {
-        providerState = "unavailable";
         diagnosticCode = "unknown_chat_member_status";
+        const providerObservation = await recordProviderObservation(
+          transaction,
+          {
+            botIdentity: lockedLink.bot_identity,
+            canonicalChatId: envelope.canonicalChatId,
+            diagnosticCode,
+            observedAt: envelope.eventAt,
+            sourceKind: "event",
+            sourceRef: `subject:${envelope.updateId}`,
+            sourceUpdateId: envelope.updateId,
+            state: "unavailable",
+          },
+        );
+        providerState = providerObservation.currentState;
       } else if (observedState === "member" && providerState !== "ready") {
         normalizedState = "unavailable";
         diagnosticCode =
@@ -204,17 +220,6 @@ export class MembershipEvidenceProvider {
         resultRef,
         telegramIdentityRef: link.telegram_identity_ref,
       });
-      if (observedState === "unavailable") {
-        await transaction
-          .updateTable("membership_provider_state")
-          .set({
-            diagnostic_code: diagnosticCode,
-            state: providerState,
-            updated_at: envelope.eventAt,
-          })
-          .where("bot_identity", "=", lockedLink.bot_identity)
-          .execute();
-      }
       await recordMembershipEventAudit(transaction, envelope, {
         diagnosticCode,
         disposition: "evidence",
@@ -232,30 +237,45 @@ export class MembershipEvidenceProvider {
   ): Promise<void> {
     const transition = providerTransition(envelope.chatMember);
     await this.database.transaction().execute(async (transaction) => {
+      await lockProviderStateChanges(transaction, envelope.botIdentity);
       const observation = await recordProviderObservation(transaction, {
         botIdentity: envelope.botIdentity,
         canonicalChatId: envelope.canonicalChatId,
         diagnosticCode: transition.diagnosticCode,
         observedAt: envelope.eventAt,
         sourceKind: "event",
-        sourceRef: envelope.updateId,
+        sourceRef: `provider:${envelope.updateId}`,
         sourceUpdateId: envelope.updateId,
         state: transition.state,
       });
       if (transition.state !== "ready") {
         const recovery = await transaction
           .selectFrom("membership_provider_observations")
-          .select("observed_at")
+          .select(["observed_at", "source_update_id"])
           .where("bot_identity", "=", envelope.botIdentity)
           .where("state", "=", "ready")
-          .where("observed_at", ">", envelope.eventAt)
+          .where((expression) =>
+            expression.or([
+              expression("observed_at", ">", envelope.eventAt),
+              expression.and([
+                expression("observed_at", "=", envelope.eventAt),
+                expression("source_update_id", ">", envelope.updateId),
+              ]),
+            ]),
+          )
           .orderBy("observed_at")
+          .orderBy("source_update_id")
           .orderBy("id")
           .executeTakeFirst();
         await rejectUnsafePositiveEvidence(
           transaction,
-          envelope.eventAt,
-          recovery?.observed_at,
+          { observedAt: envelope.eventAt, updateId: envelope.updateId },
+          recovery
+            ? {
+                observedAt: recovery.observed_at,
+                updateId: recovery.source_update_id,
+              }
+            : undefined,
         );
       }
       await recordMembershipEventAudit(transaction, envelope, {
@@ -314,6 +334,7 @@ export class MembershipEvidenceProvider {
     const observedAt = this.clock.now();
 
     return this.database.transaction().execute(async (transaction) => {
+      await lockProviderStateChanges(transaction, link.bot_identity);
       const lockedLink = await transaction
         .selectFrom("platform_links")
         .select([
@@ -636,6 +657,7 @@ async function recordEvidence(
       evidence_ref: evidenceRef ?? null,
       evidence_version: evidenceVersion ?? null,
       normalized_state: record.normalizedState,
+      observation_update_id: record.event?.updateId ?? null,
       result_ref: record.resultRef,
       observed_at: record.observedAt,
       raw_is_member: record.rawChatMember?.isMember ?? null,
@@ -917,27 +939,46 @@ async function recordProviderObservation(
 
 async function rejectUnsafePositiveEvidence(
   transaction: Transaction<DatabaseSchema>,
-  providerLostAt: Date,
-  providerRecoveredAt?: Date,
+  providerLost: { readonly observedAt: Date; readonly updateId: string },
+  providerRecovered?: {
+    readonly observedAt: Date;
+    readonly updateId: string | null;
+  },
 ): Promise<void> {
-  const unsafeResults = transaction
+  let unsafeResults = transaction
     .selectFrom("membership_check_results")
     .select("result_ref")
-    .where("normalized_state", "=", "member")
-    .where("observed_at", ">=", providerLostAt);
-  const boundedUnsafeResults = providerRecoveredAt
-    ? unsafeResults.where("observed_at", "<", providerRecoveredAt)
-    : unsafeResults;
+    .where("normalized_state", "=", "member").where(sql<boolean>`(
+      observed_at > ${providerLost.observedAt}
+      or (
+        observed_at = ${providerLost.observedAt}
+        and observation_update_id >= ${providerLost.updateId}
+      )
+    )`);
+  if (providerRecovered) {
+    unsafeResults = providerRecovered.updateId
+      ? unsafeResults.where(sql<boolean>`(
+          observed_at < ${providerRecovered.observedAt}
+          or (
+            observed_at = ${providerRecovered.observedAt}
+            and (
+              observation_update_id is null
+              or observation_update_id < ${providerRecovered.updateId}
+            )
+          )
+        )`)
+      : unsafeResults.where("observed_at", "<", providerRecovered.observedAt);
+  }
   await transaction
     .updateTable("membership_evidence_outbox")
     .set({
       diagnostic_code: "provider_lost_before_delivery",
       locked_at: null,
       state: "rejected",
-      updated_at: providerLostAt,
+      updated_at: providerLost.observedAt,
     })
     .where("state", "in", ["pending", "retry_scheduled", "delivering"])
-    .where("result_ref", "in", boundedUnsafeResults)
+    .where("result_ref", "in", unsafeResults)
     .execute();
 }
 

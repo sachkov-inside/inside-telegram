@@ -145,6 +145,7 @@ export interface MembershipCheckResultsTable {
   evidence_version: BigIntColumn | null;
   id: Generated<string>;
   normalized_state: NormalizedMembershipState;
+  observation_update_id: BigIntColumn | null;
   result_ref: string;
   observed_at: Timestamp;
   raw_is_member: boolean | null;

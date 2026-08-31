@@ -9,6 +9,10 @@ export const durableMembershipEventsMigration: Migration = {
       .addColumn("last_membership_observation_update_id", "bigint")
       .execute();
     await db.schema
+      .alterTable("membership_check_results")
+      .addColumn("observation_update_id", "bigint")
+      .execute();
+    await db.schema
       .alterTable("membership_provider_state")
       .addColumn("last_provider_observation_at", "timestamptz")
       .addColumn("last_provider_observation_update_id", "bigint")
@@ -86,6 +90,10 @@ export const durableMembershipEventsMigration: Migration = {
       .alterTable("platform_links")
       .dropColumn("last_membership_observation_update_id")
       .dropColumn("last_membership_observation_at")
+      .execute();
+    await db.schema
+      .alterTable("membership_check_results")
+      .dropColumn("observation_update_id")
       .execute();
   },
 };

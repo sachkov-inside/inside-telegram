@@ -500,6 +500,53 @@ describe("durable Membership events", () => {
     });
   });
 
+  it("orders unknown subject status against provider recovery", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "future_status" },
+      eventAt: new Date("2030-01-01T00:20:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "2000",
+    });
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "administrator" },
+      eventAt: new Date("2030-01-01T00:19:00.000Z"),
+      kind: "provider",
+      updateId: "1900",
+    });
+
+    const blocked = await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:21:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "2100",
+    });
+    expect(blocked).toMatchObject({
+      evidence: { decision: "unavailable" },
+      providerState: "unavailable",
+    });
+  });
+
   it("serializes concurrent same-second events by their ingress tie-breaker", async () => {
     const confirmation = await confirmLink("42");
     const provider = new MembershipEvidenceProvider(
@@ -809,6 +856,75 @@ describe("durable Membership events", () => {
     expect(platform.requests).toHaveLength(1);
   });
 
+  it("uses update_id only to bound a same-second loss interval", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    const eventAt = new Date("2030-01-01T00:16:00.000Z");
+    for (const updateId of ["1599", "1650"]) {
+      await provider.accept({
+        actorIsSubject: true,
+        botIdentity: config.botIdentity,
+        canonicalChatId: config.canonicalChatId,
+        chatMember: { status: "member" },
+        eventAt,
+        kind: "subject",
+        subjectTelegramUserId: "42",
+        updateId,
+      });
+    }
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "administrator" },
+      eventAt,
+      kind: "provider",
+      updateId: "1700",
+    });
+    await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt,
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1800",
+    });
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt,
+      kind: "provider",
+      updateId: "1600",
+    });
+
+    const states = await database
+      .selectFrom("membership_evidence_outbox")
+      .select(["result_ref", "state"])
+      .where("result_ref", "in", [
+        "membership-event:inside:1599",
+        "membership-event:inside:1650",
+        "membership-event:inside:1800",
+      ])
+      .orderBy("result_ref")
+      .execute();
+    expect(states).toEqual([
+      { result_ref: "membership-event:inside:1599", state: "pending" },
+      { result_ref: "membership-event:inside:1650", state: "rejected" },
+      { result_ref: "membership-event:inside:1800", state: "pending" },
+    ]);
+  });
+
   it("rechecks a claimed positive after a concurrent provider loss", async () => {
     const confirmation = await confirmLink("42");
     const provider = new MembershipEvidenceProvider(
@@ -845,6 +961,61 @@ describe("durable Membership events", () => {
       processor.processNext(new Date("2030-01-01T00:18:00.000Z")),
     ).resolves.toBe("rejected");
     expect(platform.requests).toHaveLength(1);
+  });
+
+  it("serializes a provider transition with the external delivery call", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    await new MembershipEvidenceDeliveryProcessor(
+      new MembershipEvidenceOutbox(database),
+      new ControlledPlatformEvidenceDelivery(),
+    ).processNext(linkedAt);
+    await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:17:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1701",
+    });
+
+    const platform = new PausedPlatformEvidenceDelivery();
+    const processing = new MembershipEvidenceDeliveryProcessor(
+      new MembershipEvidenceOutbox(database),
+      platform,
+    ).processNext(new Date("2030-01-01T00:18:00.000Z"));
+    await platform.started;
+    let transitionCompleted = false;
+    const transition = provider
+      .accept({
+        botIdentity: config.botIdentity,
+        canonicalChatId: config.canonicalChatId,
+        chatMember: { status: "member" },
+        eventAt: new Date("2030-01-01T00:16:00.000Z"),
+        kind: "provider",
+        updateId: "1600",
+      })
+      .then(() => {
+        transitionCompleted = true;
+      });
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    expect(transitionCompleted).toBe(false);
+
+    platform.resume();
+    await expect(processing).resolves.toBe("delivered");
+    await transition;
+    expect(transitionCompleted).toBe(true);
   });
 });
 
@@ -907,6 +1078,27 @@ class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
   ): Promise<{ kind: "delivered" }> {
     this.requests.push(request);
     return { kind: "delivered" };
+  }
+}
+
+class PausedPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
+  private release!: () => void;
+  private signalStarted!: () => void;
+  readonly started = new Promise<void>((resolve) => {
+    this.signalStarted = resolve;
+  });
+  private readonly resumed = new Promise<void>((resolve) => {
+    this.release = resolve;
+  });
+
+  async deliver(): Promise<{ kind: "delivered" }> {
+    this.signalStarted();
+    await this.resumed;
+    return { kind: "delivered" };
+  }
+
+  resume(): void {
+    this.release();
   }
 }
 
