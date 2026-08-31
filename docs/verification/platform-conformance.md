@@ -10,9 +10,11 @@ Production credentials, Telegram registration, deployment, and traffic remain Te
 | Telegram | `sachkov-inside/inside-telegram@4d9aca2c5431200317a547a2c32d0fdc81e9cdb0` | identity-link provider and Membership Evidence producer |
 | Platform | `sachkov-inside/platform@1e10837689a39665087da26fa6038faebbeb7596` | Account-bound link consumer, evidence ingress, entitlement projection, and ContentAccess |
 
-The versioned split harness was then rerun successfully at Telegram
-`6b0afc258312435b3cddec4c6c48d1202ab8b897` and Platform
-`2aee06c55a0cf9194afd6fa9278b9a7ba296136b`; the application revisions above were unchanged.
+The hardened versioned split harness was rerun successfully at Telegram
+`b5ca8ec54c05570ca01c0a5a02c97e8a09977382` and Platform
+`d82d073004611bf8a7a418e359b41856653a5de1`; the application revisions above were unchanged. These
+revisions add strict direct-loopback database routing guards, representative negative safety tests,
+and a separate synthetic bearer for the loopback proof control plane.
 
 The proof ran each application from its own worktree, package graph, migration ledger, and
 PostgreSQL database. The only application seam was authenticated loopback HTTP. No test or runtime
@@ -65,14 +67,14 @@ integration credentials are confined to the controlled run. The journey proved:
 | wrong evidence credential | HTTP 401 and no projection change |
 | `inside.membership-evidence.v2` | HTTP 400 `unsupported_contract` and no projection change |
 
-The redacted terminal audit after recovery was:
+The redacted terminal audit from the hardened run after recovery was:
 
-- Telegram: 2 linked identities and 1 conflicting transaction; delivered outbox rows were
-  `link_time=2`, `member_status_event=3`, `reconciliation=12`;
-- Platform: 3 link transactions (`linked=2`, `recovery_required=1`), 2 current projections
-  (`member=1`, `not_member=1`), and 18 evidence receipts;
-- Platform receipts: 5 applied observed revisions, 12 accepted unavailable reconciliation
-  observations during the deliberate outage, and 1 unsupported-version audit receipt;
+- Platform: 3 link transactions (`linked=2`, `recovery_required=1`), 1 current projection after
+  expiry/recovery, and 18 evidence receipts;
+- Platform receipts: 4 applied observed revisions, 13 accepted-without-entitlement observations,
+  and 1 unsupported-version audit receipt;
+- received evidence sources were `link_time=2`, `member_status_event=3`, `reconciliation=13` (the
+  last count includes the direct unsupported-version audit request);
 - both link schemas contained zero raw bearer/token columns. Telegram ingress had already replaced
   the deep-link bearer with its SHA-256/base64url digest before persistence.
 
