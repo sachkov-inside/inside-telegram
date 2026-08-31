@@ -1,10 +1,11 @@
-import { randomInt } from "node:crypto";
+import { createHash, randomInt } from "node:crypto";
 import { chmod, mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname } from "node:path";
 
 import { sql } from "kysely";
 
 import type { Database } from "../database/database.js";
+import { normalizeChatMember } from "../modules/membership-evidence/membership-normalization.js";
 import { TELEGRAM_WEBHOOK_ALLOWED_UPDATES } from "../modules/webhook/telegram-webhook.js";
 
 const ASSIGNABLE_ADMIN_RIGHTS = [
@@ -29,6 +30,10 @@ const ASSIGNABLE_ADMIN_RIGHTS = [
 
 const SNAPSHOT_LABEL_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
+export const CREDENTIAL_PROOF_CAPTURE_PATH = ".credentialed-proof/chat-id";
+export const CREDENTIAL_PROOF_EVIDENCE_PATH =
+  ".credentialed-proof/evidence.json";
+
 export interface TelegramProofEnvironment {
   readonly botId: string;
   readonly botIdentity: string;
@@ -40,6 +45,7 @@ export interface TelegramProofEnvironment {
   readonly minimumAdminConfirmed?: string;
   readonly retryMarker?: string;
   readonly snapshotLabel?: string;
+  readonly temporaryResourcesDisposed?: string;
   readonly webhookSecret?: string;
   readonly webhookUrl?: string;
 }
@@ -49,6 +55,14 @@ export async function runCredentialedProofCommand(
   environment: TelegramProofEnvironment,
   database?: Database,
 ): Promise<Record<string, unknown> | string> {
+  if (command === "begin-proof-run") {
+    await archiveExistingEvidence(environment.evidencePath);
+    await writeEvidence(environment.evidencePath, {
+      proofVersion: "inside.telegram-credentialed-proof.v1",
+      observations: { proofRun: { started: true } },
+    });
+    return { ok: true, stage: "proof-run-started" };
+  }
   if (command === "verify-bot") {
     const bot = validateBotIdentity(
       await telegramResult(environment.botToken, "getMe", {}),
@@ -130,6 +144,41 @@ export async function runCredentialedProofCommand(
     );
     return { ok: true, stage: "webhook-configured" };
   }
+  if (command === "suppress-membership-events") {
+    const webhookUrl = validateWebhookUrl(environment.webhookUrl);
+    const webhookSecret = required(
+      environment.webhookSecret,
+      "TELEGRAM_WEBHOOK_SECRET",
+    );
+    const allowedUpdates = TELEGRAM_WEBHOOK_ALLOWED_UPDATES.filter(
+      (update) => update !== "chat_member",
+    );
+    await telegramResult(environment.botToken, "setWebhook", {
+      allowed_updates: allowedUpdates,
+      drop_pending_updates: false,
+      secret_token: webhookSecret,
+      url: webhookUrl,
+    });
+    const info = providerRecord(
+      await telegramResult(environment.botToken, "getWebhookInfo", {}),
+    );
+    const observed = Array.isArray(info.allowed_updates)
+      ? info.allowed_updates.filter(
+          (update): update is string => typeof update === "string",
+        )
+      : [];
+    if (
+      [...observed].sort().join(",") !== [...allowedUpdates].sort().join(",")
+    ) {
+      throw new Error("Membership event suppression was not configured");
+    }
+    await recordObservation(
+      environment.evidencePath,
+      "membershipEventSuppression",
+      { chatMemberTemporarilyExcluded: true },
+    );
+    return { ok: true, stage: "membership-events-suppressed" };
+  }
   if (command === "verify-webhook-auth") {
     if (!database) {
       throw new Error("DATABASE_URL is required for webhook auth proof");
@@ -196,7 +245,11 @@ export async function runCredentialedProofCommand(
       validateWebhookUrl(environment.webhookUrl),
     );
     const markerItems = await retryMarkerInboxItems(database, retryMarker);
-    if (!observation.hasLastError || observation.pendingUpdates < 1) {
+    if (
+      !observation.hasLastError ||
+      !observation.lastErrorIsHttp503 ||
+      observation.pendingUpdates < 1
+    ) {
       throw new Error("Telegram has not observed a webhook delivery error yet");
     }
     if (markerItems !== 0) {
@@ -207,6 +260,7 @@ export async function runCredentialedProofCommand(
     await recordObservation(environment.evidencePath, "webhookOutage", {
       failedMarkerAbsentFromInbox: true,
       providerDeliveryErrorObserved: true,
+      providerHttp503Observed: true,
       providerHasPendingUpdates: true,
     });
     return { ok: true, stage: "webhook-outage-observed" };
@@ -247,10 +301,18 @@ export async function runCredentialedProofCommand(
     if (!SNAPSHOT_LABEL_PATTERN.test(snapshotLabel)) {
       throw new Error("Credentialed proof snapshot label is malformed");
     }
-    const observation = {
-      label: snapshotLabel,
-      ...(await redactedDatabaseSnapshot(database)),
-    };
+    const snapshot = await redactedDatabaseSnapshot(database);
+    if (snapshotLabel === "reconciliation-repaired") {
+      const suppressedSnapshot = await findApplicationSnapshot(
+        environment.evidencePath,
+        "removal-event-suppressed",
+      );
+      validateReconciliationRepair(
+        snapshot.membershipTransitions,
+        suppressedSnapshot.membershipTransitions,
+      );
+    }
+    const observation = { label: snapshotLabel, ...snapshot };
     await appendObservation(
       environment.evidencePath,
       "applicationSnapshots",
@@ -273,6 +335,17 @@ export async function runCredentialedProofCommand(
       urlRemoved: true,
     });
     return { ok: true, stage: "webhook-disposed" };
+  }
+  if (command === "record-resource-disposal") {
+    if (environment.temporaryResourcesDisposed !== "true") {
+      throw new Error("Temporary resource disposal is not owner-confirmed");
+    }
+    await recordObservation(environment.evidencePath, "resourceDisposal", {
+      temporaryChatDisposed: true,
+      temporaryEndpointDisposed: true,
+      temporaryPlatformCredentialsDisposed: true,
+    });
+    return { ok: true, stage: "temporary-resources-disposed" };
   }
   if (command === "verify-revoked") {
     const revoked = await telegramCredentialRejected(environment.botToken);
@@ -333,6 +406,11 @@ export function validateChatAdministration(
       "Minimum client-assignable administrator configuration is not confirmed",
     );
   }
+  if (Object.values(assignableRights).some(Boolean)) {
+    throw new Error(
+      "Dedicated bot has elevated client-assignable administrator rights",
+    );
+  }
   return {
     assignableRights,
     botStatus: member.status,
@@ -371,6 +449,7 @@ export function validateWebhookInfo(
   allowedUpdatesMatch: true;
   hasCustomCertificate: boolean;
   hasLastError: boolean;
+  lastErrorIsHttp503: boolean;
   pendingUpdates: number;
   urlMatches: true;
 } {
@@ -380,6 +459,8 @@ export function validateWebhookInfo(
         (update): update is string => typeof update === "string",
       )
     : [];
+  const lastErrorMessage =
+    typeof info.last_error_message === "string" ? info.last_error_message : "";
   if (
     info.url !== expectedUrl ||
     [...allowedUpdates].sort().join(",") !==
@@ -395,6 +476,7 @@ export function validateWebhookInfo(
     hasLastError:
       typeof info.last_error_date === "number" ||
       typeof info.last_error_message === "string",
+    lastErrorIsHttp503: /(?:^|\D)503(?:\D|$)/u.test(lastErrorMessage),
     pendingUpdates:
       typeof info.pending_update_count === "number"
         ? info.pending_update_count
@@ -403,7 +485,7 @@ export function validateWebhookInfo(
   };
 }
 
-async function redactedDatabaseSnapshot(
+export async function redactedDatabaseSnapshot(
   database: Database,
 ): Promise<Record<string, unknown>> {
   const [
@@ -423,6 +505,7 @@ async function redactedDatabaseSnapshot(
     providerObservations,
     reconciliations,
     completedReconciliations,
+    membershipTransitions,
     evidenceVersions,
     recoveries,
   ] = await Promise.all([
@@ -450,6 +533,7 @@ async function redactedDatabaseSnapshot(
         from membership_reconciliations
         where last_completed_at is not null
       `.execute(database),
+    redactedMembershipTransitions(database),
     sql<{ count: string; maximum: string | null; minimum: string | null }>`
         select
           count(evidence_version)::text as count,
@@ -480,6 +564,7 @@ async function redactedDatabaseSnapshot(
     membershipEventsByNormalizedState: membershipEventStates,
     membershipResultsByNormalizedState: membershipResults,
     membershipResultsByRawStatus: membershipRawStatuses,
+    membershipTransitions,
     ownerRecoveries: Number(recoveries.rows[0]?.count ?? 0),
     providerObservationsByState: providerObservations,
     providerRowsByState: providerStates,
@@ -489,6 +574,203 @@ async function redactedDatabaseSnapshot(
     reconciliationsByState: reconciliations,
     telegramUpdatesByState: updates,
   };
+}
+
+export interface RedactedMembershipTransition {
+  readonly decision: string | null;
+  readonly eventDisposition: string | null;
+  readonly eventKind: string | null;
+  readonly freshnessBounded: boolean;
+  readonly freshnessObserved: boolean;
+  readonly identityFingerprint: string;
+  readonly isCurrentRevision: boolean;
+  readonly mappingObserved: boolean;
+  readonly normalizedState: string;
+  readonly rawIsMember: boolean | null;
+  readonly rawStatus: string | null;
+  readonly revision: string | null;
+  readonly sequence: number;
+  readonly source: string | null;
+  readonly validitySeconds: number | null;
+}
+
+async function redactedMembershipTransitions(
+  database: Database,
+): Promise<RedactedMembershipTransition[]> {
+  const result = await sql<{
+    decision: string | null;
+    event_disposition: string | null;
+    event_kind: string | null;
+    evidence_version: string | null;
+    is_current_revision: boolean;
+    normalized_state: string;
+    raw_is_member: boolean | null;
+    raw_status: string | null;
+    sequence: string;
+    source: string | null;
+    telegram_identity_ref: string;
+    validity_seconds: string | null;
+  }>`
+    select
+      row_number() over (
+        order by results.observed_at, results.id
+      )::text as sequence,
+      results.telegram_identity_ref,
+      outbox.source,
+      results.raw_status,
+      results.raw_is_member,
+      results.normalized_state,
+      results.evidence_version::text,
+      audit.event_kind,
+      audit.disposition as event_disposition,
+      outbox.envelope ->> 'decision' as decision,
+      case
+        when outbox.envelope ->> 'decision' in ('member', 'not_member')
+        then round(extract(epoch from (
+          (outbox.envelope ->> 'validUntil')::timestamptz
+          - (outbox.envelope ->> 'checkedAt')::timestamptz
+        )))::text
+        else null
+      end as validity_seconds,
+      results.evidence_version is not null
+        and results.evidence_version = links.evidence_version
+        as is_current_revision
+    from membership_check_results as results
+    left join membership_evidence_outbox as outbox
+      on outbox.result_ref = results.result_ref
+    left join membership_event_audit as audit
+      on audit.result_ref = results.result_ref
+    inner join platform_links as links
+      on links.telegram_identity_ref = results.telegram_identity_ref
+    order by results.observed_at, results.id
+  `.execute(database);
+
+  return result.rows.map((row) => {
+    const normalizedState = validateRecordedMembershipNormalization(row);
+    const validitySeconds =
+      row.validity_seconds === null ? null : Number(row.validity_seconds);
+    const freshnessObserved =
+      row.decision === "member" ||
+      row.decision === "not_member" ||
+      row.decision === "unavailable";
+    const freshnessBounded =
+      row.decision === "unavailable" ||
+      (validitySeconds !== null &&
+        validitySeconds > 0 &&
+        validitySeconds <= 300);
+    if (freshnessObserved && !freshnessBounded) {
+      throw new Error("Credentialed proof found unbounded Membership evidence");
+    }
+    return {
+      decision: row.decision,
+      eventDisposition: row.event_disposition,
+      eventKind: row.event_kind,
+      freshnessBounded,
+      freshnessObserved,
+      identityFingerprint: fingerprint(row.telegram_identity_ref),
+      isCurrentRevision: row.is_current_revision,
+      mappingObserved: row.raw_status !== null,
+      normalizedState,
+      rawIsMember: row.raw_is_member,
+      rawStatus: row.raw_status,
+      revision: row.evidence_version,
+      sequence: Number(row.sequence),
+      source: row.source,
+      validitySeconds,
+    };
+  });
+}
+
+export function validateRecordedMembershipNormalization(row: {
+  normalized_state: string;
+  raw_is_member: boolean | null;
+  raw_status: string | null;
+}): string {
+  const expected =
+    row.raw_status === null
+      ? row.normalized_state
+      : normalizeChatMember({
+          ...(row.raw_is_member === null
+            ? {}
+            : { isMember: row.raw_is_member }),
+          status: row.raw_status,
+        });
+  if (row.normalized_state !== expected) {
+    throw new Error(
+      "Credentialed proof found a Membership normalization mismatch",
+    );
+  }
+  return row.normalized_state;
+}
+
+export function validateReconciliationRepair(
+  value: unknown,
+  priorValue: unknown,
+): void {
+  if (!Array.isArray(value) || !Array.isArray(priorValue)) {
+    throw new Error("Membership transition evidence is unavailable");
+  }
+  const transitions = value as RedactedMembershipTransition[];
+  const priorTransitions = priorValue as RedactedMembershipTransition[];
+  const priorMembers = new Map<
+    string,
+    { readonly revision: bigint; readonly sequence: number }
+  >();
+  for (const transition of priorTransitions) {
+    if (
+      transition.normalizedState === "member" &&
+      transition.decision === "member" &&
+      transition.freshnessBounded &&
+      transition.isCurrentRevision &&
+      transition.revision
+    ) {
+      priorMembers.set(transition.identityFingerprint, {
+        revision: BigInt(transition.revision),
+        sequence: transition.sequence,
+      });
+    }
+  }
+  const repaired = transitions.some((transition) => {
+    const priorMember = priorMembers.get(transition.identityFingerprint);
+    return (
+      transition.source === "reconciliation" &&
+      transition.normalizedState === "non_member" &&
+      transition.decision === "not_member" &&
+      transition.freshnessBounded &&
+      transition.isCurrentRevision &&
+      transition.revision !== null &&
+      priorMember !== undefined &&
+      transition.sequence > priorMember.sequence &&
+      BigInt(transition.revision) > priorMember.revision
+    );
+  });
+  if (!repaired) {
+    throw new Error(
+      "Reconciliation did not supersede positive Membership evidence with a current bounded denial",
+    );
+  }
+}
+
+async function findApplicationSnapshot(
+  path: string,
+  label: string,
+): Promise<Record<string, unknown>> {
+  const observations = await readObservations(path);
+  const snapshots = observations.applicationSnapshots;
+  if (!Array.isArray(snapshots)) {
+    throw new Error("Credentialed proof application snapshots are unavailable");
+  }
+  for (const value of [...snapshots].reverse()) {
+    const snapshot = providerRecord(value);
+    if (snapshot.label === label) {
+      return snapshot;
+    }
+  }
+  throw new Error(`Credentialed proof snapshot ${label} is unavailable`);
+}
+
+function fingerprint(value: string): string {
+  return createHash("sha256").update(value).digest("hex").slice(0, 12);
 }
 
 async function groupedNonNullCounts(
@@ -678,6 +960,24 @@ async function writeEvidence(
   await chmod(path, 0o600);
 }
 
+async function archiveExistingEvidence(path: string): Promise<void> {
+  try {
+    await readFile(path, "utf8");
+  } catch (error) {
+    if (isMissingFile(error)) {
+      return;
+    }
+    throw error;
+  }
+  await readObservations(path);
+  const archiveDirectory = `${dirname(path)}/archive`;
+  await mkdir(archiveDirectory, { mode: 0o700, recursive: true });
+  await chmod(archiveDirectory, 0o700);
+  const archivePath = `${archiveDirectory}/evidence-${String(Date.now())}-${String(process.pid)}.json`;
+  await rename(path, archivePath);
+  await chmod(archivePath, 0o600);
+}
+
 async function writePrivateValue(path: string, value: string): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   await writeFile(path, `${value}\n`, { mode: 0o600 });
@@ -723,6 +1023,26 @@ export function validateWebhookUrl(value: string | undefined): string {
   ) {
     throw new Error(
       "TELEGRAM_PROOF_WEBHOOK_URL must be a direct HTTPS URL on a Telegram-supported port",
+    );
+  }
+  return requiredValue;
+}
+
+export function validateCredentialedProofDatabaseUrl(
+  value: string | undefined,
+): string {
+  const requiredValue = required(value, "DATABASE_URL");
+  const url = new URL(requiredValue);
+  const database = decodeURIComponent(url.pathname.slice(1)).toLowerCase();
+  if (
+    (url.protocol !== "postgres:" && url.protocol !== "postgresql:") ||
+    !new Set(["127.0.0.1", "localhost", "[::1]"]).has(url.hostname) ||
+    url.search !== "" ||
+    url.hash !== "" ||
+    !/(?:issue9|proof)/u.test(database)
+  ) {
+    throw new Error(
+      "DATABASE_URL must select an isolated loopback issue9/proof database without routing parameters",
     );
   }
   return requiredValue;

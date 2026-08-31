@@ -26,10 +26,12 @@ export function parseRecoveryArguments(
   argumentsList: readonly string[],
   inputDocument: string,
 ): ParsedRecoveryArguments {
+  const normalizedArguments =
+    argumentsList[0] === "--" ? argumentsList.slice(1) : argumentsList;
   let dryRun = false;
   let execute = false;
 
-  for (const argument of argumentsList) {
+  for (const argument of normalizedArguments) {
     if (argument === "--dry-run") {
       dryRun = true;
       continue;

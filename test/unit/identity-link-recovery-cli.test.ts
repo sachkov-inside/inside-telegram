@@ -34,6 +34,12 @@ describe("identity-link recovery CLI", () => {
     });
   });
 
+  it("accepts one package-manager argument separator", () => {
+    expect(
+      parseRecoveryArguments(["--", "--dry-run"], inputDocument),
+    ).toMatchObject({ mode: "dry-run" });
+  });
+
   it("requires exact source and target confirmation for execute", () => {
     expect(() => parseRecoveryArguments(["--execute"], inputDocument)).toThrow(
       /CONFIRMED_SOURCE_ACCOUNT_REF/u,

@@ -1,10 +1,18 @@
 import "dotenv/config";
 
 import { createDatabase } from "../database/create-database.js";
-import { runCredentialedProofCommand } from "./credentialed-proof.js";
+import {
+  CREDENTIAL_PROOF_CAPTURE_PATH,
+  CREDENTIAL_PROOF_EVIDENCE_PATH,
+  runCredentialedProofCommand,
+} from "./credentialed-proof.js";
 
-const command = process.argv[2];
-const snapshotLabel = process.argv[3];
+const argumentsList = process.argv.slice(2);
+if (argumentsList[0] === "--") {
+  argumentsList.shift();
+}
+const command = argumentsList[0];
+const snapshotLabel = argumentsList[1];
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const botId = process.env.TELEGRAM_PROOF_BOT_ID;
 const botUsername = process.env.TELEGRAM_PROOF_BOT_USERNAME;
@@ -34,17 +42,15 @@ if (!command || !botToken || !botId || !botUsername) {
         botIdentity: process.env.TELEGRAM_BOT_IDENTITY ?? "inside",
         botToken,
         botUsername,
-        capturePath:
-          process.env.TELEGRAM_PROOF_CHAT_CAPTURE_PATH ??
-          ".credentialed-proof/chat-id",
+        capturePath: CREDENTIAL_PROOF_CAPTURE_PATH,
         chatId: process.env.TELEGRAM_CANONICAL_CHAT_ID,
-        evidencePath:
-          process.env.TELEGRAM_PROOF_EVIDENCE_PATH ??
-          ".credentialed-proof/evidence.json",
+        evidencePath: CREDENTIAL_PROOF_EVIDENCE_PATH,
         minimumAdminConfirmed:
           process.env.TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED,
         retryMarker: process.env.TELEGRAM_PROOF_RETRY_MARKER,
         snapshotLabel,
+        temporaryResourcesDisposed:
+          process.env.TELEGRAM_PROOF_TEMPORARY_RESOURCES_DISPOSED,
         webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
         webhookUrl: process.env.TELEGRAM_PROOF_WEBHOOK_URL,
       },

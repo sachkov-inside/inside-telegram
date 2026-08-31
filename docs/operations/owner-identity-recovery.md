@@ -38,7 +38,7 @@ protected input file with a trusted local editor; never put the values in a comm
 mkdir -p .credentialed-proof
 install -m 600 /dev/null .credentialed-proof/recovery-input.env
 ${EDITOR:?Set a trusted local editor} .credentialed-proof/recovery-input.env
-pnpm owner:recover-identity -- --dry-run < .credentialed-proof/recovery-input.env
+pnpm owner:recover-identity --dry-run < .credentialed-proof/recovery-input.env
 ```
 
 The file uses one `KEY=value` per line: `RECOVERY_REF`, `OPERATOR_REF`, `REASON_REF`,
@@ -56,7 +56,7 @@ Execute only after a successful dry-run and an independent owner comparison. Add
 re-entering the values exactly, then run:
 
 ```bash
-pnpm owner:recover-identity -- --execute < .credentialed-proof/recovery-input.env
+pnpm owner:recover-identity --execute < .credentialed-proof/recovery-input.env
 rm -f -- .credentialed-proof/recovery-input.env
 ```
 

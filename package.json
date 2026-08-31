@@ -13,6 +13,7 @@
     "check:full": "pnpm check && pnpm test:integration",
     "conformance:platform-provider": "tsx scripts/platform-conformance-provider.ts",
     "credentialed-proof:probe": "tsx src/operations/run-credentialed-proof.ts",
+    "credentialed-proof:preflight": "tsx src/operations/run-credentialed-proof-preflight.ts",
     "credentialed-proof:wizard": "bash scripts/credentialed-proof-wizard.sh",
     "db:migrate": "tsx src/database/migrate.ts",
     "dev": "tsx watch src/main.ts",

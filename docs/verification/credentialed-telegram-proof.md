@@ -12,14 +12,22 @@ pnpm credentialed-proof:wizard
 ```
 
 Before BotFather opens, the wizard verifies the required CLI versions, repository root, ignored
-destinations, isolated database URL, and owner login readiness. It binds every probe and recovery
-command to the selected `ENV_FILE` and gives the same `DOTENV_CONFIG_PATH` for the application
-terminal. Its thirteen resumable stages write credentials/provider
+destinations, an exact query-free loopback database URL, and owner login readiness. It loads the
+selected `ENV_FILE` with dotenv override enabled, so inherited environment values cannot win, and
+gives the same settings to the application terminal. Probe capture and evidence paths are fixed to
+ignored `.credentialed-proof/` files and cannot be redirected by environment. Its thirteen
+resumable stages write credentials/provider
 identifiers only to that mode-`0600` file. Machine observations are reduced to ordered stage
 snapshots containing status vocabulary, current administrator-right names, booleans, version
-ranges, and aggregate counts in ignored mode-`0600` `.credentialed-proof/evidence.json`. Neither
+ranges, redacted identity fingerprints, bounded-validity transition rows, and aggregate counts in
+ignored mode-`0600` `.credentialed-proof/evidence.json`. Neither
 file may be pasted into an issue, PR, log, or committed report. Static verification uses only
 non-secret fixtures:
+
+On a re-run, the existing bot and chat are reused without `/newbot` or `getUpdates`; prior redacted
+evidence is retained under ignored mode-`0700` `.credentialed-proof/archive/`, the active evidence
+file is restarted, and a fresh pre-scenario database baseline makes later aggregate deltas
+unambiguous.
 
 ```bash
 bash -n scripts/credentialed-proof-wizard.sh
@@ -39,14 +47,14 @@ confirmations. Record no identifiers or provider payloads in this document.
 | Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, and every current assignable administrator-right name | pending |
 | Webhook auth | correct secret accepted; missing/wrong secret rejected | pending |
 | Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | pending |
-| Webhook retry | exact synthetic marker absent during provider error/pending state, then present once after retry with provider queue drained | pending |
+| Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | pending |
 | Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | pending |
 | Link bearer | valid, expired, replay, concurrent consume, same-pair idempotence, conflict | pending |
-| Membership | reachable statuses match normalization; removal denies and newer rejoin restores | pending |
-| Reconciliation | deliberately missed removal repaired without stale positive extension | pending |
+| Membership | each reachable raw status/is-member pair is correlated to common normalization; ordered revisions show removal deny and newer rejoin restore | pending |
+| Reconciliation | `chat_member` is temporarily excluded, the missed removal leaves the pre-cadence revision unchanged, exact updates are restored, then a current bounded `reconciliation` denial supersedes the positive revision | pending |
 | Provider loss | bot demotion and provider outage degrade/fail closed; restoration recovers | pending |
 | Owner recovery | dry-run read-only; exact-confirm execute; idempotent replay; immutable audit | pending |
-| Disposal | webhook removed, pending test updates disposed, token revoked, chat/endpoint/secrets disposition recorded | pending |
+| Disposal | webhook removed, pending test updates disposed, old token rejected, chat/endpoint/secrets disposition recorded, provider identifiers removed from `.env` | pending |
 | Secret scan | Git tree, issue, PR, durable report, and captured output contain no token, raw PII, chat ID, or provider payload | pending |
 
 ## Final report fields
@@ -56,7 +64,7 @@ When complete, add only:
 - tested Git revisions and a rounded UTC proof window;
 - boolean result for every row above;
 - observed Telegram status and administrator-right vocabulary without chat/user/bot identifiers;
-- ordered stage snapshots with aggregate inbox/link/delivery/membership/provider/reconciliation/recovery counts and evidence-version ranges;
+- ordered stage snapshots with aggregate counts, evidence-version ranges, and redacted correlated Membership source/raw/normalized/decision/revision/freshness transitions;
 - owner recovery fingerprints, never raw references;
 - token/webhook/chat/endpoint disposal booleans;
 - Standards and Spec review verdicts.

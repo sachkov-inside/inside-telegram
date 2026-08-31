@@ -190,7 +190,7 @@ RECOVERY_INPUT_FILE=".credentialed-proof/recovery-input.env"
 umask 077
 
 preflight() {
-  local cli repository_root database_url expected_pnpm
+  local cli repository_root expected_pnpm
   for cli in git node pnpm; do
     if ! command -v "$cli" >/dev/null 2>&1; then
       warn "required CLI is unavailable: $cli"
@@ -212,6 +212,7 @@ preflight() {
     exit 1
   fi
   export DOTENV_CONFIG_PATH="$ENV_FILE"
+  export DOTENV_CONFIG_OVERRIDE=true
   if [[ "$PROOF_DRY_RUN" == "1" ]]; then
     return
   fi
@@ -227,19 +228,7 @@ preflight() {
   fi
   touch "$ENV_FILE"
   chmod 600 "$ENV_FILE"
-  database_url="$(_existing DATABASE_URL || true)"
-  if ! printf '%s' "$database_url" | node -e '
-    const value = require("node:fs").readFileSync(0, "utf8");
-    try {
-      const url = new URL(value);
-      const database = decodeURIComponent(url.pathname.slice(1)).toLowerCase();
-      const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]).has(url.hostname);
-      if (!url.protocol.startsWith("postgres") || !loopback || !/(issue9|proof)/u.test(database)) process.exit(1);
-    } catch { process.exit(1); }
-  '; then
-    warn "DATABASE_URL must select a loopback database whose name contains issue9 or proof"
-    exit 1
-  fi
+  pnpm credentialed-proof:preflight "$ENV_FILE"
 }
 
 remove_recovery_input() {
@@ -278,7 +267,7 @@ probe() {
   if [[ "$PROOF_DRY_RUN" == "1" ]]; then
     note "dry-run: skipped credentialed probe $*"
   else
-    pnpm credentialed-proof:probe -- "$@"
+    pnpm credentialed-proof:probe "$@"
   fi
 }
 
@@ -291,6 +280,7 @@ step "BotFather produces TELEGRAM_BOT_TOKEN; getMe verifies TELEGRAM_PROOF_BOT_I
 step "The closed chat produces TELEGRAM_CANONICAL_CHAT_ID; the temporary callback produces TELEGRAM_PROOF_WEBHOOK_URL."
 step "Webhook and Platform integration credentials are written only to $ENV_FILE and matching temporary Platform configuration."
 step "Redacted observations go to ignored .credentialed-proof/evidence.json; recovery input exists only in an ignored mode-0600 file removed after use and on exit."
+step "A re-run safely reuses the stored bot/chat, archives prior redacted evidence, and starts with a fresh database-count baseline."
 step "No GitHub secret, production environment, external message campaign, deploy, or production traffic is changed."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
   if ! confirm "Are primary-owner Telegram, BotFather, and temporary Platform sessions ready?"; then
@@ -308,11 +298,26 @@ if [[ "$PROOF_DRY_RUN" == "1" ]]; then
   TELEGRAM_BOT_TOKEN="123456:non_secret_fixture_token_abcdefghijklmnopqrstuvwxyz"
   TELEGRAM_PROOF_BOT_USERNAME="inside_fixture_bot"
 else
-  open_url "https://t.me/BotFather"
-  step "Send /newbot, create a dedicated temporary Sachkov Inside proof bot, and copy its token."
-  ask_secret TELEGRAM_BOT_TOKEN "Paste the temporary bot token (hidden):"
-  step "Copy the exact username BotFather assigned, without changing the bot or token."
-  ask TELEGRAM_PROOF_BOT_USERNAME "Bot username (with or without @):"
+  EXISTING_BOT_TOKEN="$(_existing TELEGRAM_BOT_TOKEN || true)"
+  EXISTING_BOT_USERNAME="$(_existing TELEGRAM_PROOF_BOT_USERNAME || true)"
+  if [[ "$EXISTING_BOT_TOKEN" =~ ^[1-9][0-9]{5,}:[A-Za-z0-9_-]{20,}$ && -n "$EXISTING_BOT_USERNAME" ]]; then
+    if ! confirm "Reuse the dedicated proof bot already stored in $ENV_FILE?"; then
+      warn "dispose or archive the existing proof before creating a different bot"
+      exit 1
+    fi
+    TELEGRAM_BOT_TOKEN="$EXISTING_BOT_TOKEN"
+    TELEGRAM_PROOF_BOT_USERNAME="$EXISTING_BOT_USERNAME"
+  else
+    if [[ -f .credentialed-proof/evidence.json ]]; then
+      warn "existing evidence has no reusable bot credential; archive it and start a new isolated proof"
+      exit 1
+    fi
+    open_url "https://t.me/BotFather"
+    step "Send /newbot, create a dedicated temporary Sachkov Inside proof bot, and copy its token."
+    ask_secret TELEGRAM_BOT_TOKEN "Paste the temporary bot token (hidden):"
+    step "Copy the exact username BotFather assigned, without changing the bot or token."
+    ask_secret TELEGRAM_PROOF_BOT_USERNAME "Bot username (hidden):"
+  fi
 fi
 if [[ ! "$TELEGRAM_BOT_TOKEN" =~ ^[1-9][0-9]{5,}:[A-Za-z0-9_-]{20,}$ ]]; then
   warn "token shape is not a Telegram Bot API token"
@@ -322,25 +327,38 @@ TELEGRAM_PROOF_BOT_ID="${TELEGRAM_BOT_TOKEN%%:*}"
 write_env TELEGRAM_BOT_TOKEN "$TELEGRAM_BOT_TOKEN"
 write_env TELEGRAM_PROOF_BOT_ID "$TELEGRAM_PROOF_BOT_ID"
 write_env TELEGRAM_PROOF_BOT_USERNAME "$TELEGRAM_PROOF_BOT_USERNAME"
+probe begin-proof-run
 probe verify-bot
 
 stage "Closed chat and minimum administration"
 if [[ "$PROOF_DRY_RUN" == "1" ]]; then
   TELEGRAM_CANONICAL_CHAT_ID="-1001234567890"
 else
-  open_url "https://web.telegram.org/"
-  step "Create a temporary private group, add only the proof participants, and add the dedicated bot."
+  EXISTING_CHAT_ID="$(_existing TELEGRAM_CANONICAL_CHAT_ID || true)"
+  if [[ "$EXISTING_CHAT_ID" =~ ^-[1-9][0-9]+$ && "$EXISTING_CHAT_ID" != "-1000000000000" ]]; then
+    if ! confirm "Reuse the closed proof chat already stored in $ENV_FILE?"; then
+      warn "dispose or archive the existing proof before selecting a different chat"
+      exit 1
+    fi
+    TELEGRAM_CANONICAL_CHAT_ID="$EXISTING_CHAT_ID"
+    step "Open the existing closed proof chat and inspect the dedicated bot's current administrator configuration."
+  else
+    open_url "https://web.telegram.org/"
+    step "Create a temporary private group, add only the proof participants, and add the dedicated bot."
+  fi
   step "Promote the bot to administrator; disable every client-assignable permission while retaining administrator status. can_manage_chat remains implied and is not an optional right."
   if ! confirm "Does the client now show every assignable administrator permission disabled?"; then
     warn "minimum administrator configuration is not confirmed"
     exit 1
   fi
   TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED=true
-  step "Send /proof_chat_id in that group so getUpdates can discover it before webhook setup."
-  pause "Press Enter after the group update is visible"
-  probe capture-chat-id
-  TELEGRAM_CANONICAL_CHAT_ID="$(<.credentialed-proof/chat-id)"
-  rm .credentialed-proof/chat-id
+  if [[ -z "${TELEGRAM_CANONICAL_CHAT_ID:-}" ]]; then
+    step "Send /proof_chat_id in that group so getUpdates can discover it before webhook setup."
+    pause "Press Enter after the group update is visible"
+    probe capture-chat-id
+    TELEGRAM_CANONICAL_CHAT_ID="$(<.credentialed-proof/chat-id)"
+    rm .credentialed-proof/chat-id
+  fi
 fi
 write_env TELEGRAM_CANONICAL_CHAT_ID "$TELEGRAM_CANONICAL_CHAT_ID"
 write_env TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED "${TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED:-true}"
@@ -354,9 +372,9 @@ if [[ "$PROOF_DRY_RUN" == "1" ]]; then
   PLATFORM_EVIDENCE_DELIVERY_SECRET="non_secret_fixture_evidence"
 else
   step "Start the task database and Telegram application from this checkout; expose only /webhooks/telegram through a temporary HTTPS endpoint."
-  ask TELEGRAM_PROOF_WEBHOOK_URL "Full temporary HTTPS webhook URL:"
+  ask_secret TELEGRAM_PROOF_WEBHOOK_URL "Full temporary HTTPS webhook URL (hidden):"
   step "Start the temporary Platform consumer and copy its Membership Evidence endpoint."
-  ask PLATFORM_EVIDENCE_DELIVERY_URL "Temporary Platform evidence URL:"
+  ask_secret PLATFORM_EVIDENCE_DELIVERY_URL "Temporary Platform evidence URL (hidden):"
   step "Copy the matching temporary Platform→Telegram linking bearer."
   ask_secret PLATFORM_INTEGRATION_SECRET "PLATFORM_INTEGRATION_SECRET (hidden):"
   step "Copy the separate matching Telegram→Platform evidence bearer."
@@ -373,10 +391,11 @@ write_env TELEGRAM_MEMBERSHIP_MODE live
 write_env TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
 write_env WORKERS_ENABLED true
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  step "In the Telegram application terminal, export DOTENV_CONFIG_PATH='$ENV_FILE', run pnpm db:migrate, then start or restart the application."
+  step "In the Telegram application terminal, export DOTENV_CONFIG_PATH='$ENV_FILE' and DOTENV_CONFIG_OVERRIDE=true, run pnpm db:migrate, then start or restart the application."
   step "Start or restart the temporary Platform consumer with the matching credentials shown in this scope."
   pause "Press Enter when both applications and the HTTPS endpoint are healthy"
 fi
+probe snapshot baseline
 
 stage "Webhook contract"
 step "Keep the application and HTTPS endpoint running. The probe sets only message, my_chat_member, and chat_member updates with the separate secret token."
@@ -397,12 +416,12 @@ if [[ "$PROOF_DRY_RUN" != "1" ]]; then
   fi
   write_env TELEGRAM_PROOF_RETRY_MARKER "$TELEGRAM_PROOF_RETRY_MARKER"
   write_env WORKERS_ENABLED false
-  step "Stop the callback, then send this exact non-secret marker in the proof chat: $TELEGRAM_PROOF_RETRY_MARKER"
-  pause "Press Enter after Telegram has attempted delivery while the callback is stopped"
+  step "Configure the temporary HTTPS edge to return HTTP 503 without forwarding, then send this exact non-secret marker in the proof chat: $TELEGRAM_PROOF_RETRY_MARKER"
+  pause "Press Enter after getWebhookInfo reports the HTTP 503 delivery failure"
 fi
 probe observe-webhook-outage
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  step "Restart the callback with WORKERS_ENABLED=false and do not send the marker again."
+  step "Restore forwarding to the callback with WORKERS_ENABLED=false and do not send the marker again."
   pause "Press Enter after Telegram has retried the failed marker"
 fi
 probe verify-webhook-recovered
@@ -438,7 +457,14 @@ if [[ "$PROOF_DRY_RUN" != "1" ]]; then
   pause "Press Enter after rejoin is observed"
 fi
 probe snapshot membership-rejoined
-step "Suppress a new removal event, then allow reconciliation to repair it without extending stale positive evidence."
+step "Temporarily exclude chat_member from allowed_updates, remove the subject, and capture the unchanged pre-reconciliation revision."
+probe suppress-membership-events
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter immediately after the removal, before the reconciliation cadence"
+fi
+probe snapshot removal-event-suppressed
+probe configure-webhook
+step "With exact allowed_updates restored, wait for reconciliation to repair the missed removal without extending stale positive evidence."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
   pause "Press Enter after reconciliation has repaired the missed removal"
 fi
@@ -495,7 +521,7 @@ else
   CONFIRMED_SOURCE_ACCOUNT_REF=""
   CONFIRMED_TARGET_ACCOUNT_REF=""
   write_recovery_input
-  pnpm owner:recover-identity -- --dry-run < "$RECOVERY_INPUT_FILE"
+  pnpm owner:recover-identity --dry-run < "$RECOVERY_INPUT_FILE"
   step "Compare the printed source/target fingerprints with the separately recorded owner values."
   if ! confirm "Execute this transfer on the temporary recovery fixture?"; then
     warn "actual recovery rehearsal is incomplete"
@@ -504,7 +530,7 @@ else
   ask_secret CONFIRMED_SOURCE_ACCOUNT_REF "Re-enter the source Principal reference (hidden):"
   ask_secret CONFIRMED_TARGET_ACCOUNT_REF "Re-enter the target Principal reference (hidden):"
   write_recovery_input
-  pnpm owner:recover-identity -- --execute < "$RECOVERY_INPUT_FILE"
+  pnpm owner:recover-identity --execute < "$RECOVERY_INPUT_FILE"
   remove_recovery_input
   unset TELEGRAM_IDENTITY_REF SOURCE_ACCOUNT_REF TARGET_ACCOUNT_REF TARGET_LINK_TRANSACTION_REF
   unset CONFIRMED_SOURCE_ACCOUNT_REF CONFIRMED_TARGET_ACCOUNT_REF
@@ -513,9 +539,9 @@ probe snapshot owner-recovery
 
 stage "Redacted evidence handoff"
 probe snapshot final
-step "Give .credentialed-proof/evidence.json to the reviewing agent locally; never paste it into an issue or PR."
-step "The reviewer records only boolean outcomes, status vocabulary, counts, timestamps rounded to the proof window, and credential disposal."
-step "Do not proceed if any acceptance scenario is missing; rerun the relevant stage instead."
+step "Inspect .credentialed-proof/evidence.json locally; never paste it into an issue or PR."
+step "Do not start disposal if any acceptance scenario is missing; rerun the relevant stage instead."
+step "The final reviewer handoff happens only after the disposal stage adds its redacted observations."
 
 stage "Credential and temporary-resource disposal"
 if [[ "$PROOF_DRY_RUN" == "1" ]]; then
@@ -532,12 +558,25 @@ else
   probe verify-revoked
   step "Delete or leave the temporary closed group according to the recorded disposition; remove the temporary HTTPS endpoint and Platform credentials."
   pause "Press Enter after the chat, endpoint, and matching Platform secrets are disposed"
+  write_env TELEGRAM_PROOF_TEMPORARY_RESOURCES_DISPOSED true
+  probe record-resource-disposal
   write_env TELEGRAM_BOT_TOKEN revoked
+  write_env TELEGRAM_PROOF_BOT_ID disposed
+  write_env TELEGRAM_PROOF_BOT_USERNAME disposed
   write_env TELEGRAM_WEBHOOK_SECRET disposed
   write_env TELEGRAM_CANONICAL_CHAT_ID disposed
   write_env TELEGRAM_PROOF_WEBHOOK_URL disposed
+  write_env TELEGRAM_PROOF_RETRY_MARKER disposed
   write_env PLATFORM_INTEGRATION_SECRET disposed
+  write_env PLATFORM_EVIDENCE_DELIVERY_URL disposed
   write_env PLATFORM_EVIDENCE_DELIVERY_SECRET disposed
+  write_env PLATFORM_EVIDENCE_DELIVERY_MODE disabled
+  write_env TELEGRAM_DELIVERY_MODE disabled
+  write_env TELEGRAM_MEMBERSHIP_MODE disabled
+  write_env WORKERS_ENABLED false
+  unset TELEGRAM_BOT_TOKEN TELEGRAM_PROOF_BOT_ID TELEGRAM_PROOF_BOT_USERNAME
+  unset TELEGRAM_CANONICAL_CHAT_ID TELEGRAM_PROOF_WEBHOOK_URL TELEGRAM_PROOF_RETRY_MARKER
+  step "Give the final redacted evidence file to the reviewing agent locally and retain no terminal transcript."
 fi
 
 finish
