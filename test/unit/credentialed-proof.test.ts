@@ -177,6 +177,28 @@ describe("credentialed Telegram proof redaction", () => {
     );
   });
 
+  it("records owner acceptance of observed administrator rights for a disposable proof chat", () => {
+    expect(
+      validateChatAdministration(
+        { id: -100123, type: "supergroup" },
+        {
+          can_delete_messages: true,
+          can_manage_chat: true,
+          can_restrict_members: true,
+          status: "administrator",
+        },
+        true,
+        true,
+      ),
+    ).toMatchObject({
+      assignableRights: {
+        can_delete_messages: true,
+        can_restrict_members: true,
+      },
+      observedAdminRightsAcceptedByOwner: true,
+    });
+  });
+
   it("requires the exact callback and allowed update vocabulary", () => {
     expect(
       validateWebhookInfo(

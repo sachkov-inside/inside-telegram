@@ -24,6 +24,11 @@ ignored mode-`0600` `.credentialed-proof/evidence.json`. Neither
 file may be pasted into an issue, PR, log, or committed report. Static verification uses only
 non-secret fixtures:
 
+For a disposable proof chat, the owner may explicitly accept the administrator rights currently
+reported by Telegram with `TELEGRAM_PROOF_OBSERVED_ADMIN_RIGHTS_ACCEPTED=true`. The probe records
+that acceptance and the observed right names in private evidence. This proof-only override does
+not change the application's runtime permissions or its production recommendation.
+
 On a re-run, the existing bot and chat are reused without `/newbot` or `getUpdates`; prior redacted
 evidence is retained under ignored mode-`0700` `.credentialed-proof/archive/`, the active evidence
 file is restarted, and a fresh pre-scenario database baseline makes later aggregate deltas

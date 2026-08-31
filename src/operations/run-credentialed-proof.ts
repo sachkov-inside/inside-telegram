@@ -47,6 +47,8 @@ if (!command || !botToken || !botId || !botUsername) {
         evidencePath: CREDENTIAL_PROOF_EVIDENCE_PATH,
         minimumAdminConfirmed:
           process.env.TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED,
+        observedAdminRightsAccepted:
+          process.env.TELEGRAM_PROOF_OBSERVED_ADMIN_RIGHTS_ACCEPTED,
         retryMarker: process.env.TELEGRAM_PROOF_RETRY_MARKER,
         snapshotLabel,
         temporaryResourcesDisposed:

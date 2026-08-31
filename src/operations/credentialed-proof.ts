@@ -50,6 +50,7 @@ export interface TelegramProofEnvironment {
   readonly chatId?: string;
   readonly evidencePath: string;
   readonly minimumAdminConfirmed?: string;
+  readonly observedAdminRightsAccepted?: string;
   readonly retryMarker?: string;
   readonly snapshotLabel?: string;
   readonly temporaryResourcesDisposed?: string;
@@ -106,6 +107,7 @@ export async function runCredentialedProofCommand(
       chat,
       member,
       environment.minimumAdminConfirmed === "true",
+      environment.observedAdminRightsAccepted === "true",
     );
     await appendObservation(
       environment.evidencePath,
@@ -400,12 +402,14 @@ export function validateChatAdministration(
   chatValue: unknown,
   memberValue: unknown,
   minimumClientConfigurationConfirmed: boolean,
+  observedAdminRightsAcceptedByOwner = false,
 ): {
   assignableRights: Record<string, boolean>;
   botStatus: "administrator";
   chatType: "group" | "supergroup";
   inheritedMemberRights: Record<string, boolean>;
   minimumClientConfigurationConfirmed: true;
+  observedAdminRightsAcceptedByOwner?: true;
   impliedManageChat: true;
 } {
   const chat = providerRecord(chatValue);
@@ -439,7 +443,8 @@ export function validateChatAdministration(
       "Minimum client-assignable administrator configuration is not confirmed",
     );
   }
-  if (Object.values(assignableRights).some(Boolean)) {
+  const hasElevatedAdminRights = Object.values(assignableRights).some(Boolean);
+  if (hasElevatedAdminRights && !observedAdminRightsAcceptedByOwner) {
     throw new Error(
       "Dedicated bot has elevated client-assignable administrator rights",
     );
@@ -451,6 +456,9 @@ export function validateChatAdministration(
     inheritedMemberRights,
     impliedManageChat: true,
     minimumClientConfigurationConfirmed: true,
+    ...(hasElevatedAdminRights
+      ? { observedAdminRightsAcceptedByOwner: true as const }
+      : {}),
   };
 }
 
