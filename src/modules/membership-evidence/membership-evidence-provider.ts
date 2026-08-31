@@ -248,36 +248,6 @@ export class MembershipEvidenceProvider {
         sourceUpdateId: envelope.updateId,
         state: transition.state,
       });
-      if (transition.state !== "ready") {
-        const recovery = await transaction
-          .selectFrom("membership_provider_observations")
-          .select(["observed_at", "source_update_id"])
-          .where("bot_identity", "=", envelope.botIdentity)
-          .where("state", "=", "ready")
-          .where((expression) =>
-            expression.or([
-              expression("observed_at", ">", envelope.eventAt),
-              expression.and([
-                expression("observed_at", "=", envelope.eventAt),
-                expression("source_update_id", ">", envelope.updateId),
-              ]),
-            ]),
-          )
-          .orderBy("observed_at")
-          .orderBy("source_update_id")
-          .orderBy("id")
-          .executeTakeFirst();
-        await rejectUnsafePositiveEvidence(
-          transaction,
-          { observedAt: envelope.eventAt, updateId: envelope.updateId },
-          recovery
-            ? {
-                observedAt: recovery.observed_at,
-                updateId: recovery.source_update_id,
-              }
-            : undefined,
-        );
-      }
       await recordMembershipEventAudit(transaction, envelope, {
         diagnosticCode: observation.acceptedAsCurrent
           ? transition.diagnosticCode
@@ -870,6 +840,23 @@ async function recordProviderObservation(
     )
     .execute();
 
+  if (record.state !== "ready") {
+    const recovery = await nextReadyProviderObservation(transaction, record);
+    await rejectUnsafePositiveEvidence(
+      transaction,
+      {
+        observedAt: record.observedAt,
+        updateId: record.sourceUpdateId,
+      },
+      recovery
+        ? {
+            observedAt: recovery.observed_at,
+            updateId: recovery.source_update_id,
+          }
+        : undefined,
+    );
+  }
+
   const inserted = await transaction
     .insertInto("membership_provider_state")
     .values({
@@ -937,9 +924,47 @@ async function recordProviderObservation(
   };
 }
 
+async function nextReadyProviderObservation(
+  transaction: Transaction<DatabaseSchema>,
+  record: ProviderObservationRecord,
+) {
+  let recovery = transaction
+    .selectFrom("membership_provider_observations")
+    .select(["observed_at", "source_update_id"])
+    .where("bot_identity", "=", record.botIdentity)
+    .where("state", "=", "ready");
+  recovery = record.sourceUpdateId
+    ? recovery.where((expression) =>
+        expression.or([
+          expression("observed_at", ">", record.observedAt),
+          expression.and([
+            expression("observed_at", "=", record.observedAt),
+            expression("source_update_id", ">", record.sourceUpdateId!),
+          ]),
+        ]),
+      )
+    : recovery.where((expression) =>
+        expression.or([
+          expression("observed_at", ">", record.observedAt),
+          expression.and([
+            expression("observed_at", "=", record.observedAt),
+            expression("source_update_id", "is not", null),
+          ]),
+        ]),
+      );
+  return recovery
+    .orderBy("observed_at")
+    .orderBy("source_update_id")
+    .orderBy("id")
+    .executeTakeFirst();
+}
+
 async function rejectUnsafePositiveEvidence(
   transaction: Transaction<DatabaseSchema>,
-  providerLost: { readonly observedAt: Date; readonly updateId: string },
+  providerLost: {
+    readonly observedAt: Date;
+    readonly updateId: string | null;
+  },
   providerRecovered?: {
     readonly observedAt: Date;
     readonly updateId: string | null;
@@ -948,13 +973,16 @@ async function rejectUnsafePositiveEvidence(
   let unsafeResults = transaction
     .selectFrom("membership_check_results")
     .select("result_ref")
-    .where("normalized_state", "=", "member").where(sql<boolean>`(
-      observed_at > ${providerLost.observedAt}
-      or (
-        observed_at = ${providerLost.observedAt}
-        and observation_update_id >= ${providerLost.updateId}
-      )
-    )`);
+    .where("normalized_state", "=", "member");
+  unsafeResults = providerLost.updateId
+    ? unsafeResults.where(sql<boolean>`(
+        observed_at > ${providerLost.observedAt}
+        or (
+          observed_at = ${providerLost.observedAt}
+          and observation_update_id >= ${providerLost.updateId}
+        )
+      )`)
+    : unsafeResults.where("observed_at", ">=", providerLost.observedAt);
   if (providerRecovered) {
     unsafeResults = providerRecovered.updateId
       ? unsafeResults.where(sql<boolean>`(

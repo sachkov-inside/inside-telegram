@@ -755,6 +755,53 @@ describe("durable Membership events", () => {
     });
   });
 
+  it("cancels queued positives after a delayed direct provider demotion", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:17:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1701",
+    });
+
+    const delayedDirect = new MembershipEvidenceProvider(
+      database,
+      config,
+      { now: () => new Date("2030-01-01T00:16:00.000Z") },
+      new DemotedTelegramMembership(),
+    );
+    await expect(
+      delayedDirect.observe({
+        checkRef: "delayed-direct-provider-check",
+        telegramIdentityRef: confirmation.telegramIdentityRef,
+      }),
+    ).resolves.toMatchObject({ providerState: "degraded" });
+
+    const queued = await database
+      .selectFrom("membership_evidence_outbox")
+      .select(["diagnostic_code", "state"])
+      .where("result_ref", "=", "membership-event:inside:1701")
+      .executeTakeFirstOrThrow();
+    expect(queued).toEqual({
+      diagnostic_code: "provider_lost_before_delivery",
+      state: "rejected",
+    });
+  });
+
   it("cancels a pending positive that was observed after delayed admin loss", async () => {
     const confirmation = await confirmLink("42");
     const provider = new MembershipEvidenceProvider(
@@ -1066,6 +1113,12 @@ class ControlledTelegramMembership implements TelegramMembership {
   }
 
   async getChatMember(): Promise<TelegramChatMemberResult> {
+    return { kind: "observed", value: { status: "member" } };
+  }
+}
+
+class DemotedTelegramMembership extends ControlledTelegramMembership {
+  override async getBotChatMember(): Promise<TelegramChatMemberResult> {
     return { kind: "observed", value: { status: "member" } };
   }
 }
