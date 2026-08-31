@@ -420,7 +420,11 @@ describe("durable Membership reconciliation", () => {
     await replacementRead.started;
 
     firstRead.resume();
-    await staleWorker;
+    await expect(staleWorker).resolves.toMatchObject({
+      failed: 1,
+      processed: 1,
+      succeeded: 0,
+    });
     const replacementLease = await database
       .selectFrom("membership_reconciliations")
       .select(["attempt_count", "lease_token", "state"])
@@ -443,6 +447,16 @@ describe("durable Membership reconciliation", () => {
       attempt_count: 0,
       lease_token: null,
       state: "pending",
+    });
+    const latestEvidence = await database
+      .selectFrom("membership_check_results")
+      .select(["evidence_version", "normalized_state"])
+      .where("telegram_identity_ref", "=", identityRef)
+      .orderBy("id", "desc")
+      .executeTakeFirstOrThrow();
+    expect(latestEvidence).toEqual({
+      evidence_version: "2",
+      normalized_state: "non_member",
     });
   });
 

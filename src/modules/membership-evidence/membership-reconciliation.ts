@@ -30,12 +30,21 @@ export interface ReconciliationBatchOutcome {
   readonly succeeded: number;
 }
 
-interface ClaimedReconciliation {
-  readonly attemptNumber: number;
-  readonly checkRef: string;
+export interface ReconciliationMembershipCheck extends LinkMembershipCheck {
+  readonly leaseExpiresAt: Date;
   readonly leaseToken: string;
+}
+
+export class ReconciliationLeaseLostError extends Error {
+  constructor() {
+    super("Membership reconciliation lease is no longer current");
+    this.name = "ReconciliationLeaseLostError";
+  }
+}
+
+interface ClaimedReconciliation extends ReconciliationMembershipCheck {
+  readonly attemptNumber: number;
   readonly recoveredLeases: number;
-  readonly telegramIdentityRef: string;
 }
 
 export async function reconcileMembershipDue(
@@ -44,7 +53,7 @@ export async function reconcileMembershipDue(
   clock: Clock,
   cadenceMilliseconds: number,
   observe: (
-    check: LinkMembershipCheck,
+    check: ReconciliationMembershipCheck,
     timeoutMilliseconds: number,
   ) => Promise<EvidenceOutcome>,
 ): Promise<ReconciliationBatchOutcome> {
@@ -89,7 +98,11 @@ export async function reconcileMembershipDue(
         succeeded += 1;
         await complete(database, claimed, completedAt, cadenceMilliseconds);
       }
-    } catch {
+    } catch (error) {
+      if (error instanceof ReconciliationLeaseLostError) {
+        failed += 1;
+        continue;
+      }
       failed += 1;
       await retry(database, claimed, clock.now(), "reconciliation_failed");
     }
@@ -199,6 +212,9 @@ async function claimNext(
     return {
       attemptNumber,
       checkRef: `reconciliation:${due.telegram_identity_ref}:${due.due_at.getTime()}`,
+      leaseExpiresAt: new Date(
+        now.getTime() + RECONCILIATION_LEASE_MILLISECONDS,
+      ),
       leaseToken,
       recoveredLeases: Number(recovered.numUpdatedRows),
       telegramIdentityRef: due.telegram_identity_ref,

@@ -28,8 +28,10 @@ import {
 } from "./membership-normalization.js";
 import { lockProviderStateChanges } from "./membership-provider-delivery-lock.js";
 import {
+  ReconciliationLeaseLostError,
   reconcileMembershipDue,
   type ReconciliationBatchOutcome,
+  type ReconciliationMembershipCheck,
   type WorkBudget,
 } from "./membership-reconciliation.js";
 import {
@@ -49,6 +51,10 @@ export interface LinkMembershipCheck {
 
 interface MembershipObservationCheck extends LinkMembershipCheck {
   readonly planResponse: boolean;
+  readonly reconciliationLease?: Pick<
+    ReconciliationMembershipCheck,
+    "leaseExpiresAt" | "leaseToken"
+  >;
   readonly timeoutMilliseconds: number;
 }
 
@@ -328,6 +334,7 @@ export class MembershipEvidenceProvider {
     const observedAt = this.clock.now();
 
     return this.database.transaction().execute(async (transaction) => {
+      await assertCurrentReconciliationLease(transaction, check, observedAt);
       await lockProviderStateChanges(transaction, link.bot_identity);
       const lockedLink = await transaction
         .selectFrom("platform_links")
@@ -444,8 +451,10 @@ export class MembershipEvidenceProvider {
       this.config.membershipReconciliationCadenceMilliseconds,
       (check, timeoutMilliseconds) =>
         this.observeMembership({
-          ...check,
+          checkRef: check.checkRef,
           planResponse: false,
+          reconciliationLease: check,
+          telegramIdentityRef: check.telegramIdentityRef,
           timeoutMilliseconds,
         }),
     );
@@ -554,6 +563,29 @@ export class MembershipEvidenceProvider {
       providerState: "ready",
       rawChatMember: bot.value,
     };
+  }
+}
+
+async function assertCurrentReconciliationLease(
+  transaction: Transaction<DatabaseSchema>,
+  check: MembershipObservationCheck,
+  observedAt: Date,
+): Promise<void> {
+  if (!check.reconciliationLease) {
+    return;
+  }
+  const currentLease = await transaction
+    .selectFrom("membership_reconciliations")
+    .select(["lease_token", "state"])
+    .where("telegram_identity_ref", "=", check.telegramIdentityRef)
+    .forUpdate()
+    .executeTakeFirst();
+  if (
+    currentLease?.state !== "processing" ||
+    currentLease.lease_token !== check.reconciliationLease.leaseToken ||
+    observedAt >= check.reconciliationLease.leaseExpiresAt
+  ) {
+    throw new ReconciliationLeaseLostError();
   }
 }
 
