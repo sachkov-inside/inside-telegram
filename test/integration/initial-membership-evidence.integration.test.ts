@@ -148,6 +148,7 @@ describe("initial Membership Evidence", () => {
   it("rebuilds its migration down and forward", async () => {
     const { migrateDown } = await import("../../src/database/migrator.js");
     await migrateDown(database);
+    await migrateDown(database);
     const removed = await sql<{ exists: boolean }>`
       select exists (
         select 1 from information_schema.tables

@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
-import { sql } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 
 import {
   APPLICATION_CONFIG,
@@ -10,6 +10,8 @@ import {
 import {
   DATABASE,
   type Database,
+  type DatabaseSchema,
+  type MembershipEventDisposition,
   type MembershipProviderState,
   type NormalizedMembershipState,
 } from "../../database/database.js";
@@ -37,6 +39,22 @@ export interface LinkMembershipCheck {
   readonly checkRef: string;
   readonly telegramIdentityRef: string;
 }
+
+interface DurableMembershipEnvelopeBase {
+  readonly botIdentity: string;
+  readonly canonicalChatId: string;
+  readonly chatMember: TelegramChatMember;
+  readonly eventAt: Date;
+  readonly updateId: string;
+}
+
+export type DurableMembershipEnvelope =
+  | (DurableMembershipEnvelopeBase & {
+      readonly actorIsSubject: boolean;
+      readonly kind: "subject";
+      readonly subjectTelegramUserId: string;
+    })
+  | (DurableMembershipEnvelopeBase & { readonly kind: "provider" });
 
 export interface EvidenceOutcome {
   readonly evidence: MembershipEvidence;
@@ -80,6 +98,213 @@ export class MembershipEvidenceProvider {
       )
       .execute();
     return prerequisite.providerState;
+  }
+
+  async accept(
+    envelope: DurableMembershipEnvelope,
+  ): Promise<EvidenceOutcome | undefined> {
+    assertMembershipEnvelope(envelope);
+    if (
+      envelope.botIdentity !== this.config.botIdentity ||
+      envelope.canonicalChatId !== this.config.canonicalChatId
+    ) {
+      return undefined;
+    }
+    if (envelope.kind === "provider") {
+      await this.acceptProviderEvent(envelope);
+      return undefined;
+    }
+
+    const link = await this.database
+      .selectFrom("platform_links")
+      .select(["account_ref", "telegram_identity_ref"])
+      .where("bot_identity", "=", envelope.botIdentity)
+      .where("telegram_user_id", "=", envelope.subjectTelegramUserId)
+      .executeTakeFirst();
+    if (!link) {
+      await recordMembershipEventAudit(this.database, envelope, {
+        diagnosticCode: "unlinked_subject",
+        disposition: "unlinked_subject",
+        normalizedState: normalizeChatMember(envelope.chatMember),
+        resultRef: null,
+        subjectLinked: false,
+      });
+      return undefined;
+    }
+
+    const resultRef = `membership-event:${envelope.botIdentity}:${envelope.updateId}`;
+    const existing = await this.existingOutcome(resultRef);
+    if (existing) {
+      return existing;
+    }
+
+    const observedState = normalizeChatMember(envelope.chatMember);
+
+    return this.database.transaction().execute(async (transaction) => {
+      const lockedLink = await transaction
+        .selectFrom("platform_links")
+        .select([
+          "account_ref",
+          "bot_identity",
+          "evidence_version",
+          "last_membership_event_at",
+          "last_membership_event_update_id",
+        ])
+        .where("telegram_identity_ref", "=", link.telegram_identity_ref)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      const storedProvider = await transaction
+        .selectFrom("membership_provider_state")
+        .select(["diagnostic_code", "state"])
+        .where("bot_identity", "=", lockedLink.bot_identity)
+        .forUpdate()
+        .executeTakeFirst();
+      let providerState: MembershipProviderState =
+        storedProvider?.state ?? "unavailable";
+      const alreadyStored = await transaction
+        .selectFrom("membership_evidence_outbox")
+        .select("envelope")
+        .where("result_ref", "=", resultRef)
+        .executeTakeFirst();
+      if (alreadyStored) {
+        return {
+          evidence: readStoredMembershipEvidence(alreadyStored.envelope),
+          providerState,
+          responsePlanned: false,
+        };
+      }
+      if (
+        !isNewerMembershipEvent(
+          envelope,
+          lockedLink.last_membership_event_at,
+          lockedLink.last_membership_event_update_id,
+        )
+      ) {
+        await recordMembershipEventAudit(transaction, envelope, {
+          diagnosticCode: "older_membership_event",
+          disposition: "ignored_older",
+          normalizedState: observedState,
+          resultRef: null,
+          subjectLinked: true,
+        });
+        return undefined;
+      }
+      let normalizedState = observedState;
+      let diagnosticCode: string | null = null;
+      if (observedState === "unavailable") {
+        providerState = "unavailable";
+        diagnosticCode = "unknown_chat_member_status";
+      } else if (observedState === "member" && providerState !== "ready") {
+        normalizedState = "unavailable";
+        diagnosticCode =
+          storedProvider?.diagnostic_code ?? "bot_administrator_required";
+      }
+
+      const evidence = await recordEvidence(transaction, {
+        accountRef: lockedLink.account_ref,
+        diagnosticCode,
+        event: envelope,
+        normalizedState,
+        observedAt: envelope.eventAt,
+        rawChatMember: envelope.chatMember,
+        resultRef,
+        telegramIdentityRef: link.telegram_identity_ref,
+      });
+      if (observedState === "unavailable") {
+        await transaction
+          .updateTable("membership_provider_state")
+          .set({
+            diagnostic_code: diagnosticCode,
+            state: providerState,
+            updated_at: envelope.eventAt,
+          })
+          .where("bot_identity", "=", lockedLink.bot_identity)
+          .execute();
+      }
+      await recordMembershipEventAudit(transaction, envelope, {
+        diagnosticCode,
+        disposition: "evidence",
+        normalizedState,
+        resultRef,
+        subjectLinked: true,
+      });
+
+      return { evidence, providerState, responsePlanned: false };
+    });
+  }
+
+  private async acceptProviderEvent(
+    envelope: Extract<DurableMembershipEnvelope, { kind: "provider" }>,
+  ): Promise<void> {
+    const transition = providerTransition(envelope.chatMember);
+    await this.database.transaction().execute(async (transaction) => {
+      const inserted = await transaction
+        .insertInto("membership_provider_state")
+        .values({
+          bot_identity: envelope.botIdentity,
+          canonical_chat_id: envelope.canonicalChatId,
+          diagnostic_code: transition.diagnosticCode,
+          last_provider_event_at: envelope.eventAt,
+          last_provider_event_update_id: envelope.updateId,
+          state: transition.state,
+          updated_at: envelope.eventAt,
+        })
+        .onConflict((conflict) => conflict.column("bot_identity").doNothing())
+        .returning("bot_identity")
+        .executeTakeFirst();
+      if (inserted) {
+        await recordMembershipEventAudit(transaction, envelope, {
+          diagnosticCode: transition.diagnosticCode,
+          disposition: "provider_state",
+          normalizedState: normalizeChatMember(envelope.chatMember),
+          resultRef: null,
+          subjectLinked: null,
+        });
+        return;
+      }
+
+      const current = await transaction
+        .selectFrom("membership_provider_state")
+        .select(["last_provider_event_at", "last_provider_event_update_id"])
+        .where("bot_identity", "=", envelope.botIdentity)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (
+        !isNewerMembershipEvent(
+          envelope,
+          current.last_provider_event_at,
+          current.last_provider_event_update_id,
+        )
+      ) {
+        await recordMembershipEventAudit(transaction, envelope, {
+          diagnosticCode: "older_provider_event",
+          disposition: "ignored_older",
+          normalizedState: normalizeChatMember(envelope.chatMember),
+          resultRef: null,
+          subjectLinked: null,
+        });
+        return;
+      }
+      await transaction
+        .updateTable("membership_provider_state")
+        .set({
+          canonical_chat_id: envelope.canonicalChatId,
+          diagnostic_code: transition.diagnosticCode,
+          last_provider_event_at: envelope.eventAt,
+          last_provider_event_update_id: envelope.updateId,
+          state: transition.state,
+          updated_at: envelope.eventAt,
+        })
+        .where("bot_identity", "=", envelope.botIdentity)
+        .execute();
+      await recordMembershipEventAudit(transaction, envelope, {
+        diagnosticCode: transition.diagnosticCode,
+        disposition: "provider_state",
+        normalizedState: normalizeChatMember(envelope.chatMember),
+        resultRef: null,
+        subjectLinked: null,
+      });
+    });
   }
 
   async observe(check: LinkMembershipCheck): Promise<EvidenceOutcome> {
@@ -149,61 +374,15 @@ export class MembershipEvidenceProvider {
         };
       }
 
-      let evidenceVersion: number | undefined;
-      let evidenceRef: string | undefined;
-      if (observed.normalizedState !== "unavailable") {
-        const revision = await transaction
-          .updateTable("platform_links")
-          .set({ evidence_version: sql`evidence_version + 1` })
-          .where("telegram_identity_ref", "=", check.telegramIdentityRef)
-          .returning("evidence_version")
-          .executeTakeFirstOrThrow();
-        evidenceVersion = Number(revision.evidence_version);
-        if (!Number.isSafeInteger(evidenceVersion) || evidenceVersion < 1) {
-          throw new Error("Membership Evidence revision is outside JSON range");
-        }
-        evidenceRef = randomUUID();
-      }
-
-      const evidence = createEvidence(
-        lockedLink.account_ref,
-        check.telegramIdentityRef,
-        observed.normalizedState,
+      const evidence = await recordEvidence(transaction, {
+        accountRef: lockedLink.account_ref,
+        diagnosticCode: observed.diagnosticCode,
+        normalizedState: observed.normalizedState,
         observedAt,
-        evidenceVersion,
-        evidenceRef,
-      );
-      const outboxId = randomUUID();
-
-      await transaction
-        .insertInto("membership_check_results")
-        .values({
-          diagnostic_code: observed.diagnosticCode,
-          evidence_ref: evidenceRef ?? null,
-          evidence_version: evidenceVersion ?? null,
-          normalized_state: observed.normalizedState,
-          result_ref: check.checkRef,
-          observed_at: observedAt,
-          raw_is_member: observed.rawChatMember?.isMember ?? null,
-          raw_status: observed.rawChatMember?.status ?? null,
-          telegram_identity_ref: check.telegramIdentityRef,
-        })
-        .execute();
-      await transaction
-        .insertInto("membership_evidence_outbox")
-        .values({
-          attempt_count: 0,
-          available_at: observedAt,
-          delivered_at: null,
-          diagnostic_code: null,
-          envelope: evidence,
-          id: outboxId,
-          locked_at: null,
-          result_ref: check.checkRef,
-          state: "pending",
-          updated_at: observedAt,
-        })
-        .execute();
+        rawChatMember: observed.rawChatMember,
+        resultRef: check.checkRef,
+        telegramIdentityRef: check.telegramIdentityRef,
+      });
       await transaction
         .insertInto("membership_provider_state")
         .values({
@@ -401,6 +580,98 @@ async function safeTelegramRead(
   }
 }
 
+async function recordEvidence(
+  transaction: Transaction<DatabaseSchema>,
+  record: {
+    readonly accountRef: string;
+    readonly diagnosticCode: string | null;
+    readonly event?: Pick<
+      DurableMembershipEnvelopeBase,
+      "eventAt" | "updateId"
+    >;
+    readonly normalizedState: NormalizedMembershipState;
+    readonly observedAt: Date;
+    readonly rawChatMember?: TelegramChatMember;
+    readonly resultRef: string;
+    readonly telegramIdentityRef: string;
+  },
+): Promise<MembershipEvidence> {
+  let evidenceVersion: number | undefined;
+  let evidenceRef: string | undefined;
+  if (record.normalizedState !== "unavailable") {
+    const revision = record.event
+      ? await transaction
+          .updateTable("platform_links")
+          .set({
+            evidence_version: sql`evidence_version + 1`,
+            last_membership_event_at: record.event.eventAt,
+            last_membership_event_update_id: record.event.updateId,
+          })
+          .where("telegram_identity_ref", "=", record.telegramIdentityRef)
+          .returning("evidence_version")
+          .executeTakeFirstOrThrow()
+      : await transaction
+          .updateTable("platform_links")
+          .set({ evidence_version: sql`evidence_version + 1` })
+          .where("telegram_identity_ref", "=", record.telegramIdentityRef)
+          .returning("evidence_version")
+          .executeTakeFirstOrThrow();
+    evidenceVersion = Number(revision.evidence_version);
+    if (!Number.isSafeInteger(evidenceVersion) || evidenceVersion < 1) {
+      throw new Error("Membership Evidence revision is outside JSON range");
+    }
+    evidenceRef = randomUUID();
+  } else if (record.event) {
+    await transaction
+      .updateTable("platform_links")
+      .set({
+        last_membership_event_at: record.event.eventAt,
+        last_membership_event_update_id: record.event.updateId,
+      })
+      .where("telegram_identity_ref", "=", record.telegramIdentityRef)
+      .execute();
+  }
+
+  const evidence = createEvidence(
+    record.accountRef,
+    record.telegramIdentityRef,
+    record.normalizedState,
+    record.observedAt,
+    evidenceVersion,
+    evidenceRef,
+  );
+  await transaction
+    .insertInto("membership_check_results")
+    .values({
+      diagnostic_code: record.diagnosticCode,
+      evidence_ref: evidenceRef ?? null,
+      evidence_version: evidenceVersion ?? null,
+      normalized_state: record.normalizedState,
+      result_ref: record.resultRef,
+      observed_at: record.observedAt,
+      raw_is_member: record.rawChatMember?.isMember ?? null,
+      raw_status: record.rawChatMember?.status ?? null,
+      telegram_identity_ref: record.telegramIdentityRef,
+    })
+    .execute();
+  await transaction
+    .insertInto("membership_evidence_outbox")
+    .values({
+      attempt_count: 0,
+      available_at: record.observedAt,
+      delivered_at: null,
+      diagnostic_code: null,
+      envelope: evidence,
+      id: randomUUID(),
+      locked_at: null,
+      result_ref: record.resultRef,
+      state: "pending",
+      updated_at: record.observedAt,
+    })
+    .execute();
+  return evidence;
+}
+
 function createEvidence(
   principalRef: string,
   telegramIdentityRef: string,
@@ -455,4 +726,83 @@ function assertCheck(check: LinkMembershipCheck): void {
   ) {
     throw new Error("Membership check reference is malformed");
   }
+}
+
+function assertMembershipEnvelope(envelope: DurableMembershipEnvelope): void {
+  if (
+    !/^[a-z][a-z0-9_-]{0,63}$/.test(envelope.botIdentity) ||
+    !/^-?[1-9][0-9]{0,15}$/.test(envelope.canonicalChatId) ||
+    !/^[0-9]{1,20}$/.test(envelope.updateId) ||
+    Number.isNaN(envelope.eventAt.getTime()) ||
+    (envelope.kind === "subject" &&
+      (!/^[1-9][0-9]{0,15}$/.test(envelope.subjectTelegramUserId) ||
+        typeof envelope.actorIsSubject !== "boolean"))
+  ) {
+    throw new Error("Durable Membership envelope is malformed");
+  }
+}
+
+function isNewerMembershipEvent(
+  envelope: Pick<DurableMembershipEnvelopeBase, "eventAt" | "updateId">,
+  lastEventAt: Date | null,
+  lastUpdateId: string | null,
+): boolean {
+  if (!lastEventAt || lastUpdateId === null) {
+    return true;
+  }
+  const timeDifference = envelope.eventAt.getTime() - lastEventAt.getTime();
+  return (
+    timeDifference > 0 ||
+    (timeDifference === 0 && BigInt(envelope.updateId) > BigInt(lastUpdateId))
+  );
+}
+
+function providerTransition(chatMember: TelegramChatMember): {
+  readonly diagnosticCode: string | null;
+  readonly state: MembershipProviderState;
+} {
+  if (botHasMembershipPrerequisite(chatMember)) {
+    return { diagnosticCode: null, state: "ready" };
+  }
+  if (normalizeChatMember(chatMember) === "unavailable") {
+    return {
+      diagnosticCode: "unknown_provider_chat_member_status",
+      state: "unavailable",
+    };
+  }
+  return {
+    diagnosticCode: "bot_administrator_required",
+    state: "degraded",
+  };
+}
+
+async function recordMembershipEventAudit(
+  database: Kysely<DatabaseSchema>,
+  envelope: DurableMembershipEnvelope,
+  record: {
+    readonly diagnosticCode: string | null;
+    readonly disposition: MembershipEventDisposition;
+    readonly normalizedState: NormalizedMembershipState;
+    readonly resultRef: string | null;
+    readonly subjectLinked: boolean | null;
+  },
+): Promise<void> {
+  await database
+    .insertInto("membership_event_audit")
+    .values({
+      actor_is_subject:
+        envelope.kind === "subject" ? envelope.actorIsSubject : null,
+      bot_identity: envelope.botIdentity,
+      canonical_chat_id: envelope.canonicalChatId,
+      diagnostic_code: record.diagnosticCode,
+      disposition: record.disposition,
+      event_at: envelope.eventAt,
+      event_kind: envelope.kind,
+      normalized_state: record.normalizedState,
+      result_ref: record.resultRef,
+      subject_linked: record.subjectLinked,
+      update_id: envelope.updateId,
+    })
+    .onConflict((conflict) => conflict.doNothing())
+    .execute();
 }

@@ -6,6 +6,8 @@ import type {
   VerifiedPrivateContactability,
   VerifiedPrivateStart,
 } from "../../modules/bot-contacts/bot-contacts.js";
+import type { DurableMembershipEnvelope } from "../../modules/membership-evidence/membership-evidence-provider.js";
+import { toTelegramChatMember } from "./grammy-membership.adapter.js";
 
 export type TelegramUpdateCommand =
   | {
@@ -13,6 +15,7 @@ export type TelegramUpdateCommand =
       readonly value: VerifiedPrivateContactability;
     }
   | { readonly kind: "ignored" }
+  | { readonly kind: "membership"; readonly value: DurableMembershipEnvelope }
   | {
       readonly kind: "start";
       readonly value: {
@@ -76,6 +79,20 @@ export class GrammyUpdateAdapter {
       return { kind: "start", value: start };
     }
 
+    const membership = this.membership(botIdentity, updateId, update);
+    if (membership) {
+      return { kind: "membership", value: membership };
+    }
+
+    const providerMembership = this.providerMembership(
+      botIdentity,
+      updateId,
+      update,
+    );
+    if (providerMembership) {
+      return { kind: "membership", value: providerMembership };
+    }
+
     const contactability = this.privateContactability(
       botIdentity,
       updateId,
@@ -87,6 +104,98 @@ export class GrammyUpdateAdapter {
     }
 
     return { kind: "ignored" };
+  }
+
+  private membership(
+    botIdentity: string,
+    updateId: string,
+    update: Partial<Update>,
+  ): DurableMembershipEnvelope | undefined {
+    const membershipUpdate: unknown = update.chat_member;
+    if (!isRecord(membershipUpdate)) {
+      return undefined;
+    }
+    const chat = membershipUpdate.chat;
+    const actor = membershipUpdate.from;
+    const newChatMember = membershipUpdate.new_chat_member;
+    if (
+      !isRecord(chat) ||
+      !isRecord(actor) ||
+      !isRecord(newChatMember) ||
+      !isRecord(newChatMember.user) ||
+      typeof newChatMember.status !== "string" ||
+      typeof membershipUpdate.date !== "number" ||
+      !Number.isSafeInteger(membershipUpdate.date) ||
+      membershipUpdate.date < 0
+    ) {
+      return undefined;
+    }
+
+    const canonicalChatId = signedTelegramId(chat.id);
+    const actorTelegramUserId = telegramId(actor.id);
+    const subjectTelegramUserId = telegramId(newChatMember.user.id);
+    if (!canonicalChatId || !actorTelegramUserId || !subjectTelegramUserId) {
+      return undefined;
+    }
+
+    return {
+      actorIsSubject: actorTelegramUserId === subjectTelegramUserId,
+      botIdentity,
+      canonicalChatId,
+      chatMember: toTelegramChatMember({
+        ...(typeof newChatMember.is_member === "boolean"
+          ? { is_member: newChatMember.is_member }
+          : {}),
+        status: newChatMember.status,
+      }),
+      eventAt: new Date(membershipUpdate.date * 1000),
+      kind: "subject",
+      subjectTelegramUserId,
+      updateId,
+    };
+  }
+
+  private providerMembership(
+    botIdentity: string,
+    updateId: string,
+    update: Partial<Update>,
+  ): Extract<DurableMembershipEnvelope, { kind: "provider" }> | undefined {
+    const membershipUpdate: unknown = update.my_chat_member;
+    if (!isRecord(membershipUpdate)) {
+      return undefined;
+    }
+    const chat = membershipUpdate.chat;
+    const newChatMember = membershipUpdate.new_chat_member;
+    if (
+      !isRecord(chat) ||
+      chat.type === "private" ||
+      !isRecord(newChatMember) ||
+      !isRecord(newChatMember.user) ||
+      newChatMember.user.is_bot !== true ||
+      typeof newChatMember.status !== "string" ||
+      typeof membershipUpdate.date !== "number" ||
+      !Number.isSafeInteger(membershipUpdate.date) ||
+      membershipUpdate.date < 0
+    ) {
+      return undefined;
+    }
+    const canonicalChatId = signedTelegramId(chat.id);
+    if (!canonicalChatId) {
+      return undefined;
+    }
+    return {
+      botIdentity,
+      canonicalChatId,
+      chatMember: toTelegramChatMember({
+        ...(typeof newChatMember.is_member === "boolean"
+          ? { is_member: newChatMember.is_member }
+          : {}),
+        status: newChatMember.status,
+      }),
+      eventAt: new Date(membershipUpdate.date * 1000),
+      kind: "provider",
+      updateId,
+    };
   }
 
   private privateStart(
@@ -214,6 +323,17 @@ function readLinkToken(
 
 function telegramId(value: unknown): string | undefined {
   if (typeof value !== "number" || !Number.isSafeInteger(value) || value <= 0) {
+    return undefined;
+  }
+  return String(value);
+}
+
+function signedTelegramId(value: unknown): string | undefined {
+  if (
+    typeof value !== "number" ||
+    !Number.isSafeInteger(value) ||
+    value === 0
+  ) {
     return undefined;
   }
   return String(value);
