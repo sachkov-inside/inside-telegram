@@ -46,7 +46,7 @@ confirmations. Record no identifiers or provider payloads in this document.
 | Area | Required redacted observation | Result |
 |---|---|---|
 | Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | pending |
-| Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, and every current assignable administrator-right name | pending |
+| Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, inherited global member permissions, and every current assignable administrator-right name | pending |
 | Webhook auth | correct secret accepted; missing/wrong secret rejected | pending |
 | Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | pending |
 | Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | pending |

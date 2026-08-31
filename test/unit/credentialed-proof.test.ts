@@ -98,6 +98,12 @@ describe("credentialed Telegram proof redaction", () => {
       },
       botStatus: "administrator",
       chatType: "supergroup",
+      inheritedMemberRights: {
+        can_change_info: false,
+        can_invite_users: false,
+        can_manage_topics: false,
+        can_pin_messages: false,
+      },
       impliedManageChat: true,
       minimumClientConfigurationConfirmed: true,
     });
@@ -115,6 +121,36 @@ describe("credentialed Telegram proof redaction", () => {
         false,
       ),
     ).toThrow(/not confirmed/u);
+  });
+
+  it("does not mistake global member permissions for elevated administrator rights", () => {
+    expect(
+      validateChatAdministration(
+        {
+          permissions: {
+            can_change_info: true,
+            can_pin_messages: true,
+          },
+          type: "supergroup",
+        },
+        {
+          can_change_info: true,
+          can_manage_chat: true,
+          can_pin_messages: true,
+          status: "administrator",
+        },
+        true,
+      ),
+    ).toMatchObject({
+      assignableRights: {
+        can_change_info: false,
+        can_pin_messages: false,
+      },
+      inheritedMemberRights: {
+        can_change_info: true,
+        can_pin_messages: true,
+      },
+    });
   });
 
   it("rejects elevated assignable admin rights and captures a separate demotion", () => {

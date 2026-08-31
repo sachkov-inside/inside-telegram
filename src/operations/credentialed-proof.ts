@@ -28,6 +28,13 @@ const ASSIGNABLE_ADMIN_RIGHTS = [
   "can_send_welcome_messages",
 ] as const;
 
+const INHERITABLE_MEMBER_RIGHTS = [
+  "can_change_info",
+  "can_invite_users",
+  "can_manage_topics",
+  "can_pin_messages",
+] as const;
+
 const SNAPSHOT_LABEL_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 export const CREDENTIAL_PROOF_CAPTURE_PATH = ".credentialed-proof/chat-id";
@@ -397,6 +404,7 @@ export function validateChatAdministration(
   assignableRights: Record<string, boolean>;
   botStatus: "administrator";
   chatType: "group" | "supergroup";
+  inheritedMemberRights: Record<string, boolean>;
   minimumClientConfigurationConfirmed: true;
   impliedManageChat: true;
 } {
@@ -408,8 +416,23 @@ export function validateChatAdministration(
   if (member.status !== "administrator") {
     throw new Error("Dedicated bot must be an administrator in the proof chat");
   }
+  const chatPermissions =
+    typeof chat.permissions === "object" &&
+    chat.permissions !== null &&
+    !Array.isArray(chat.permissions)
+      ? providerRecord(chat.permissions)
+      : {};
+  const inheritedMemberRights = Object.fromEntries(
+    INHERITABLE_MEMBER_RIGHTS.map((right) => [
+      right,
+      chatPermissions[right] === true,
+    ]),
+  );
   const assignableRights = Object.fromEntries(
-    ASSIGNABLE_ADMIN_RIGHTS.map((right) => [right, member[right] === true]),
+    ASSIGNABLE_ADMIN_RIGHTS.map((right) => [
+      right,
+      member[right] === true && inheritedMemberRights[right] !== true,
+    ]),
   );
   if (member.can_manage_chat !== true || !minimumClientConfigurationConfirmed) {
     throw new Error(
@@ -425,6 +448,7 @@ export function validateChatAdministration(
     assignableRights,
     botStatus: member.status,
     chatType: chat.type,
+    inheritedMemberRights,
     impliedManageChat: true,
     minimumClientConfigurationConfirmed: true,
   };

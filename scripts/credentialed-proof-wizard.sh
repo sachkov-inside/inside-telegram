@@ -426,7 +426,7 @@ else
     open_url "https://web.telegram.org/"
     step "Create a temporary private group, add only the proof participants, and add the dedicated bot."
   fi
-  step "Promote the bot to administrator; disable every client-assignable permission while retaining administrator status. can_manage_chat remains implied and is not an optional right."
+  step "Promote the bot to administrator; disable every client-assignable permission while retaining administrator status. can_manage_chat remains implied; getChat member defaults are recorded separately from admin-only rights."
   if ! confirm "Does the client now show every assignable administrator permission disabled?"; then
     warn "minimum administrator configuration is not confirmed"
     exit 1
