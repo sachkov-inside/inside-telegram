@@ -20,6 +20,7 @@ beforeAll(async () => {
 beforeEach(async () => {
   await sql`
     truncate table
+      identity_link_recoveries,
       membership_reconciliations,
       membership_evidence_outbox,
       membership_event_audit,

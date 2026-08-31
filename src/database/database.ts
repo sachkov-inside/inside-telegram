@@ -224,10 +224,26 @@ export interface IdentityLinkEventsTable {
   occurred_at: Timestamp;
 }
 
+export interface IdentityLinkRecoveriesTable {
+  bot_identity: string;
+  operator_ref: string;
+  reason_ref: string;
+  recovery_ref: string;
+  source_account_ref: string;
+  source_link_transaction_ref: string;
+  source_linked_at: Timestamp;
+  target_account_ref: string;
+  target_link_transaction_ref: string;
+  target_linked_at: Timestamp;
+  telegram_identity_ref: string;
+  telegram_user_id: BigIntColumn;
+}
+
 export interface DatabaseSchema {
   bot_contact_events: BotContactEventsTable;
   bot_contacts: BotContactsTable;
   identity_link_events: IdentityLinkEventsTable;
+  identity_link_recoveries: IdentityLinkRecoveriesTable;
   link_transactions: LinkTransactionsTable;
   membership_checks: MembershipChecksTable;
   membership_evidence_outbox: MembershipEvidenceOutboxTable;

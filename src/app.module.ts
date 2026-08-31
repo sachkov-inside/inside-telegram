@@ -16,6 +16,7 @@ import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
 import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
 import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
+import { IdentityLinkRecovery } from "./modules/identity-linking/identity-link-recovery.js";
 import { IdentityLinkingController } from "./modules/identity-linking/identity-linking.controller.js";
 import { InMemoryIdentityLinkingAdapter } from "./modules/identity-linking/in-memory-identity-linking.adapter.js";
 import { InitialMembershipCheckProcessor } from "./modules/membership-evidence/initial-membership-check-processor.js";
@@ -119,6 +120,7 @@ export class AppModule {
         BotContacts,
         DatabaseLifecycle,
         IdentityLinking,
+        IdentityLinkRecovery,
         InMemoryIdentityLinkingAdapter,
         InitialMembershipCheckProcessor,
         InitialMembershipCheckQueue,

@@ -56,8 +56,9 @@ separate owner gate for external messaging.
   receipt outcomes additionally distinguish `replayed` and `conflict` while the bot response stays
   neutral.
 - One Telegram identity remains historically bound to its first Platform Account. Repeating that
-  pair is idempotent; attempting the same identity with another Account requires the future audited
-  owner recovery in issue #9.
+  pair is idempotent; attempting the same identity with another Account requires the owner-only,
+  explicitly confirmed and immutable-audit recovery described in
+  [`docs/operations/owner-identity-recovery.md`](docs/operations/owner-identity-recovery.md).
 
 The executable wire schema and named fixtures live in
 [`src/modules/identity-linking/contracts/inside-identity-linking-v1/`](src/modules/identity-linking/contracts/inside-identity-linking-v1/).
@@ -134,6 +135,10 @@ commit and SHA-256 snapshot in
   official Telegram Bot API and grammY facts plus credentialed proof gaps.
 - [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md) —
   version compatibility, independent corpus provenance, and the redacted two-application proof.
+- [`docs/verification/credentialed-telegram-proof.md`](docs/verification/credentialed-telegram-proof.md)
+  — owner wizard entry point and the still-pending real-credential evidence matrix.
+- [`docs/operations/owner-identity-recovery.md`](docs/operations/owner-identity-recovery.md) —
+  dry-run, exact-confirm transfer, immutable audit, and post-operation verification.
 - [Telegram Membership bridge v1 Specification](https://github.com/sachkov-inside/inside-telegram/issues/1)
   — native parent of the approved vertical delivery tickets.
 

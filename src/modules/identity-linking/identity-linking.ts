@@ -9,6 +9,7 @@ import {
   type DatabaseSchema,
 } from "../../database/database.js";
 import { CLOCK, type Clock } from "./clock.js";
+import { lockIdentityLinkAccount } from "./identity-link-account-lock.js";
 import { isOpaqueRef } from "./identity-linking-validation.js";
 
 const MAX_LINK_LIFETIME_MILLISECONDS = 10 * 60 * 1000;
@@ -291,6 +292,7 @@ export class IdentityLinking {
         throw new Error("Received transaction has no Telegram candidate");
       }
 
+      await lockIdentityLinkAccount(transaction, linkTransaction.account_ref);
       const telegramIdentityRef = randomUUID();
       const inserted = await transaction
         .insertInto("platform_links")

@@ -1,0 +1,103 @@
+# Telegram credentialed proof
+
+Status: **implementation complete; credentialed execution closed with owner-approved deviations**
+for Telegram #9. The application, wizard, probes, owner recovery interface, and safe disposal path
+are versioned. A dedicated test bot, closed supergroup, and temporary HTTPS callback were exercised
+without enabling production traffic. The owner chose to retain the bot and group as test resources,
+accepted their observed administrator rights, and accepted the explicitly `Not run` live scenarios
+below rather than performing more manual Telegram actions.
+
+Prepare an ignored `.env` whose `DATABASE_URL` names an isolated loopback `issue9` or `proof`
+database, then run from the repository root with Node from `.node-version`:
+
+```bash
+pnpm credentialed-proof:wizard
+```
+
+Before BotFather opens, the wizard verifies the required CLI versions, repository root, ignored
+destinations, an exact query-free loopback database URL, and owner login readiness. It loads the
+selected `ENV_FILE` with dotenv override enabled, so inherited environment values cannot win, and
+gives the same settings to the application terminal. Probe capture and evidence paths are fixed to
+ignored `.credentialed-proof/` files and cannot be redirected by environment. Its thirteen
+resumable stages write credentials/provider
+identifiers only to that mode-`0600` file. Machine observations are reduced to ordered stage
+snapshots containing status vocabulary, current administrator-right names, booleans, version
+ranges, redacted identity fingerprints, bounded-validity transition rows, and aggregate counts in
+ignored mode-`0600` `.credentialed-proof/evidence.json`. Neither
+file may be pasted into an issue, PR, log, or committed report. Static verification uses only
+non-secret fixtures:
+
+For a disposable proof chat, the owner may explicitly accept the administrator rights currently
+reported by Telegram with `TELEGRAM_PROOF_OBSERVED_ADMIN_RIGHTS_ACCEPTED=true`. The probe records
+that acceptance and the observed right names in private evidence. This proof-only override does
+not change the application's runtime permissions or its production recommendation.
+
+On a re-run, the existing bot and chat are reused without `/newbot` or `getUpdates`; prior redacted
+evidence is retained under ignored mode-`0700` `.credentialed-proof/archive/`, the active evidence
+file is restarted, and a fresh pre-scenario database baseline makes later aggregate deltas
+unambiguous. Each run creates a new retry marker. Disposal persists a non-secret checkpoint before
+each irreversible boundary, so an interruption after webhook removal, BotFather rotation, external
+resource disposal, or local scrubbing resumes that stage without archiving the completed evidence.
+
+```bash
+bash -n scripts/credentialed-proof-wizard.sh
+shellcheck -e SC2034 scripts/credentialed-proof-wizard.sh
+CREDENTIALED_PROOF_DRY_RUN=1 ENV_FILE=<temporary-file> \
+  bash scripts/credentialed-proof-wizard.sh
+```
+
+## Final evidence disposition
+
+The reviewing agent observed the local evidence file and owner confirmations. No identifiers or
+provider payloads are recorded in this document. `Live` means Telegram or the temporary callback
+was exercised; `Automated` means the deterministic PostgreSQL integration corpus passed; `Not run`
+means the provider-specific live behavior was not observed; `Retained by owner` means a disposable
+resource was deliberately kept for non-production testing.
+
+| Area | Required redacted observation | Result |
+|---|---|---|
+| Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | **Live:** identity match. **Not run:** old-token rejection. **Retained by owner:** active test-bot credential |
+| Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, inherited global member permissions, and every current assignable administrator-right name | Live; observed rights accepted by owner and recorded privately |
+| Webhook auth | correct secret accepted; missing/wrong secret rejected | Live temporary callback |
+| Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | Live temporary callback and isolated PostgreSQL database |
+| Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | **Not run:** stable provider-edge retry observation. **Automated:** application retry/deduplication behavior |
+| Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | **Not run:** live private start/block/unblock. **Automated:** Contactability transitions and delivery diagnostics |
+| Link bearer | valid, expired, replay, concurrent consume, same-pair idempotence, conflict | Automated |
+| Membership | each reachable raw status/is-member pair is correlated to common normalization; ordered revisions show removal deny and newer rejoin restore | Automated |
+| Reconciliation | `chat_member` is temporarily excluded, the missed removal leaves the pre-cadence revision unchanged, exact updates are restored, then a current bounded `reconciliation` denial supersedes the positive revision | Automated |
+| Provider loss | bot demotion and provider outage degrade/fail closed; restoration recovers | **Not run:** live provider loss/restoration. **Automated:** fail-closed and recovery behavior |
+| Owner recovery | dry-run read-only; exact-confirm execute; idempotent replay; immutable audit | **Not run:** destructive temporary-account rehearsal. **Automated:** full recovery interface and audit behavior |
+| Disposal | webhook removed, pending test updates disposed, old token rejected, chat/endpoint/secrets disposition recorded, provider identifiers removed from `.env` | **Live:** webhook/pending updates and temporary endpoint disposed. **Not run:** token rejection and local scrub. **Retained by owner:** bot, chat, and ignored local credentials for non-production testing |
+| Secret scan | Git tree, issue, PR, durable report, and captured output contain no token, raw PII, chat ID, or provider payload | Pass |
+
+The tested application revision is `ed400df`; the proof window ended at approximately
+2026-08-31 18:50 UTC. `pnpm check:full` passed with 113 unit and 73 PostgreSQL integration tests,
+GitHub Application CI passed, and Standards and Spec reviews both returned PASS on that revision.
+
+## Final report fields
+
+When complete, add only:
+
+- tested Git revisions and a rounded UTC proof window;
+- boolean result for every row above;
+- observed Telegram status and administrator-right vocabulary without chat/user/bot identifiers;
+- ordered stage snapshots with aggregate counts, evidence-version ranges, and redacted correlated Membership source/raw/normalized/decision/revision/freshness transitions;
+- owner recovery fingerprints, never raw references;
+- token/webhook/chat/endpoint disposal booleans;
+- Standards and Spec review verdicts.
+
+Production domains, permanent credentials, deploy, monitoring, traffic, and production GO remain
+outside this proof.
+
+## Official facts reverified 2026-08-31
+
+- [Telegram Bot Features](https://core.telegram.org/bots/features#creating-a-new-bot) documents
+  `/newbot`, token secrecy, and `/token` rotation through BotFather.
+- [Telegram Bot API](https://core.telegram.org/bots/api#setwebhook) defines the HTTPS callback,
+  supported ports, non-`2xx` retry, separate secret header, exact `allowed_updates`,
+  `getWebhookInfo`, and pending-update disposal.
+- [`chat_member`](https://core.telegram.org/bots/api#chatmemberupdated) requires the bot to be an
+  administrator and the update type to be explicitly selected; `getChatMember` for another user is
+  guaranteed only while the bot is an administrator.
+- [Telegram webhook guide](https://core.telegram.org/bots/webhooks) owns the current TLS, port,
+  certificate, and reachability requirements for the temporary callback.
