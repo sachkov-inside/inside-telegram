@@ -15,6 +15,7 @@ export interface ApplicationConfig {
   readonly linkedNonMemberText: string;
   readonly linkedUnavailableText: string;
   readonly membershipMode: MembershipMode;
+  readonly membershipReconciliationCadenceMilliseconds: number;
   readonly platformEvidenceDeliverySecret?: string;
   readonly platformEvidenceDeliveryUrl?: string;
   readonly platformIntegrationSecret: string;
@@ -61,6 +62,13 @@ export function loadApplicationConfig(
 
   const membershipMode = environment.TELEGRAM_MEMBERSHIP_MODE ?? "disabled";
   assertExternalMode(membershipMode, "TELEGRAM_MEMBERSHIP_MODE");
+  const membershipReconciliationCadenceMilliseconds = parseBoundedInteger(
+    environment.TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS,
+    240_000,
+    30_000,
+    240_000,
+    "TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS",
+  );
 
   const evidenceDeliveryMode =
     environment.PLATFORM_EVIDENCE_DELIVERY_MODE ?? "disabled";
@@ -119,6 +127,7 @@ export function loadApplicationConfig(
       "TELEGRAM_LINKED_UNAVAILABLE_TEXT",
     ),
     membershipMode,
+    membershipReconciliationCadenceMilliseconds,
     ...(platformEvidenceDeliverySecret
       ? { platformEvidenceDeliverySecret }
       : {}),
@@ -199,4 +208,18 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
     return false;
   }
   throw new Error("WORKERS_ENABLED must be true or false");
+}
+
+function parseBoundedInteger(
+  value: string | undefined,
+  fallback: number,
+  minimum: number,
+  maximum: number,
+  name: string,
+): number {
+  const parsed = value === undefined ? fallback : Number(value);
+  if (!Number.isInteger(parsed) || parsed < minimum || parsed > maximum) {
+    throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
+  }
+  return parsed;
 }

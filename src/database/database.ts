@@ -27,6 +27,7 @@ export type MembershipCheckState = "completed" | "pending" | "processing";
 export type MembershipEvidenceDeliveryState =
   "delivered" | "delivering" | "pending" | "rejected" | "retry_scheduled";
 export type MembershipProviderState = "degraded" | "ready" | "unavailable";
+export type MembershipReconciliationState = "pending" | "processing";
 export type NormalizedMembershipState = "member" | "non_member" | "unavailable";
 export type MembershipEventDisposition =
   "evidence" | "ignored_older" | "provider_state" | "unlinked_subject";
@@ -187,6 +188,18 @@ export interface MembershipProviderObservationsTable {
   state: MembershipProviderState;
 }
 
+export interface MembershipReconciliationsTable {
+  attempt_count: number;
+  diagnostic_code: string | null;
+  due_at: Timestamp;
+  last_completed_at: Timestamp | null;
+  lease_token: string | null;
+  locked_at: Timestamp | null;
+  state: MembershipReconciliationState;
+  telegram_identity_ref: string;
+  updated_at: Timestamp;
+}
+
 export interface MembershipEventAuditTable {
   actor_is_subject: boolean | null;
   bot_identity: string;
@@ -219,6 +232,7 @@ export interface DatabaseSchema {
   membership_check_results: MembershipCheckResultsTable;
   membership_provider_observations: MembershipProviderObservationsTable;
   membership_provider_state: MembershipProviderStateTable;
+  membership_reconciliations: MembershipReconciliationsTable;
   platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;
   start_response_deliveries: StartResponseDeliveriesTable;

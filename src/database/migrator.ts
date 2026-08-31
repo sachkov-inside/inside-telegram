@@ -5,6 +5,7 @@ import { ordinaryStartMigration } from "./migrations/001-ordinary-start.js";
 import { identityLinkingMigration } from "./migrations/002-identity-linking.js";
 import { initialMembershipEvidenceMigration } from "./migrations/003-initial-membership-evidence.js";
 import { durableMembershipEventsMigration } from "./migrations/004-durable-membership-events.js";
+import { membershipReconciliationMigration } from "./migrations/005-membership-reconciliation.js";
 
 const migrationProvider: MigrationProvider = {
   async getMigrations() {
@@ -13,6 +14,7 @@ const migrationProvider: MigrationProvider = {
       "002-identity-linking": identityLinkingMigration,
       "003-initial-membership-evidence": initialMembershipEvidenceMigration,
       "004-durable-membership-events": durableMembershipEventsMigration,
+      "005-membership-reconciliation": membershipReconciliationMigration,
     };
   },
 };

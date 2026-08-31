@@ -44,6 +44,7 @@ const config: ApplicationConfig = {
   linkedNonMemberText: "Telegram linked; Membership is not active.",
   linkedUnavailableText: "Telegram linked; Membership check is unavailable.",
   membershipMode: "disabled",
+  membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_webhook_secret",
@@ -86,6 +87,7 @@ afterAll(async () => {
 describe("durable Membership events", () => {
   it("rebuilds the durable event migration down and forward", async () => {
     const { migrateDown } = await import("../../src/database/migrator.js");
+    await migrateDown(database);
     await migrateDown(database);
     const removed = await sql<{ exists: boolean }>`
       select exists (
