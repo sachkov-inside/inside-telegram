@@ -40,10 +40,16 @@ import {
 
 const EVIDENCE_VALIDITY_MILLISECONDS = 5 * 60 * 1000;
 const TELEGRAM_READ_TIMEOUT_MILLISECONDS = 5_000;
+const TELEGRAM_OBSERVATION_TIMEOUT_MILLISECONDS = 10_000;
 
 export interface LinkMembershipCheck {
   readonly checkRef: string;
   readonly telegramIdentityRef: string;
+}
+
+interface MembershipObservationCheck extends LinkMembershipCheck {
+  readonly planResponse: boolean;
+  readonly timeoutMilliseconds: number;
 }
 
 interface DurableMembershipEnvelopeBase {
@@ -268,6 +274,16 @@ export class MembershipEvidenceProvider {
   }
 
   async observe(check: LinkMembershipCheck): Promise<EvidenceOutcome> {
+    return this.observeMembership({
+      ...check,
+      planResponse: true,
+      timeoutMilliseconds: TELEGRAM_OBSERVATION_TIMEOUT_MILLISECONDS,
+    });
+  }
+
+  private async observeMembership(
+    check: MembershipObservationCheck,
+  ): Promise<EvidenceOutcome> {
     assertCheck(check);
     const existing = await this.existingOutcome(check.checkRef);
     if (existing) {
@@ -305,7 +321,10 @@ export class MembershipEvidenceProvider {
       throw new Error("Membership check has no linked Telegram identity");
     }
 
-    const observed = await this.readMembership(link.telegram_user_id);
+    const observed = await this.readMembership(
+      link.telegram_user_id,
+      check.timeoutMilliseconds,
+    );
     const observedAt = this.clock.now();
 
     return this.database.transaction().execute(async (transaction) => {
@@ -382,27 +401,29 @@ export class MembershipEvidenceProvider {
         resultRef: check.checkRef,
         telegramIdentityRef: check.telegramIdentityRef,
       });
-      const response = await transaction
-        .insertInto("start_response_deliveries")
-        .values({
-          attempt_count: 0,
-          available_at: observedAt,
-          bot_identity: link.bot_identity,
-          created_at: observedAt,
-          delivered_at: null,
-          diagnostic_code: null,
-          locked_at: null,
-          message_text: responseText(this.config, normalizedState),
-          private_chat_id: link.private_chat_id,
-          source_key: `membership-check:${check.checkRef}`,
-          state: "pending",
-          telegram_user_id: link.telegram_user_id,
-          trigger_update_id: null,
-          updated_at: observedAt,
-        })
-        .onConflict((conflict) => conflict.column("source_key").doNothing())
-        .returning("id")
-        .executeTakeFirst();
+      const response = check.planResponse
+        ? await transaction
+            .insertInto("start_response_deliveries")
+            .values({
+              attempt_count: 0,
+              available_at: observedAt,
+              bot_identity: link.bot_identity,
+              created_at: observedAt,
+              delivered_at: null,
+              diagnostic_code: null,
+              locked_at: null,
+              message_text: responseText(this.config, normalizedState),
+              private_chat_id: link.private_chat_id,
+              source_key: `membership-check:${check.checkRef}`,
+              state: "pending",
+              telegram_user_id: link.telegram_user_id,
+              trigger_update_id: null,
+              updated_at: observedAt,
+            })
+            .onConflict((conflict) => conflict.column("source_key").doNothing())
+            .returning("id")
+            .executeTakeFirst()
+        : undefined;
 
       return {
         evidence,
@@ -421,7 +442,12 @@ export class MembershipEvidenceProvider {
       budget,
       clock,
       this.config.membershipReconciliationCadenceMilliseconds,
-      (check) => this.observe(check),
+      (check, timeoutMilliseconds) =>
+        this.observeMembership({
+          ...check,
+          planResponse: false,
+          timeoutMilliseconds,
+        }),
     );
   }
 
@@ -462,8 +488,12 @@ export class MembershipEvidenceProvider {
 
   private async readMembership(
     telegramUserId: string,
+    timeoutMilliseconds = TELEGRAM_OBSERVATION_TIMEOUT_MILLISECONDS,
   ): Promise<ObservedMembership> {
-    const prerequisite = await this.readProviderPrerequisite();
+    const deadline = Date.now() + timeoutMilliseconds;
+    const prerequisite = await this.readProviderPrerequisite(
+      remainingTimeout(deadline),
+    );
     if (prerequisite.providerState !== "ready") {
       return unavailable(
         prerequisite.providerState,
@@ -472,8 +502,13 @@ export class MembershipEvidenceProvider {
       );
     }
 
-    const subject = await safeTelegramRead(() =>
-      this.telegram.getChatMember(this.config.canonicalChatId, telegramUserId),
+    const subject = await safeTelegramRead(
+      () =>
+        this.telegram.getChatMember(
+          this.config.canonicalChatId,
+          telegramUserId,
+        ),
+      remainingTimeout(deadline),
     );
     if (subject.kind === "unavailable") {
       return unavailable("unavailable", subject.diagnosticCode);
@@ -494,9 +529,12 @@ export class MembershipEvidenceProvider {
     };
   }
 
-  private async readProviderPrerequisite(): Promise<ProviderPrerequisite> {
-    const bot = await safeTelegramRead(() =>
-      this.telegram.getBotChatMember(this.config.canonicalChatId),
+  private async readProviderPrerequisite(
+    timeoutMilliseconds = TELEGRAM_READ_TIMEOUT_MILLISECONDS,
+  ): Promise<ProviderPrerequisite> {
+    const bot = await safeTelegramRead(
+      () => this.telegram.getBotChatMember(this.config.canonicalChatId),
+      timeoutMilliseconds,
     );
     if (bot.kind === "unavailable") {
       return {
@@ -547,6 +585,7 @@ function unavailable(
 
 async function safeTelegramRead(
   operation: () => Promise<TelegramChatMemberResult>,
+  timeoutMilliseconds = TELEGRAM_READ_TIMEOUT_MILLISECONDS,
 ): Promise<TelegramChatMemberResult> {
   let timer: NodeJS.Timeout | undefined;
   try {
@@ -559,7 +598,7 @@ async function safeTelegramRead(
               diagnosticCode: "telegram_timeout",
               kind: "unavailable",
             }),
-          TELEGRAM_READ_TIMEOUT_MILLISECONDS,
+          Math.min(TELEGRAM_READ_TIMEOUT_MILLISECONDS, timeoutMilliseconds),
         );
         timer.unref();
       }),
@@ -572,6 +611,10 @@ async function safeTelegramRead(
   } finally {
     clearTimeout(timer);
   }
+}
+
+function remainingTimeout(deadline: number): number {
+  return Math.max(1, deadline - Date.now());
 }
 
 async function recordEvidence(

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+
 import { sql } from "kysely";
 
 import type { Database } from "../../database/database.js";
@@ -31,6 +33,7 @@ export interface ReconciliationBatchOutcome {
 interface ClaimedReconciliation {
   readonly attemptNumber: number;
   readonly checkRef: string;
+  readonly leaseToken: string;
   readonly recoveredLeases: number;
   readonly telegramIdentityRef: string;
 }
@@ -40,7 +43,10 @@ export async function reconcileMembershipDue(
   budget: WorkBudget,
   clock: Clock,
   cadenceMilliseconds: number,
-  observe: (check: LinkMembershipCheck) => Promise<EvidenceOutcome>,
+  observe: (
+    check: LinkMembershipCheck,
+    timeoutMilliseconds: number,
+  ) => Promise<EvidenceOutcome>,
 ): Promise<ReconciliationBatchOutcome> {
   assertWorkBudget(budget);
   const startedAt = clock.now();
@@ -67,7 +73,11 @@ export async function reconcileMembershipDue(
     processed += 1;
     recoveredLeases += claimed.recoveredLeases;
     try {
-      const outcome = await observe(claimed);
+      const remainingDuration = Math.max(
+        1,
+        budget.maxDurationMs - (clock.now().getTime() - startedAt.getTime()),
+      );
+      const outcome = await observe(claimed, remainingDuration);
       const completedAt = clock.now();
       if (outcome.evidence.decision === "unavailable") {
         failed += 1;
@@ -117,6 +127,7 @@ async function ensureSchedules(
       due_at,
       attempt_count,
       locked_at,
+      lease_token,
       last_completed_at,
       diagnostic_code,
       updated_at
@@ -126,6 +137,7 @@ async function ensureSchedules(
       'pending',
       platform_links.linked_at + ${cadenceMilliseconds} * interval '1 millisecond',
       0,
+      null,
       null,
       null,
       null,
@@ -144,6 +156,7 @@ async function claimNext(
       .updateTable("membership_reconciliations")
       .set({
         diagnostic_code: "worker_lease_expired",
+        lease_token: null,
         locked_at: null,
         state: "pending",
         updated_at: now,
@@ -170,11 +183,13 @@ async function claimNext(
     }
 
     const attemptNumber = due.attempt_count + 1;
+    const leaseToken = randomUUID();
     await transaction
       .updateTable("membership_reconciliations")
       .set({
         attempt_count: attemptNumber,
         diagnostic_code: null,
+        lease_token: leaseToken,
         locked_at: now,
         state: "processing",
         updated_at: now,
@@ -184,6 +199,7 @@ async function claimNext(
     return {
       attemptNumber,
       checkRef: `reconciliation:${due.telegram_identity_ref}:${due.due_at.getTime()}`,
+      leaseToken,
       recoveredLeases: Number(recovered.numUpdatedRows),
       telegramIdentityRef: due.telegram_identity_ref,
     };
@@ -203,11 +219,13 @@ async function complete(
       diagnostic_code: null,
       due_at: new Date(completedAt.getTime() + cadenceMilliseconds),
       last_completed_at: completedAt,
+      lease_token: null,
       locked_at: null,
       state: "pending",
       updated_at: completedAt,
     })
     .where("telegram_identity_ref", "=", claimed.telegramIdentityRef)
+    .where("lease_token", "=", claimed.leaseToken)
     .where("state", "=", "processing")
     .execute();
 }
@@ -227,11 +245,13 @@ async function retry(
     .set({
       diagnostic_code: diagnosticCode,
       due_at: new Date(failedAt.getTime() + delay),
+      lease_token: null,
       locked_at: null,
       state: "pending",
       updated_at: failedAt,
     })
     .where("telegram_identity_ref", "=", claimed.telegramIdentityRef)
+    .where("lease_token", "=", claimed.leaseToken)
     .where("state", "=", "processing")
     .execute();
 }

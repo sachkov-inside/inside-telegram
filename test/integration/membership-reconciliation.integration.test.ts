@@ -132,6 +132,11 @@ describe("durable Membership reconciliation", () => {
       due_at: new Date("2030-01-01T00:08:00.000Z"),
       state: "pending",
     });
+    const responses = await database
+      .selectFrom("start_response_deliveries")
+      .select(({ fn }) => fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow();
+    expect(responses.count).toBe("1");
   });
 
   it("repairs a missed removal and later rejoin with monotonic revisions", async () => {
@@ -281,6 +286,48 @@ describe("durable Membership reconciliation", () => {
     });
   });
 
+  it("backs off unavailable retries at 15, 30 and capped 60 second intervals", async () => {
+    const clock = new MutableClock(linkedAt);
+    const telegram = new ControlledTelegramMembership();
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      telegram,
+    );
+    const identityRef = await seedLinkedMember(provider, telegram, clock, 31);
+    telegram.members.set("131", {
+      diagnosticCode: "telegram_api_unavailable",
+      kind: "unavailable",
+    });
+
+    const dueSequence = [
+      ["2030-01-01T00:04:00.000Z", "2030-01-01T00:04:15.000Z"],
+      ["2030-01-01T00:04:15.000Z", "2030-01-01T00:04:45.000Z"],
+      ["2030-01-01T00:04:45.000Z", "2030-01-01T00:05:45.000Z"],
+      ["2030-01-01T00:05:45.000Z", "2030-01-01T00:06:45.000Z"],
+    ] as const;
+    for (const [attemptedAt, expectedDueAt] of dueSequence) {
+      clock.set(new Date(attemptedAt));
+      const outcome = await provider.reconcileDue(
+        { maxDurationMs: 1000, maxItems: 1 },
+        clock,
+      );
+      expect(outcome.failed).toBe(1);
+      const schedule = await database
+        .selectFrom("membership_reconciliations")
+        .select("due_at")
+        .where("telegram_identity_ref", "=", identityRef)
+        .executeTakeFirstOrThrow();
+      expect(schedule.due_at).toEqual(new Date(expectedDueAt));
+    }
+    const responses = await database
+      .selectFrom("start_response_deliveries")
+      .select(({ fn }) => fn.countAll<string>().as("count"))
+      .executeTakeFirstOrThrow();
+    expect(responses.count).toBe("1");
+  });
+
   it("gives one parallel worker the due lease", async () => {
     const clock = new MutableClock(linkedAt);
     const telegram = new ControlledTelegramMembership();
@@ -317,6 +364,7 @@ describe("durable Membership reconciliation", () => {
     await database
       .updateTable("membership_reconciliations")
       .set({
+        lease_token: "synthetic-abandoned-lease",
         locked_at: new Date("2030-01-01T00:04:00.000Z"),
         state: "processing",
       })
@@ -336,6 +384,93 @@ describe("durable Membership reconciliation", () => {
       clock,
     );
     expect(recovered).toMatchObject({ processed: 1, recoveredLeases: 1 });
+  });
+
+  it("fences a resumed stale worker from the replacement lease", async () => {
+    const clock = new MutableClock(linkedAt);
+    const telegram = new PausingTelegramMembership();
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      telegram,
+    );
+    const identityRef = await seedLinkedMember(provider, telegram, clock, 32);
+
+    const firstRead = telegram.pauseNext({
+      kind: "observed",
+      value: { status: "member" },
+    });
+    clock.set(new Date("2030-01-01T00:04:00.000Z"));
+    const staleWorker = provider.reconcileDue(
+      { maxDurationMs: 1000, maxItems: 1 },
+      clock,
+    );
+    await firstRead.started;
+
+    const replacementRead = telegram.pauseNext({
+      kind: "observed",
+      value: { status: "left" },
+    });
+    clock.set(new Date("2030-01-01T00:05:00.001Z"));
+    const replacementWorker = provider.reconcileDue(
+      { maxDurationMs: 1000, maxItems: 1 },
+      clock,
+    );
+    await replacementRead.started;
+
+    firstRead.resume();
+    await staleWorker;
+    const replacementLease = await database
+      .selectFrom("membership_reconciliations")
+      .select(["attempt_count", "lease_token", "state"])
+      .where("telegram_identity_ref", "=", identityRef)
+      .executeTakeFirstOrThrow();
+    expect(replacementLease).toMatchObject({
+      attempt_count: 2,
+      state: "processing",
+    });
+    expect(replacementLease.lease_token).not.toBeNull();
+
+    replacementRead.resume();
+    await replacementWorker;
+    const completed = await database
+      .selectFrom("membership_reconciliations")
+      .select(["attempt_count", "lease_token", "state"])
+      .where("telegram_identity_ref", "=", identityRef)
+      .executeTakeFirstOrThrow();
+    expect(completed).toEqual({
+      attempt_count: 0,
+      lease_token: null,
+      state: "pending",
+    });
+  });
+
+  it("bounds a hanging Telegram read by the remaining elapsed-time budget", async () => {
+    const clock = new MutableClock(linkedAt);
+    const telegram = new PausingTelegramMembership();
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      telegram,
+    );
+    await seedLinkedMember(provider, telegram, clock, 33);
+    const hangingRead = telegram.pauseNext({
+      kind: "observed",
+      value: { status: "member" },
+    });
+    clock.set(new Date("2030-01-01T00:04:00.000Z"));
+
+    const startedAt = Date.now();
+    const outcome = await provider.reconcileDue(
+      { maxDurationMs: 50, maxItems: 1 },
+      clock,
+    );
+    const elapsedMilliseconds = Date.now() - startedAt;
+    hangingRead.resume();
+    expect(outcome).toMatchObject({ failed: 1, processed: 1 });
+    expect(elapsedMilliseconds).toBeLessThan(500);
   });
 
   it("honours item and time budgets without starving the remaining links", async () => {
@@ -539,5 +674,44 @@ class ControlledTelegramMembership implements TelegramMembership {
         kind: "unavailable",
       }
     );
+  }
+}
+
+class PausingTelegramMembership extends ControlledTelegramMembership {
+  private readonly pauses: Array<{
+    readonly result: TelegramChatMemberResult;
+    readonly resumed: Promise<void>;
+    resume: () => void;
+    signalStarted: () => void;
+  }> = [];
+
+  pauseNext(result: TelegramChatMemberResult): {
+    readonly started: Promise<void>;
+    resume: () => void;
+  } {
+    let resume!: () => void;
+    let signalStarted!: () => void;
+    const started = new Promise<void>((resolve) => {
+      signalStarted = resolve;
+    });
+    const resumed = new Promise<void>((resolve) => {
+      resume = resolve;
+    });
+    this.pauses.push({ result, resumed, resume, signalStarted });
+    return { resume, started };
+  }
+
+  override async getChatMember(
+    canonicalChatId: string,
+    telegramUserId: string,
+  ): Promise<TelegramChatMemberResult> {
+    const pause = this.pauses.shift();
+    if (!pause) {
+      return super.getChatMember(canonicalChatId, telegramUserId);
+    }
+    this.subjectCalls += 1;
+    pause.signalStarted();
+    await pause.resumed;
+    return pause.result;
   }
 }

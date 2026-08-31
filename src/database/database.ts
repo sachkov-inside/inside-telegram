@@ -193,6 +193,7 @@ export interface MembershipReconciliationsTable {
   diagnostic_code: string | null;
   due_at: Timestamp;
   last_completed_at: Timestamp | null;
+  lease_token: string | null;
   locked_at: Timestamp | null;
   state: MembershipReconciliationState;
   telegram_identity_ref: string;

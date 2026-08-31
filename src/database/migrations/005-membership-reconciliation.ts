@@ -19,12 +19,21 @@ export const membershipReconciliationMigration: Migration = {
         column.notNull().defaultTo(0),
       )
       .addColumn("locked_at", "timestamptz")
+      .addColumn("lease_token", "text")
       .addColumn("last_completed_at", "timestamptz")
       .addColumn("diagnostic_code", "text")
       .addColumn("updated_at", "timestamptz", (column) => column.notNull())
       .addCheckConstraint(
         "membership_reconciliations_state_check",
         sql`state in ('pending', 'processing')`,
+      )
+      .addCheckConstraint(
+        "membership_reconciliations_lease_check",
+        sql`(
+          state = 'pending' and locked_at is null and lease_token is null
+        ) or (
+          state = 'processing' and locked_at is not null and lease_token is not null
+        )`,
       )
       .execute();
     await db.schema
@@ -39,6 +48,7 @@ export const membershipReconciliationMigration: Migration = {
         due_at,
         attempt_count,
         locked_at,
+        lease_token,
         last_completed_at,
         diagnostic_code,
         updated_at
@@ -48,6 +58,7 @@ export const membershipReconciliationMigration: Migration = {
         'pending',
         linked_at,
         0,
+        null,
         null,
         null,
         null,

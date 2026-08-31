@@ -130,12 +130,12 @@ export class BackgroundWorkers
 
   private async executeMembershipCycle(): Promise<void> {
     try {
-      await this.membershipChecks.processAvailable();
       const outcome = await this.membershipEvidence.reconcileDue(
         { maxDurationMs: 2000, maxItems: 25 },
         systemClock,
       );
       this.metrics.recordReconciliation(outcome);
+      await this.membershipChecks.processAvailable(1);
     } catch {
       this.logger.error("Membership worker cycle failed");
     } finally {
