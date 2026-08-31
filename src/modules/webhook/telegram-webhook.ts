@@ -14,6 +14,12 @@ import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import { credentialsMatch } from "../../security/credentials.js";
 import { TelegramUpdateInbox } from "../update-inbox/telegram-update-inbox.js";
 
+export const TELEGRAM_WEBHOOK_ALLOWED_UPDATES = [
+  "message",
+  "chat_member",
+  "my_chat_member",
+] as const;
+
 @Injectable()
 export class TelegramWebhook {
   constructor(

@@ -28,6 +28,8 @@ export type MembershipEvidenceDeliveryState =
   "delivered" | "delivering" | "pending" | "rejected" | "retry_scheduled";
 export type MembershipProviderState = "degraded" | "ready" | "unavailable";
 export type NormalizedMembershipState = "member" | "non_member" | "unavailable";
+export type MembershipEventDisposition =
+  "evidence" | "ignored_older" | "provider_state" | "unlinked_subject";
 
 type Timestamp = ColumnType<Date, Date | string, Date | string>;
 type BigIntColumn = ColumnType<
@@ -116,6 +118,8 @@ export interface PlatformLinksTable {
   account_ref: string;
   bot_identity: string;
   evidence_version: BigIntColumn;
+  last_membership_observation_at: Timestamp | null;
+  last_membership_observation_update_id: BigIntColumn | null;
   link_transaction_ref: string;
   linked_at: Timestamp;
   telegram_identity_ref: string;
@@ -141,6 +145,7 @@ export interface MembershipCheckResultsTable {
   evidence_version: BigIntColumn | null;
   id: Generated<string>;
   normalized_state: NormalizedMembershipState;
+  observation_update_id: BigIntColumn | null;
   result_ref: string;
   observed_at: Timestamp;
   raw_is_member: boolean | null;
@@ -165,8 +170,35 @@ export interface MembershipProviderStateTable {
   bot_identity: string;
   canonical_chat_id: BigIntColumn;
   diagnostic_code: string | null;
+  last_provider_observation_at: Timestamp | null;
+  last_provider_observation_update_id: BigIntColumn | null;
   state: MembershipProviderState;
   updated_at: Timestamp;
+}
+
+export interface MembershipProviderObservationsTable {
+  bot_identity: string;
+  diagnostic_code: string | null;
+  id: Generated<string>;
+  observed_at: Timestamp;
+  source_kind: "direct" | "event";
+  source_ref: string;
+  source_update_id: BigIntColumn | null;
+  state: MembershipProviderState;
+}
+
+export interface MembershipEventAuditTable {
+  actor_is_subject: boolean | null;
+  bot_identity: string;
+  canonical_chat_id: BigIntColumn;
+  diagnostic_code: string | null;
+  disposition: MembershipEventDisposition;
+  event_at: Timestamp;
+  event_kind: "provider" | "subject";
+  normalized_state: NormalizedMembershipState | null;
+  result_ref: string | null;
+  subject_linked: boolean | null;
+  update_id: BigIntColumn;
 }
 
 export interface IdentityLinkEventsTable {
@@ -183,7 +215,9 @@ export interface DatabaseSchema {
   link_transactions: LinkTransactionsTable;
   membership_checks: MembershipChecksTable;
   membership_evidence_outbox: MembershipEvidenceOutboxTable;
+  membership_event_audit: MembershipEventAuditTable;
   membership_check_results: MembershipCheckResultsTable;
+  membership_provider_observations: MembershipProviderObservationsTable;
   membership_provider_state: MembershipProviderStateTable;
   platform_links: PlatformLinksTable;
   telegram_updates: TelegramUpdatesTable;

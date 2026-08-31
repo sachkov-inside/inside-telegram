@@ -7,12 +7,11 @@ surface for Inside communications and marketing. Its first delivery connects a T
 to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
 evidence to Platform without making content requests wait for Telegram.
 
-Current stage: **initial Membership Evidence after `/start <token>` linking**. Final Platform
-confirmation durably schedules a canonical-chat check; a worker verifies the bot administrator
-prerequisite, calls `getChatMember`, normalizes the result, and creates a finite versioned envelope
-for asynchronous authenticated delivery to Platform. Bot registration, real credentials,
-member-status events, reconciliation, deployment, and production enablement remain explicit later
-gates.
+Current stage: **responsive Membership Evidence from initial checks and durable member-status
+events**. Final Platform confirmation schedules a canonical-chat check, while authenticated
+`chat_member` updates produce ordered newer evidence through the same normalization and outbox.
+Bot registration, real credentials, missed-event reconciliation, cross-application convergence,
+deployment, and production enablement remain explicit later gates.
 
 ## Ordinary `/start` runtime
 
@@ -82,6 +81,27 @@ commit and SHA-256 snapshot in
   credential.
 - A separate Telegram delivery intent reports linked member, non-member, or temporary unavailable
   state without promising content access before Platform accepts the evidence.
+
+## Durable member-status events
+
+- Webhook registration must explicitly use
+  `allowed_updates=["message","chat_member","my_chat_member"]`; omitted registration is unsafe
+  because Telegram excludes `chat_member` from its default set. Old update variants are still
+  accepted into the durable inbox and safely ignored by processing.
+- Only the exact configured canonical chat can affect Membership. The subject comes from
+  `new_chat_member.user.id`; the event actor is never substituted for it and persists only as the
+  redacted `actor_is_subject` audit fact.
+- Linked subject events use `ChatMemberUpdated.date` as source ordering and `update_id` only as a
+  same-second tie-breaker. Successful direct observations and events share one ordering cursor, so
+  duplicate, delayed, concurrent, and week-gap/random update IDs cannot roll back a newer current
+  observation or its monotonic evidence revision.
+- Removal and restriction events issue negative evidence even after a provider degradation.
+  Unknown future status is unavailable. A canonical `my_chat_member` demotion immediately marks
+  the provider degraded, rejects pending positive evidence observed after the loss, and blocks new
+  positive evidence until a newer administrator recovery.
+- Unlinked subjects create neither a PlatformLink nor evidence. The durable audit records only
+  canonical correlation, normalized disposition, linked/unlinked state, and redacted actor facts;
+  processed inbox payloads are discarded as before.
 
 ## Durable documents
 

@@ -80,6 +80,7 @@ beforeEach(async () => {
       membership_evidence_outbox,
       membership_check_results,
       membership_checks,
+      membership_provider_observations,
       membership_provider_state,
       identity_link_events,
       platform_links,
@@ -147,6 +148,7 @@ describe("initial Membership Evidence", () => {
 
   it("rebuilds its migration down and forward", async () => {
     const { migrateDown } = await import("../../src/database/migrator.js");
+    await migrateDown(database);
     await migrateDown(database);
     const removed = await sql<{ exists: boolean }>`
       select exists (

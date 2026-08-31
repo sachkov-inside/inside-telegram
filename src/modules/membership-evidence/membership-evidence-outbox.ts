@@ -9,6 +9,7 @@ import {
   type MembershipEvidence,
   readStoredMembershipEvidence,
 } from "./membership-evidence.js";
+import { withProviderDeliveryLock } from "./membership-provider-delivery-lock.js";
 import type { PlatformEvidenceDeliveryResult } from "./platform-evidence-delivery.js";
 
 const DELIVERY_LEASE_MILLISECONDS = 60_000;
@@ -114,6 +115,44 @@ export class MembershipEvidenceOutbox {
       .where("id", "=", delivery.idempotencyKey)
       .where("state", "=", "delivering")
       .execute();
+  }
+
+  async deliverIfClaimActive<Result>(
+    delivery: ClaimedMembershipEvidenceDelivery,
+    operation: () => Promise<Result>,
+  ): Promise<Result | undefined> {
+    const owner = await this.database
+      .selectFrom("membership_evidence_outbox")
+      .innerJoin(
+        "membership_check_results",
+        "membership_check_results.result_ref",
+        "membership_evidence_outbox.result_ref",
+      )
+      .innerJoin(
+        "platform_links",
+        "platform_links.telegram_identity_ref",
+        "membership_check_results.telegram_identity_ref",
+      )
+      .select("platform_links.bot_identity")
+      .where("membership_evidence_outbox.id", "=", delivery.idempotencyKey)
+      .executeTakeFirst();
+    if (!owner) {
+      return undefined;
+    }
+    return withProviderDeliveryLock(
+      this.database,
+      owner.bot_identity,
+      async (connection) => {
+        const stored = await connection
+          .selectFrom("membership_evidence_outbox")
+          .select("state")
+          .where("id", "=", delivery.idempotencyKey)
+          .executeTakeFirst();
+        return stored?.state === "delivering"
+          ? operation()
+          : Promise.resolve(undefined);
+      },
+    );
   }
 }
 

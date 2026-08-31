@@ -4,7 +4,10 @@ import {
   GrammyUpdateAdapter,
   prepareTelegramUpdateForInbox,
 } from "../../src/adapters/telegram/grammy-update.adapter.js";
+import { TELEGRAM_WEBHOOK_ALLOWED_UPDATES } from "../../src/modules/webhook/telegram-webhook.js";
 import {
+  canonicalMembershipUpdate,
+  canonicalProviderMembershipUpdate,
   privateContactabilityUpdate,
   privateStartUpdate,
 } from "../support/synthetic-telegram-updates.js";
@@ -13,6 +16,14 @@ const observedAt = new Date("2026-08-30T12:00:00.000Z");
 
 describe("GrammyUpdateAdapter", () => {
   const adapter = new GrammyUpdateAdapter();
+
+  it("pins the explicit webhook update registration", () => {
+    expect(TELEGRAM_WEBHOOK_ALLOWED_UPDATES).toEqual([
+      "message",
+      "chat_member",
+      "my_chat_member",
+    ]);
+  });
 
   it("translates an ordinary private non-bot start to verified IDs", () => {
     const largestDocumentedSafeId = 4_503_599_627_370_495;
@@ -114,6 +125,7 @@ describe("GrammyUpdateAdapter", () => {
     ["missing sender", privateStartUpdate(3, 42, { omitSender: true })],
     ["tokenized start", privateStartUpdate(4, 42, { text: "/start token" })],
     ["malformed message", { update_id: 5, message: {} }],
+    ["old configured update variant", { update_id: 6, poll_answer: {} }],
   ])("ignores %s", (_name, update) => {
     expect(adapter.translate("inside", "1", update, observedAt)).toEqual({
       kind: "ignored",
@@ -136,6 +148,59 @@ describe("GrammyUpdateAdapter", () => {
         observedAt,
         telegramUserId: "42",
         updateId: "8",
+      },
+    });
+  });
+
+  it("uses new_chat_member subject instead of the event actor", () => {
+    expect(
+      adapter.translate(
+        "inside",
+        "9001",
+        canonicalMembershipUpdate(9001, -1_000_000_000_000, 42, "left", {
+          actorUserId: 777,
+          date: 1_893_456_060,
+        }),
+        observedAt,
+      ),
+    ).toEqual({
+      kind: "membership",
+      value: {
+        actorIsSubject: false,
+        botIdentity: "inside",
+        canonicalChatId: "-1000000000000",
+        chatMember: { status: "left" },
+        eventAt: new Date("2030-01-01T00:01:00.000Z"),
+        kind: "subject",
+        subjectTelegramUserId: "42",
+        updateId: "9001",
+      },
+    });
+  });
+
+  it("translates canonical bot demotion as a provider event", () => {
+    expect(
+      adapter.translate(
+        "inside",
+        "9002",
+        canonicalProviderMembershipUpdate(
+          9002,
+          -1_000_000_000_000,
+          99,
+          "member",
+          { date: 1_893_456_120 },
+        ),
+        observedAt,
+      ),
+    ).toEqual({
+      kind: "membership",
+      value: {
+        botIdentity: "inside",
+        canonicalChatId: "-1000000000000",
+        chatMember: { status: "member" },
+        eventAt: new Date("2030-01-01T00:02:00.000Z"),
+        kind: "provider",
+        updateId: "9002",
       },
     });
   });
