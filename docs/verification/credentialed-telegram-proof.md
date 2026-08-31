@@ -57,3 +57,16 @@ When complete, add only:
 
 Production domains, permanent credentials, deploy, monitoring, traffic, and production GO remain
 outside this proof.
+
+## Official facts reverified 2026-08-31
+
+- [Telegram Bot Features](https://core.telegram.org/bots/features#creating-a-new-bot) documents
+  `/newbot`, token secrecy, and `/token` rotation through BotFather.
+- [Telegram Bot API](https://core.telegram.org/bots/api#setwebhook) defines the HTTPS callback,
+  supported ports, non-`2xx` retry, separate secret header, exact `allowed_updates`,
+  `getWebhookInfo`, and pending-update disposal.
+- [`chat_member`](https://core.telegram.org/bots/api#chatmemberupdated) requires the bot to be an
+  administrator and the update type to be explicitly selected; `getChatMember` for another user is
+  guaranteed only while the bot is an administrator.
+- [Telegram webhook guide](https://core.telegram.org/bots/webhooks) owns the current TLS, port,
+  certificate, and reachability requirements for the temporary callback.

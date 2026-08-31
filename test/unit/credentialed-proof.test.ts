@@ -4,6 +4,7 @@ import {
   validateBotIdentity,
   validateChatAdministration,
   validateWebhookInfo,
+  validateWebhookUrl,
 } from "../../src/operations/credentialed-proof.js";
 
 describe("credentialed Telegram proof redaction", () => {
@@ -72,5 +73,17 @@ describe("credentialed Telegram proof redaction", () => {
         "https://proof.example/telegram",
       ),
     ).toThrow(/allowed_updates/u);
+  });
+
+  it("rejects callback ports outside the Telegram webhook contract", () => {
+    expect(validateWebhookUrl("https://proof.example/telegram")).toBe(
+      "https://proof.example/telegram",
+    );
+    expect(validateWebhookUrl("https://proof.example:8443/telegram")).toBe(
+      "https://proof.example:8443/telegram",
+    );
+    expect(() =>
+      validateWebhookUrl("https://proof.example:444/telegram"),
+    ).toThrow(/Telegram-supported port/u);
   });
 });

@@ -382,8 +382,8 @@ else
   fi
   probe remove-webhook
   open_url "https://t.me/BotFather"
-  step "Send /revoke, select this dedicated proof bot, and revoke the token currently held by the wizard."
-  pause "Press Enter after BotFather confirms revocation"
+  step "Send /token, select this dedicated proof bot, and generate a replacement token; this revokes the token currently held by the wizard."
+  pause "Press Enter after BotFather issues the replacement and the old token is revoked"
   probe verify-revoked
   step "Delete or leave the temporary closed group according to the recorded disposition; remove the temporary HTTPS endpoint and Platform credentials."
   pause "Press Enter after the chat, endpoint, and matching Platform secrets are disposed"

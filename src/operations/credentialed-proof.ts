@@ -71,7 +71,7 @@ export async function runCredentialedProofCommand(
     return { ok: true, stage: "chat-administration" };
   }
   if (command === "configure-webhook") {
-    const webhookUrl = secureWebhookUrl(environment.webhookUrl);
+    const webhookUrl = validateWebhookUrl(environment.webhookUrl);
     const webhookSecret = required(
       environment.webhookSecret,
       "TELEGRAM_WEBHOOK_SECRET",
@@ -97,7 +97,7 @@ export async function runCredentialedProofCommand(
     if (!database) {
       throw new Error("DATABASE_URL is required for webhook auth proof");
     }
-    const webhookUrl = secureWebhookUrl(environment.webhookUrl);
+    const webhookUrl = validateWebhookUrl(environment.webhookUrl);
     const webhookSecret = required(
       environment.webhookSecret,
       "TELEGRAM_WEBHOOK_SECRET",
@@ -149,7 +149,7 @@ export async function runCredentialedProofCommand(
   if (command === "observe-webhook-outage") {
     const observation = validateWebhookInfo(
       await telegramResult(environment.botToken, "getWebhookInfo", {}),
-      secureWebhookUrl(environment.webhookUrl),
+      validateWebhookUrl(environment.webhookUrl),
     );
     if (!observation.hasLastError) {
       throw new Error("Telegram has not observed a webhook delivery error yet");
@@ -164,7 +164,7 @@ export async function runCredentialedProofCommand(
   if (command === "verify-webhook-recovered") {
     const observation = validateWebhookInfo(
       await telegramResult(environment.botToken, "getWebhookInfo", {}),
-      secureWebhookUrl(environment.webhookUrl),
+      validateWebhookUrl(environment.webhookUrl),
     );
     await recordObservation(
       environment.evidencePath,
@@ -222,6 +222,7 @@ export function validateBotIdentity(
   const bot = providerRecord(value);
   const username = normalizeUsername(expectedUsername);
   if (
+    !username.endsWith("bot") ||
     String(bot.id) !== expectedId ||
     bot.is_bot !== true ||
     typeof bot.username !== "string" ||
@@ -452,11 +453,20 @@ function required(value: string | undefined, name: string): string {
   return value;
 }
 
-function secureWebhookUrl(value: string | undefined): string {
+export function validateWebhookUrl(value: string | undefined): string {
   const requiredValue = required(value, "TELEGRAM_PROOF_WEBHOOK_URL");
   const url = new URL(requiredValue);
-  if (url.protocol !== "https:" || url.username || url.password || url.hash) {
-    throw new Error("TELEGRAM_PROOF_WEBHOOK_URL must be a direct HTTPS URL");
+  const webhookPort = url.port === "" ? "443" : url.port;
+  if (
+    url.protocol !== "https:" ||
+    !new Set(["80", "88", "443", "8443"]).has(webhookPort) ||
+    url.username ||
+    url.password ||
+    url.hash
+  ) {
+    throw new Error(
+      "TELEGRAM_PROOF_WEBHOOK_URL must be a direct HTTPS URL on a Telegram-supported port",
+    );
   }
   return requiredValue;
 }
