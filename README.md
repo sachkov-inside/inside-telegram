@@ -7,11 +7,12 @@ surface for Inside communications and marketing. Its first delivery connects a T
 to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
 evidence to Platform without making content requests wait for Telegram.
 
-Current stage: **responsive and self-repairing Membership Evidence**. Final Platform confirmation
-schedules a canonical-chat check, authenticated `chat_member` updates produce ordered newer
-evidence, and durable reconciliation repairs missed events before positive evidence can outlive its
-five-minute bound. Bot registration, real credentials, cross-application convergence, deployment,
-and production enablement remain explicit later gates.
+Current stage: **controlled Platform convergence complete**. Final Platform confirmation schedules
+a canonical-chat check, authenticated `chat_member` updates produce ordered newer evidence, and
+durable reconciliation repairs missed events before positive evidence can outlive its five-minute
+bound. The production HTTP adapters have passed the two-application conformance journey recorded
+in [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md). Bot
+registration, real credentials, deployment, and production enablement remain explicit later gates.
 
 ## Ordinary `/start` runtime
 
@@ -77,8 +78,10 @@ commit and SHA-256 snapshot in
 - Successful observations atomically allocate a monotonic per-link evidence version. Positive
   evidence expires after five minutes; unavailable results carry no revision or new validity.
 - The exact `inside.membership-evidence.v1` envelope enters a durable outbox. Retries reuse one
-  `Idempotency-Key`; `PLATFORM_EVIDENCE_DELIVERY_MODE=live` requires a separate endpoint and Bearer
-  credential.
+  `Idempotency-Key` and one durable evidence source (`link_time`, `member_status_event`, or
+  `reconciliation`); the production adapter sends that source in
+  `X-Inside-Membership-Evidence-Source`. `PLATFORM_EVIDENCE_DELIVERY_MODE=live` requires a separate
+  endpoint and Bearer credential.
 - A separate Telegram delivery intent reports linked member, non-member, or temporary unavailable
   state without promising content access before Platform accepts the evidence.
 
@@ -129,6 +132,8 @@ commit and SHA-256 snapshot in
 - [`CONTEXT.md`](CONTEXT.md) — canonical application terminology.
 - [`docs/research/telegram-bot-membership-v1.md`](docs/research/telegram-bot-membership-v1.md) —
   official Telegram Bot API and grammY facts plus credentialed proof gaps.
+- [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md) —
+  version compatibility, independent corpus provenance, and the redacted two-application proof.
 - [Telegram Membership bridge v1 Specification](https://github.com/sachkov-inside/inside-telegram/issues/1)
   — native parent of the approved vertical delivery tickets.
 
