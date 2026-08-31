@@ -4,16 +4,22 @@ Status: **pending owner-assisted execution** for Telegram #9. The application, w
 owner recovery interface, and safe disposal path are versioned; no real BotFather credential,
 closed chat, or temporary HTTPS callback has been supplied in this branch.
 
-Run from the repository root with Node from `.node-version`:
+Prepare an ignored `.env` whose `DATABASE_URL` names an isolated loopback `issue9` or `proof`
+database, then run from the repository root with Node from `.node-version`:
 
 ```bash
 pnpm credentialed-proof:wizard
 ```
 
-The wizard has thirteen resumable stages and writes credentials/provider identifiers only to the
-ignored local `.env`. Machine observations are reduced to status vocabulary, rights, booleans, and
-counts in the ignored mode-`0600` `.credentialed-proof/evidence.json`. Neither file may be pasted
-into an issue, PR, log, or committed report. Static verification uses only non-secret fixtures:
+Before BotFather opens, the wizard verifies the required CLI versions, repository root, ignored
+destinations, isolated database URL, and owner login readiness. It binds every probe and recovery
+command to the selected `ENV_FILE` and gives the same `DOTENV_CONFIG_PATH` for the application
+terminal. Its thirteen resumable stages write credentials/provider
+identifiers only to that mode-`0600` file. Machine observations are reduced to ordered stage
+snapshots containing status vocabulary, current administrator-right names, booleans, version
+ranges, and aggregate counts in ignored mode-`0600` `.credentialed-proof/evidence.json`. Neither
+file may be pasted into an issue, PR, log, or committed report. Static verification uses only
+non-secret fixtures:
 
 ```bash
 bash -n scripts/credentialed-proof-wizard.sh
@@ -30,10 +36,10 @@ confirmations. Record no identifiers or provider payloads in this document.
 | Area | Required redacted observation | Result |
 |---|---|---|
 | Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | pending |
-| Closed chat | private group/supergroup type and exact minimum client-assignable administrator-right names | pending |
+| Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, and every current assignable administrator-right name | pending |
 | Webhook auth | correct secret accepted; missing/wrong secret rejected | pending |
 | Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | pending |
-| Webhook retry | non-`2xx` delivery error observed, then retry/recovery without duplicate processing | pending |
+| Webhook retry | exact synthetic marker absent during provider error/pending state, then present once after retry with provider queue drained | pending |
 | Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | pending |
 | Link bearer | valid, expired, replay, concurrent consume, same-pair idempotence, conflict | pending |
 | Membership | reachable statuses match normalization; removal denies and newer rejoin restores | pending |
@@ -50,7 +56,7 @@ When complete, add only:
 - tested Git revisions and a rounded UTC proof window;
 - boolean result for every row above;
 - observed Telegram status and administrator-right vocabulary without chat/user/bot identifiers;
-- aggregate inbox/delivery/event/recovery counts;
+- ordered stage snapshots with aggregate inbox/link/delivery/membership/provider/reconciliation/recovery counts and evidence-version ranges;
 - owner recovery fingerprints, never raw references;
 - token/webhook/chat/endpoint disposal booleans;
 - Standards and Spec review verdicts.

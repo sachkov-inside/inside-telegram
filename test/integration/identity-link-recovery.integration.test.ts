@@ -187,22 +187,72 @@ describe("IdentityLinkRecovery", () => {
     ).toEqual(["idempotent", "transferred"]);
     expect(await recoveryAuditCount()).toBe(1);
   });
+
+  it("allows only one concurrent recovery into the same target Account", async () => {
+    const first = await conflictingLinkFixture();
+    const second = await conflictingLinkFixtureFor({
+      sourceAccountRef: "principal-ref-source-second",
+      sourceReturnCorrelation: "source-return-second",
+      sourceToken: "source-token-second",
+      targetReturnCorrelation: "target-return-second",
+      targetToken: "target-token-second",
+      telegramUserId: "99",
+    });
+
+    const results = await Promise.all([
+      recovery.execute(recoveryCommand(first, "first")),
+      recovery.execute(recoveryCommand(second, "second")),
+    ]);
+
+    expect(
+      results
+        .map((result) => (result.ok ? result.outcome : result.reason))
+        .sort(),
+    ).toEqual(["target_account_already_linked", "transferred"]);
+    expect(await linksForAccount("principal-ref-target")).toBe(1);
+    expect(await recoveryAuditCount()).toBe(1);
+  });
 });
 
 async function conflictingLinkFixture(): Promise<{
+  sourceAccountRef: string;
+  sourceLinkTransactionRef: string;
+  targetLinkTransactionRef: string;
+  telegramIdentityRef: string;
+}> {
+  return conflictingLinkFixtureFor({
+    sourceAccountRef: "principal-ref-source",
+    sourceReturnCorrelation: "source-return",
+    sourceToken: "source-token",
+    targetReturnCorrelation: "target-return",
+    targetToken: "target-token",
+    telegramUserId: "42",
+  });
+}
+
+async function conflictingLinkFixtureFor(options: {
+  sourceAccountRef: string;
+  sourceReturnCorrelation: string;
+  sourceToken: string;
+  targetReturnCorrelation: string;
+  targetToken: string;
+  telegramUserId: string;
+}): Promise<{
+  sourceAccountRef: string;
   sourceLinkTransactionRef: string;
   targetLinkTransactionRef: string;
   telegramIdentityRef: string;
 }> {
   const source = await registerAndReceive(
-    "principal-ref-source",
-    digest("source-token"),
-    "source-return",
+    options.sourceAccountRef,
+    digest(options.sourceToken),
+    options.sourceReturnCorrelation,
+    options.telegramUserId,
   );
   const linked = await linking.confirm({
-    accountRef: "principal-ref-source",
+    accountRef: options.sourceAccountRef,
     linkTransactionRef: source,
-    returnCorrelation: "source-return",
+    returnCorrelation: options.sourceReturnCorrelation,
   });
   if (linked.status !== "linked") {
     throw new Error("fixture source did not link");
@@ -211,20 +261,42 @@ async function conflictingLinkFixture(): Promise<{
   const target = await linking.register({
     accountRef: "principal-ref-target",
     expiresAt: new Date("2030-01-01T00:10:00.000Z"),
-    returnCorrelation: "target-return",
-    tokenDigest: digest("target-token"),
+    returnCorrelation: options.targetReturnCorrelation,
+    tokenDigest: digest(options.targetToken),
   });
   await linking.acceptStart({
     botIdentity: "inside",
-    linkToken: { digest: digest("target-token"), kind: "digest" },
+    linkToken: { digest: digest(options.targetToken), kind: "digest" },
     observedAt: new Date("2030-01-01T00:01:00.000Z"),
-    telegramUserId: "42",
+    telegramUserId: options.telegramUserId,
   });
 
   return {
+    sourceAccountRef: options.sourceAccountRef,
     sourceLinkTransactionRef: source,
     targetLinkTransactionRef: target.linkTransactionRef,
     telegramIdentityRef: linked.telegramIdentityRef,
+  };
+}
+
+function recoveryCommand(
+  fixture: {
+    sourceAccountRef: string;
+    targetLinkTransactionRef: string;
+    telegramIdentityRef: string;
+  },
+  suffix: string,
+) {
+  return {
+    confirmedSourceAccountRef: fixture.sourceAccountRef,
+    confirmedTargetAccountRef: "principal-ref-target",
+    operatorRef: "owner-kirill",
+    reasonRef: "inside-telegram-9-proof",
+    recoveryRef: `recovery-proof-account-race-${suffix}`,
+    sourceAccountRef: fixture.sourceAccountRef,
+    targetAccountRef: "principal-ref-target",
+    targetLinkTransactionRef: fixture.targetLinkTransactionRef,
+    telegramIdentityRef: fixture.telegramIdentityRef,
   };
 }
 
@@ -232,6 +304,7 @@ async function registerAndReceive(
   accountRef: string,
   tokenDigest: string,
   returnCorrelation: string,
+  telegramUserId = "42",
 ): Promise<string> {
   const link = await linking.register({
     accountRef,
@@ -243,9 +316,18 @@ async function registerAndReceive(
     botIdentity: "inside",
     linkToken: { digest: tokenDigest, kind: "digest" },
     observedAt: new Date("2030-01-01T00:01:00.000Z"),
-    telegramUserId: "42",
+    telegramUserId,
   });
   return link.linkTransactionRef;
+}
+
+async function linksForAccount(accountRef: string): Promise<number> {
+  const result = await database
+    .selectFrom("platform_links")
+    .select(({ fn }) => fn.countAll().as("count"))
+    .where("account_ref", "=", accountRef)
+    .executeTakeFirstOrThrow();
+  return Number(result.count);
 }
 
 async function currentAccount(): Promise<string> {

@@ -5,37 +5,27 @@ import {
   redactRecoveryResult,
 } from "../../src/operations/identity-link-recovery-cli.js";
 
-const argumentsList = [
-  "--recovery-ref",
-  "recovery-proof-0001",
-  "--operator-ref",
-  "owner-kirill",
-  "--reason-ref",
-  "inside-telegram-9-proof",
-  "--telegram-identity-ref",
-  "telegram-ref-sensitive",
-  "--source-account-ref",
-  "principal-source-sensitive",
-  "--target-account-ref",
-  "principal-target-sensitive",
-  "--target-link-transaction-ref",
-  "transaction-target-sensitive",
-];
+const inputDocument = `RECOVERY_REF=recovery-proof-0001
+OPERATOR_REF=owner-kirill
+REASON_REF=inside-telegram-9-proof
+TELEGRAM_IDENTITY_REF=telegram-ref-sensitive
+SOURCE_ACCOUNT_REF=principal-source-sensitive
+TARGET_ACCOUNT_REF=principal-target-sensitive
+TARGET_LINK_TRANSACTION_REF=transaction-target-sensitive
+`;
 
 describe("identity-link recovery CLI", () => {
   it("requires an explicit non-destructive or destructive mode", () => {
-    expect(() => parseRecoveryArguments(argumentsList)).toThrow(
+    expect(() => parseRecoveryArguments([], inputDocument)).toThrow(
       /exactly one of --dry-run or --execute/u,
     );
     expect(() =>
-      parseRecoveryArguments([...argumentsList, "--dry-run", "--execute"]),
+      parseRecoveryArguments(["--dry-run", "--execute"], inputDocument),
     ).toThrow(/exactly one/u);
   });
 
   it("allows dry-run without destructive confirmations", () => {
-    expect(
-      parseRecoveryArguments([...argumentsList, "--dry-run"]),
-    ).toMatchObject({
+    expect(parseRecoveryArguments(["--dry-run"], inputDocument)).toMatchObject({
       command: {
         confirmedSourceAccountRef: "principal-source-sensitive",
         confirmedTargetAccountRef: "principal-target-sensitive",
@@ -45,30 +35,31 @@ describe("identity-link recovery CLI", () => {
   });
 
   it("requires exact source and target confirmation for execute", () => {
+    expect(() => parseRecoveryArguments(["--execute"], inputDocument)).toThrow(
+      /CONFIRMED_SOURCE_ACCOUNT_REF/u,
+    );
     expect(() =>
-      parseRecoveryArguments([...argumentsList, "--execute"]),
-    ).toThrow(/--confirm-source-account-ref/u);
-    expect(() =>
-      parseRecoveryArguments([
-        ...argumentsList,
-        "--execute",
-        "--confirm-source-account-ref",
-        "principal-source-sensitive",
-        "--confirm-target-account-ref",
-        "principal-other",
-      ]),
+      parseRecoveryArguments(
+        ["--execute"],
+        `${inputDocument}CONFIRMED_SOURCE_ACCOUNT_REF=principal-source-sensitive\nCONFIRMED_TARGET_ACCOUNT_REF=principal-other\n`,
+      ),
     ).toThrow(/must exactly match/u);
 
     expect(
-      parseRecoveryArguments([
-        ...argumentsList,
-        "--execute",
-        "--confirm-source-account-ref",
-        "principal-source-sensitive",
-        "--confirm-target-account-ref",
-        "principal-target-sensitive",
-      ]),
+      parseRecoveryArguments(
+        ["--execute"],
+        `${inputDocument}CONFIRMED_SOURCE_ACCOUNT_REF=principal-source-sensitive\nCONFIRMED_TARGET_ACCOUNT_REF=principal-target-sensitive\n`,
+      ),
     ).toMatchObject({ mode: "execute" });
+  });
+
+  it("rejects recovery values passed through argv", () => {
+    expect(() =>
+      parseRecoveryArguments(
+        ["--dry-run", "--source-account-ref", "principal-source-sensitive"],
+        inputDocument,
+      ),
+    ).toThrow(/Unknown owner recovery argument/u);
   });
 
   it("redacts provider and Account references from terminal output", () => {

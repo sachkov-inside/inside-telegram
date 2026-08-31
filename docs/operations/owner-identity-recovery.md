@@ -11,7 +11,7 @@ or user self-service path.
 - Take and retain the normal database backup before an actual non-proof recovery.
 - Obtain the current TelegramIdentity reference, current source Principal reference, target
   Principal reference, and exact target conflict transaction through trusted operator tooling.
-  Never paste them into GitHub, chat, a terminal transcript, or the durable proof report.
+  Never paste them into GitHub, chat, argv, a terminal transcript, or the durable proof report.
 - The target transaction must already name the same verified bot identity and Telegram user and be
   in `conflict`; the interface will not fabricate or broaden a target.
 - Dry-run is read-only. Execute requires the source and target Principal references to be entered a
@@ -20,45 +20,44 @@ or user self-service path.
   mapping to the target conflict transaction, schedules a fresh Membership check, and appends one
   immutable before/after audit row. The recovery reference is idempotent and cannot be reused for
   different facts.
+- Link creation is serialized per target Account across ordinary confirmation and owner recovery,
+  so concurrent operations have a deterministic order and recovery rechecks its empty-target
+  safety gate after waiting. This does not invent reverse uniqueness: ordinary linking may still
+  map multiple distinct TelegramIdentity values to one Platform Account.
 - Existing positive Platform evidence is finite and fails closed at its normal five-minute bound;
   the fresh check emits evidence for the newly mapped Principal. Validate both Accounts after the
   operation.
 
 ## Dry-run
 
-Use an issue/change reference that contains no PII. Values below are placeholders; pass real
-references only in the local interactive terminal:
+The credentialed proof wizard collects these values with hidden prompts and removes its ignored,
+mode-0600 stdin file immediately after use and on exit. For a standalone recovery, create the same
+protected input file with a trusted local editor; never put the values in a command line:
 
 ```bash
-DATABASE_URL=<trusted-database-url> pnpm owner:recover-identity -- --dry-run \
-  --recovery-ref <unique-recovery-ref> \
-  --operator-ref <owner-operator-ref> \
-  --reason-ref <issue-or-change-ref> \
-  --telegram-identity-ref <telegram-identity-ref> \
-  --source-account-ref <current-principal-ref> \
-  --target-account-ref <target-principal-ref> \
-  --target-link-transaction-ref <target-conflict-transaction-ref>
+mkdir -p .credentialed-proof
+install -m 600 /dev/null .credentialed-proof/recovery-input.env
+${EDITOR:?Set a trusted local editor} .credentialed-proof/recovery-input.env
+pnpm owner:recover-identity -- --dry-run < .credentialed-proof/recovery-input.env
 ```
+
+The file uses one `KEY=value` per line: `RECOVERY_REF`, `OPERATOR_REF`, `REASON_REF`,
+`TELEGRAM_IDENTITY_REF`, `SOURCE_ACCOUNT_REF`, `TARGET_ACCOUNT_REF`, and
+`TARGET_LINK_TRANSACTION_REF`. Use an issue/change reference that contains no PII. The trusted
+database URL belongs in the existing ignored `.env`, not argv.
 
 The command returns only twelve-character SHA-256 fingerprints. Compare every fingerprint with a
 separately calculated trusted value. A `ready` outcome means the database was not changed.
 
 ## Execute
 
-Execute only after a successful dry-run and an independent owner comparison. The two confirmation
-arguments must repeat the source and target values exactly:
+Execute only after a successful dry-run and an independent owner comparison. Add
+`CONFIRMED_SOURCE_ACCOUNT_REF` and `CONFIRMED_TARGET_ACCOUNT_REF` to the protected file by
+re-entering the values exactly, then run:
 
 ```bash
-DATABASE_URL=<trusted-database-url> pnpm owner:recover-identity -- --execute \
-  --recovery-ref <same-unique-recovery-ref> \
-  --operator-ref <same-owner-operator-ref> \
-  --reason-ref <same-issue-or-change-ref> \
-  --telegram-identity-ref <telegram-identity-ref> \
-  --source-account-ref <current-principal-ref> \
-  --target-account-ref <target-principal-ref> \
-  --target-link-transaction-ref <target-conflict-transaction-ref> \
-  --confirm-source-account-ref <re-enter-current-principal-ref> \
-  --confirm-target-account-ref <re-enter-target-principal-ref>
+pnpm owner:recover-identity -- --execute < .credentialed-proof/recovery-input.env
+rm -f -- .credentialed-proof/recovery-input.env
 ```
 
 `transferred` is the first successful execution; repeating the exact command returns `idempotent`.

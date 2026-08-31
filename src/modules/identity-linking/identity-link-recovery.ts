@@ -8,6 +8,7 @@ import {
   type IdentityLinkRecoveriesTable,
 } from "../../database/database.js";
 import { CLOCK, type Clock } from "./clock.js";
+import { lockIdentityLinkAccount } from "./identity-link-account-lock.js";
 import { isOpaqueRef } from "./identity-linking-validation.js";
 
 export interface IdentityLinkRecoveryCommand {
@@ -246,6 +247,9 @@ async function readyTransfer(
     target.candidate_telegram_user_id !== source.telegram_user_id
   ) {
     return { ok: false, reason: "target_not_recoverable" };
+  }
+  if (lock) {
+    await lockIdentityLinkAccount(transaction, command.targetAccountRef);
   }
   const targetLink = await transaction
     .selectFrom("platform_links")

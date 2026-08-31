@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   validateBotIdentity,
   validateChatAdministration,
+  validateChatDemotion,
   validateWebhookInfo,
   validateWebhookUrl,
 } from "../../src/operations/credentialed-proof.js";
@@ -30,23 +31,83 @@ describe("credentialed Telegram proof redaction", () => {
       validateChatAdministration(
         { id: -100123, title: "Private proof", type: "supergroup" },
         {
-          can_delete_messages: false,
-          can_invite_users: true,
+          can_manage_chat: true,
           status: "administrator",
           user: { id: 123 },
         },
+        true,
       ),
     ).toEqual({
+      assignableRights: {
+        can_change_info: false,
+        can_delete_messages: false,
+        can_delete_stories: false,
+        can_edit_messages: false,
+        can_edit_stories: false,
+        can_invite_users: false,
+        can_manage_direct_messages: false,
+        can_manage_tags: false,
+        can_manage_topics: false,
+        can_manage_video_chats: false,
+        can_pin_messages: false,
+        can_post_messages: false,
+        can_post_stories: false,
+        can_promote_members: false,
+        can_restrict_members: false,
+        can_send_welcome_messages: false,
+        is_anonymous: false,
+      },
       botStatus: "administrator",
       chatType: "supergroup",
-      enabledOptionalRights: ["can_invite_users"],
+      impliedManageChat: true,
+      minimumClientConfigurationConfirmed: true,
     });
     expect(() =>
       validateChatAdministration(
         { id: -100123, type: "channel" },
         { status: "member", user: { id: 123 } },
+        true,
       ),
     ).toThrow(/group or supergroup/u);
+    expect(() =>
+      validateChatAdministration(
+        { id: -100123, type: "supergroup" },
+        { can_manage_chat: true, status: "administrator" },
+        false,
+      ),
+    ).toThrow(/not confirmed/u);
+  });
+
+  it("captures current assignable admin rights and a separate demotion", () => {
+    expect(
+      validateChatAdministration(
+        { id: -100123, type: "supergroup" },
+        {
+          can_manage_chat: true,
+          can_manage_direct_messages: true,
+          can_manage_tags: true,
+          can_post_stories: true,
+          can_send_welcome_messages: true,
+          status: "administrator",
+        },
+        true,
+      ),
+    ).toMatchObject({
+      assignableRights: {
+        can_manage_direct_messages: true,
+        can_manage_tags: true,
+        can_post_stories: true,
+        can_send_welcome_messages: true,
+      },
+      impliedManageChat: true,
+    });
+    expect(validateChatDemotion({ status: "member" })).toEqual({
+      botIsAdministrator: false,
+      botStatus: "member",
+    });
+    expect(() => validateChatDemotion({ status: "administrator" })).toThrow(
+      /not been demoted/u,
+    );
   });
 
   it("requires the exact callback and allowed update vocabulary", () => {

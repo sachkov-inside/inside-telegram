@@ -1,5 +1,7 @@
 import "dotenv/config";
 
+import { readFileSync } from "node:fs";
+
 import { createDatabase } from "../database/create-database.js";
 import { systemClock } from "../modules/identity-linking/clock.js";
 import { IdentityLinkRecovery } from "../modules/identity-linking/identity-link-recovery.js";
@@ -15,7 +17,13 @@ if (!databaseUrl) {
 } else {
   const database = createDatabase(databaseUrl);
   try {
-    const parsed = parseRecoveryArguments(process.argv.slice(2));
+    if (process.stdin.isTTY) {
+      throw new Error("Owner recovery input must be redirected through stdin");
+    }
+    const parsed = parseRecoveryArguments(
+      process.argv.slice(2),
+      readFileSync(0, "utf8"),
+    );
     const recovery = new IdentityLinkRecovery(database, systemClock);
     const result =
       parsed.mode === "dry-run"

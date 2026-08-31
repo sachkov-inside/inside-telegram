@@ -4,6 +4,7 @@ import { createDatabase } from "../database/create-database.js";
 import { runCredentialedProofCommand } from "./credentialed-proof.js";
 
 const command = process.argv[2];
+const snapshotLabel = process.argv[3];
 const botToken = process.env.TELEGRAM_BOT_TOKEN;
 const botId = process.env.TELEGRAM_PROOF_BOT_ID;
 const botUsername = process.env.TELEGRAM_PROOF_BOT_USERNAME;
@@ -15,7 +16,10 @@ if (!command || !botToken || !botId || !botUsername) {
   process.exitCode = 1;
 } else {
   const needsDatabase =
-    command === "snapshot" || command === "verify-webhook-auth";
+    command === "observe-webhook-outage" ||
+    command === "snapshot" ||
+    command === "verify-webhook-auth" ||
+    command === "verify-webhook-recovered";
   const databaseUrl = process.env.DATABASE_URL;
   const database =
     needsDatabase && databaseUrl ? createDatabase(databaseUrl) : undefined;
@@ -37,6 +41,10 @@ if (!command || !botToken || !botId || !botUsername) {
         evidencePath:
           process.env.TELEGRAM_PROOF_EVIDENCE_PATH ??
           ".credentialed-proof/evidence.json",
+        minimumAdminConfirmed:
+          process.env.TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED,
+        retryMarker: process.env.TELEGRAM_PROOF_RETRY_MARKER,
+        snapshotLabel,
         webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
         webhookUrl: process.env.TELEGRAM_PROOF_WEBHOOK_URL,
       },

@@ -10,27 +10,26 @@ export interface ParsedRecoveryArguments {
   readonly mode: "dry-run" | "execute";
 }
 
-const VALUE_FLAGS = new Set([
-  "--confirm-source-account-ref",
-  "--confirm-target-account-ref",
-  "--operator-ref",
-  "--reason-ref",
-  "--recovery-ref",
-  "--source-account-ref",
-  "--target-account-ref",
-  "--target-link-transaction-ref",
-  "--telegram-identity-ref",
+const INPUT_KEYS = new Set([
+  "CONFIRMED_SOURCE_ACCOUNT_REF",
+  "CONFIRMED_TARGET_ACCOUNT_REF",
+  "OPERATOR_REF",
+  "REASON_REF",
+  "RECOVERY_REF",
+  "SOURCE_ACCOUNT_REF",
+  "TARGET_ACCOUNT_REF",
+  "TARGET_LINK_TRANSACTION_REF",
+  "TELEGRAM_IDENTITY_REF",
 ]);
 
 export function parseRecoveryArguments(
   argumentsList: readonly string[],
+  inputDocument: string,
 ): ParsedRecoveryArguments {
-  const values = new Map<string, string>();
   let dryRun = false;
   let execute = false;
 
-  for (let index = 0; index < argumentsList.length; index += 1) {
-    const argument = argumentsList[index];
+  for (const argument of argumentsList) {
     if (argument === "--dry-run") {
       dryRun = true;
       continue;
@@ -39,30 +38,23 @@ export function parseRecoveryArguments(
       execute = true;
       continue;
     }
-    if (!argument || !VALUE_FLAGS.has(argument)) {
+    if (!argument) {
       throw new Error(`Unknown owner recovery argument: ${argument ?? ""}`);
     }
-    if (values.has(argument)) {
-      throw new Error(`Duplicate owner recovery argument: ${argument}`);
-    }
-    const value = argumentsList[index + 1];
-    if (!value || value.startsWith("--")) {
-      throw new Error(`${argument} requires a value`);
-    }
-    values.set(argument, value);
-    index += 1;
+    throw new Error(`Unknown owner recovery argument: ${argument}`);
   }
 
   if (dryRun === execute) {
     throw new Error("Pass exactly one of --dry-run or --execute");
   }
-  const sourceAccountRef = required(values, "--source-account-ref");
-  const targetAccountRef = required(values, "--target-account-ref");
+  const values = parseInputDocument(inputDocument);
+  const sourceAccountRef = required(values, "SOURCE_ACCOUNT_REF");
+  const targetAccountRef = required(values, "TARGET_ACCOUNT_REF");
   const confirmedSourceAccountRef = execute
-    ? required(values, "--confirm-source-account-ref")
+    ? required(values, "CONFIRMED_SOURCE_ACCOUNT_REF")
     : sourceAccountRef;
   const confirmedTargetAccountRef = execute
-    ? required(values, "--confirm-target-account-ref")
+    ? required(values, "CONFIRMED_TARGET_ACCOUNT_REF")
     : targetAccountRef;
   if (
     confirmedSourceAccountRef !== sourceAccountRef ||
@@ -77,19 +69,39 @@ export function parseRecoveryArguments(
     command: {
       confirmedSourceAccountRef,
       confirmedTargetAccountRef,
-      operatorRef: required(values, "--operator-ref"),
-      reasonRef: required(values, "--reason-ref"),
-      recoveryRef: required(values, "--recovery-ref"),
+      operatorRef: required(values, "OPERATOR_REF"),
+      reasonRef: required(values, "REASON_REF"),
+      recoveryRef: required(values, "RECOVERY_REF"),
       sourceAccountRef,
       targetAccountRef,
-      targetLinkTransactionRef: required(
-        values,
-        "--target-link-transaction-ref",
-      ),
-      telegramIdentityRef: required(values, "--telegram-identity-ref"),
+      targetLinkTransactionRef: required(values, "TARGET_LINK_TRANSACTION_REF"),
+      telegramIdentityRef: required(values, "TELEGRAM_IDENTITY_REF"),
     },
     mode: dryRun ? "dry-run" : "execute",
   };
+}
+
+function parseInputDocument(inputDocument: string): Map<string, string> {
+  const values = new Map<string, string>();
+  for (const line of inputDocument.split(/\r?\n/u)) {
+    if (line.length === 0) {
+      continue;
+    }
+    const separator = line.indexOf("=");
+    const key = separator === -1 ? line : line.slice(0, separator);
+    const value = separator === -1 ? "" : line.slice(separator + 1);
+    if (!INPUT_KEYS.has(key)) {
+      throw new Error(`Unknown owner recovery input: ${key}`);
+    }
+    if (values.has(key)) {
+      throw new Error(`Duplicate owner recovery input: ${key}`);
+    }
+    if (!value) {
+      throw new Error(`${key} is required`);
+    }
+    values.set(key, value);
+  }
+  return values;
 }
 
 export function redactRecoveryResult(result: IdentityLinkRecoveryResult):

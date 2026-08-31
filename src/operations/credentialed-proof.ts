@@ -7,19 +7,27 @@ import { sql } from "kysely";
 import type { Database } from "../database/database.js";
 import { TELEGRAM_WEBHOOK_ALLOWED_UPDATES } from "../modules/webhook/telegram-webhook.js";
 
-const OPTIONAL_ADMIN_RIGHTS = [
+const ASSIGNABLE_ADMIN_RIGHTS = [
+  "is_anonymous",
   "can_change_info",
   "can_delete_messages",
+  "can_delete_stories",
   "can_edit_messages",
+  "can_edit_stories",
   "can_invite_users",
-  "can_manage_chat",
+  "can_manage_direct_messages",
+  "can_manage_tags",
   "can_manage_topics",
   "can_manage_video_chats",
   "can_pin_messages",
   "can_post_messages",
+  "can_post_stories",
   "can_promote_members",
   "can_restrict_members",
+  "can_send_welcome_messages",
 ] as const;
+
+const SNAPSHOT_LABEL_PATTERN = /^[a-z][a-z0-9-]{0,63}$/u;
 
 export interface TelegramProofEnvironment {
   readonly botId: string;
@@ -29,6 +37,9 @@ export interface TelegramProofEnvironment {
   readonly capturePath: string;
   readonly chatId?: string;
   readonly evidencePath: string;
+  readonly minimumAdminConfirmed?: string;
+  readonly retryMarker?: string;
+  readonly snapshotLabel?: string;
   readonly webhookSecret?: string;
   readonly webhookUrl?: string;
 }
@@ -70,13 +81,31 @@ export async function runCredentialedProofCommand(
       chat_id: chatId,
       user_id: environment.botId,
     });
-    const observation = validateChatAdministration(chat, member);
-    await recordObservation(
+    const observation = validateChatAdministration(
+      chat,
+      member,
+      environment.minimumAdminConfirmed === "true",
+    );
+    await appendObservation(
       environment.evidencePath,
-      "chatAdministration",
+      "chatAdministrationTransitions",
       observation,
     );
     return { ok: true, stage: "chat-administration" };
+  }
+  if (command === "observe-chat-demoted") {
+    const chatId = required(environment.chatId, "TELEGRAM_CANONICAL_CHAT_ID");
+    const member = await telegramResult(environment.botToken, "getChatMember", {
+      chat_id: chatId,
+      user_id: environment.botId,
+    });
+    const observation = validateChatDemotion(member);
+    await appendObservation(
+      environment.evidencePath,
+      "chatAdministrationTransitions",
+      observation,
+    );
+    return { ok: true, stage: "chat-demotion" };
   }
   if (command === "configure-webhook") {
     const webhookUrl = validateWebhookUrl(environment.webhookUrl);
@@ -155,40 +184,76 @@ export async function runCredentialedProofCommand(
     return { ok: true, stage: "webhook-auth-and-dedup" };
   }
   if (command === "observe-webhook-outage") {
+    if (!database) {
+      throw new Error("DATABASE_URL is required for webhook retry proof");
+    }
+    const retryMarker = required(
+      environment.retryMarker,
+      "TELEGRAM_PROOF_RETRY_MARKER",
+    );
     const observation = validateWebhookInfo(
       await telegramResult(environment.botToken, "getWebhookInfo", {}),
       validateWebhookUrl(environment.webhookUrl),
     );
-    if (!observation.hasLastError) {
+    const markerItems = await retryMarkerInboxItems(database, retryMarker);
+    if (!observation.hasLastError || observation.pendingUpdates < 1) {
       throw new Error("Telegram has not observed a webhook delivery error yet");
     }
-    await recordObservation(
-      environment.evidencePath,
-      "webhookOutage",
-      observation,
-    );
+    if (markerItems !== 0) {
+      throw new Error(
+        "Failed webhook marker reached the inbox before recovery",
+      );
+    }
+    await recordObservation(environment.evidencePath, "webhookOutage", {
+      failedMarkerAbsentFromInbox: true,
+      providerDeliveryErrorObserved: true,
+      providerHasPendingUpdates: true,
+    });
     return { ok: true, stage: "webhook-outage-observed" };
   }
   if (command === "verify-webhook-recovered") {
+    if (!database) {
+      throw new Error("DATABASE_URL is required for webhook retry proof");
+    }
+    const retryMarker = required(
+      environment.retryMarker,
+      "TELEGRAM_PROOF_RETRY_MARKER",
+    );
     const observation = validateWebhookInfo(
       await telegramResult(environment.botToken, "getWebhookInfo", {}),
       validateWebhookUrl(environment.webhookUrl),
     );
-    await recordObservation(
-      environment.evidencePath,
-      "webhookRecovered",
-      observation,
-    );
+    const markerItems = await retryMarkerInboxItems(database, retryMarker);
+    if (markerItems !== 1 || observation.pendingUpdates !== 0) {
+      throw new Error(
+        "Failed webhook marker was not durably retried exactly once",
+      );
+    }
+    await recordObservation(environment.evidencePath, "webhookRecovered", {
+      durableInboxItemsForFailedMarker: 1,
+      failedUpdateRetried: true,
+      providerPendingUpdatesDrained: true,
+    });
     return { ok: true, stage: "webhook-recovered" };
   }
   if (command === "snapshot") {
     if (!database) {
       throw new Error("DATABASE_URL is required for the snapshot command");
     }
-    const observation = await redactedDatabaseSnapshot(database);
-    await recordObservation(
+    const snapshotLabel = required(
+      environment.snapshotLabel,
+      "credentialed proof snapshot label",
+    );
+    if (!SNAPSHOT_LABEL_PATTERN.test(snapshotLabel)) {
+      throw new Error("Credentialed proof snapshot label is malformed");
+    }
+    const observation = {
+      label: snapshotLabel,
+      ...(await redactedDatabaseSnapshot(database)),
+    };
+    await appendObservation(
       environment.evidencePath,
-      "applicationSnapshot",
+      "applicationSnapshots",
       observation,
     );
     return { ok: true, stage: "application-snapshot" };
@@ -244,26 +309,59 @@ export function validateBotIdentity(
 export function validateChatAdministration(
   chatValue: unknown,
   memberValue: unknown,
+  minimumClientConfigurationConfirmed: boolean,
 ): {
-  botStatus: "administrator" | "creator";
+  assignableRights: Record<string, boolean>;
+  botStatus: "administrator";
   chatType: "group" | "supergroup";
-  enabledOptionalRights: string[];
+  minimumClientConfigurationConfirmed: true;
+  impliedManageChat: true;
 } {
   const chat = providerRecord(chatValue);
   const member = providerRecord(memberValue);
   if (chat.type !== "group" && chat.type !== "supergroup") {
     throw new Error("Canonical proof chat must be a group or supergroup");
   }
-  if (member.status !== "administrator" && member.status !== "creator") {
+  if (member.status !== "administrator") {
     throw new Error("Dedicated bot must be an administrator in the proof chat");
   }
+  const assignableRights = Object.fromEntries(
+    ASSIGNABLE_ADMIN_RIGHTS.map((right) => [right, member[right] === true]),
+  );
+  if (member.can_manage_chat !== true || !minimumClientConfigurationConfirmed) {
+    throw new Error(
+      "Minimum client-assignable administrator configuration is not confirmed",
+    );
+  }
   return {
+    assignableRights,
     botStatus: member.status,
     chatType: chat.type,
-    enabledOptionalRights: OPTIONAL_ADMIN_RIGHTS.filter(
-      (right) => member[right] === true,
-    ),
+    impliedManageChat: true,
+    minimumClientConfigurationConfirmed: true,
   };
+}
+
+export function validateChatDemotion(memberValue: unknown): {
+  botIsAdministrator: false;
+  botStatus: "kicked" | "left" | "member" | "restricted";
+} {
+  const member = providerRecord(memberValue);
+  if (!isNonAdministratorStatus(member.status)) {
+    throw new Error("Dedicated bot has not been demoted");
+  }
+  return { botIsAdministrator: false, botStatus: member.status };
+}
+
+function isNonAdministratorStatus(
+  value: unknown,
+): value is "kicked" | "left" | "member" | "restricted" {
+  return (
+    value === "kicked" ||
+    value === "left" ||
+    value === "member" ||
+    value === "restricted"
+  );
 }
 
 export function validateWebhookInfo(
@@ -308,23 +406,118 @@ export function validateWebhookInfo(
 async function redactedDatabaseSnapshot(
   database: Database,
 ): Promise<Record<string, unknown>> {
-  const [updates, contacts, deliveries, membershipEvents, recoveries] =
-    await Promise.all([
-      groupedCounts(database, "telegram_updates", "state"),
-      groupedCounts(database, "bot_contacts", "contactability"),
-      groupedCounts(database, "start_response_delivery_attempts", "outcome"),
-      groupedCounts(database, "membership_event_audit", "disposition"),
-      sql<{ count: string }>`
+  const [
+    updates,
+    contacts,
+    deliveryStates,
+    deliveries,
+    linkTransactions,
+    linkEvents,
+    membershipChecks,
+    evidenceDeliveries,
+    membershipResults,
+    membershipRawStatuses,
+    membershipEvents,
+    membershipEventStates,
+    providerStates,
+    providerObservations,
+    reconciliations,
+    completedReconciliations,
+    evidenceVersions,
+    recoveries,
+  ] = await Promise.all([
+    groupedCounts(database, "telegram_updates", "state"),
+    groupedCounts(database, "bot_contacts", "contactability"),
+    groupedCounts(database, "start_response_deliveries", "state"),
+    groupedCounts(database, "start_response_delivery_attempts", "outcome"),
+    groupedCounts(database, "link_transactions", "state"),
+    groupedCounts(database, "identity_link_events", "event_type"),
+    groupedCounts(database, "membership_checks", "state"),
+    groupedCounts(database, "membership_evidence_outbox", "state"),
+    groupedCounts(database, "membership_check_results", "normalized_state"),
+    groupedNonNullCounts(database, "membership_check_results", "raw_status"),
+    groupedCounts(database, "membership_event_audit", "disposition"),
+    groupedNonNullCounts(
+      database,
+      "membership_event_audit",
+      "normalized_state",
+    ),
+    groupedCounts(database, "membership_provider_state", "state"),
+    groupedCounts(database, "membership_provider_observations", "state"),
+    groupedCounts(database, "membership_reconciliations", "state"),
+    sql<{ count: string }>`
+        select count(*)::text as count
+        from membership_reconciliations
+        where last_completed_at is not null
+      `.execute(database),
+    sql<{ count: string; maximum: string | null; minimum: string | null }>`
+        select
+          count(evidence_version)::text as count,
+          min(evidence_version)::text as minimum,
+          max(evidence_version)::text as maximum
+        from membership_check_results
+        where evidence_version is not null
+      `.execute(database),
+    sql<{ count: string }>`
         select count(*)::text as count from identity_link_recoveries
       `.execute(database),
-    ]);
+  ]);
+  const versionRange = evidenceVersions.rows[0];
   return {
     botContactsByState: contacts,
     deliveryAttemptsByOutcome: deliveries,
+    deliveriesByState: deliveryStates,
+    evidenceDeliveriesByState: evidenceDeliveries,
+    evidenceVersions: {
+      count: Number(versionRange?.count ?? 0),
+      maximum: versionRange?.maximum ?? null,
+      minimum: versionRange?.minimum ?? null,
+    },
+    identityLinkEventsByType: linkEvents,
+    linkTransactionsByState: linkTransactions,
+    membershipChecksByState: membershipChecks,
     membershipEventsByDisposition: membershipEvents,
+    membershipEventsByNormalizedState: membershipEventStates,
+    membershipResultsByNormalizedState: membershipResults,
+    membershipResultsByRawStatus: membershipRawStatuses,
     ownerRecoveries: Number(recoveries.rows[0]?.count ?? 0),
+    providerObservationsByState: providerObservations,
+    providerRowsByState: providerStates,
+    reconciliationsCompleted: Number(
+      completedReconciliations.rows[0]?.count ?? 0,
+    ),
+    reconciliationsByState: reconciliations,
     telegramUpdatesByState: updates,
   };
+}
+
+async function groupedNonNullCounts(
+  database: Database,
+  table: string,
+  column: string,
+): Promise<Record<string, number>> {
+  const result = await sql<{ count: string; key: string }>`
+    select ${sql.ref(column)}::text as key, count(*)::text as count
+    from ${sql.table(table)}
+    where ${sql.ref(column)} is not null
+    group by ${sql.ref(column)}
+    order by ${sql.ref(column)}
+  `.execute(database);
+  return Object.fromEntries(
+    result.rows.map((row) => [row.key, Number(row.count)]),
+  );
+}
+
+async function retryMarkerInboxItems(
+  database: Database,
+  retryMarker: string,
+): Promise<number> {
+  const result = await sql<{ count: string }>`
+    select count(*)::text as count
+    from telegram_updates
+    where payload #>> '{message,text}' = ${retryMarker}
+  `.execute(database);
+  return Number(result.rows[0]?.count ?? 0);
 }
 
 async function groupedCounts(
@@ -422,28 +615,62 @@ async function recordObservation(
   name: string,
   observation: unknown,
 ): Promise<void> {
+  const observations = await readObservations(path);
+  await writeEvidence(path, {
+    proofVersion: "inside.telegram-credentialed-proof.v1",
+    observations: { ...observations, [name]: observation },
+  });
+}
+
+async function appendObservation(
+  path: string,
+  name: string,
+  observation: unknown,
+): Promise<void> {
+  const observations = await readObservations(path);
+  const existing = observations[name];
+  if (existing !== undefined && !Array.isArray(existing)) {
+    throw new Error(`Credentialed proof observation ${name} is not a sequence`);
+  }
+  await writeEvidence(path, {
+    proofVersion: "inside.telegram-credentialed-proof.v1",
+    observations: {
+      ...observations,
+      [name]: [...(existing ?? []), observation],
+    },
+  });
+}
+
+async function readObservations(
+  path: string,
+): Promise<Record<string, unknown>> {
   let current: Record<string, unknown>;
   try {
     current = providerRecord(JSON.parse(await readFile(path, "utf8")));
   } catch (error) {
-    if (!isMissingFile(error)) {
-      throw error;
+    if (isMissingFile(error)) {
+      return {};
     }
-    current = {};
+    throw error;
   }
-  const observations =
-    typeof current.observations === "object" &&
-    current.observations !== null &&
-    !Array.isArray(current.observations)
-      ? providerRecord(current.observations)
-      : {};
-  const next = {
-    proofVersion: "inside.telegram-credentialed-proof.v1",
-    observations: { ...observations, [name]: observation },
-  };
+  if (
+    current.proofVersion !== "inside.telegram-credentialed-proof.v1" ||
+    typeof current.observations !== "object" ||
+    current.observations === null ||
+    Array.isArray(current.observations)
+  ) {
+    throw new Error("Credentialed proof evidence has an unexpected shape");
+  }
+  return providerRecord(current.observations);
+}
+
+async function writeEvidence(
+  path: string,
+  value: Record<string, unknown>,
+): Promise<void> {
   await mkdir(dirname(path), { recursive: true });
   const temporaryPath = `${path}.${String(process.pid)}.tmp`;
-  await writeFile(temporaryPath, `${JSON.stringify(next, null, 2)}\n`, {
+  await writeFile(temporaryPath, `${JSON.stringify(value, null, 2)}\n`, {
     mode: 0o600,
   });
   await chmod(temporaryPath, 0o600);

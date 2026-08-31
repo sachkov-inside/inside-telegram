@@ -186,15 +186,103 @@ finish() {
 
 TOTAL_STAGES=13
 PROOF_DRY_RUN="${CREDENTIALED_PROOF_DRY_RUN:-0}"
+RECOVERY_INPUT_FILE=".credentialed-proof/recovery-input.env"
+umask 077
 
-probe() {
+preflight() {
+  local cli repository_root database_url expected_pnpm
+  for cli in git node pnpm; do
+    if ! command -v "$cli" >/dev/null 2>&1; then
+      warn "required CLI is unavailable: $cli"
+      exit 1
+    fi
+  done
+  if [[ "$(node -p 'process.versions.node.split(".")[0]')" != "24" ]]; then
+    warn "Node 24 from .node-version is required"
+    exit 1
+  fi
+  repository_root="$(git rev-parse --show-toplevel 2>/dev/null || true)"
+  if [[ "$repository_root" != "$PWD" || ! -f scripts/credentialed-proof-wizard.sh ]]; then
+    warn "run this wizard from the inside-telegram repository root"
+    exit 1
+  fi
+  expected_pnpm="$(node -p 'require("./package.json").packageManager.split("@")[1]')"
+  if [[ "$(pnpm --version)" != "$expected_pnpm" ]]; then
+    warn "pnpm $expected_pnpm from package.json is required"
+    exit 1
+  fi
+  export DOTENV_CONFIG_PATH="$ENV_FILE"
   if [[ "$PROOF_DRY_RUN" == "1" ]]; then
-    note "dry-run: skipped credentialed probe $1"
-  else
-    pnpm credentialed-proof:probe -- "$1"
+    return
+  fi
+  case "$ENV_FILE" in
+    /*|../*|*/../*)
+      warn "ENV_FILE must be a repository-relative ignored path"
+      exit 1
+      ;;
+  esac
+  if ! git check-ignore -q -- "$ENV_FILE" || ! git check-ignore -q -- .credentialed-proof/evidence.json; then
+    warn "ENV_FILE and .credentialed-proof evidence must both be ignored by git"
+    exit 1
+  fi
+  touch "$ENV_FILE"
+  chmod 600 "$ENV_FILE"
+  database_url="$(_existing DATABASE_URL || true)"
+  if ! printf '%s' "$database_url" | node -e '
+    const value = require("node:fs").readFileSync(0, "utf8");
+    try {
+      const url = new URL(value);
+      const database = decodeURIComponent(url.pathname.slice(1)).toLowerCase();
+      const loopback = new Set(["127.0.0.1", "localhost", "[::1]"]).has(url.hostname);
+      if (!url.protocol.startsWith("postgres") || !loopback || !/(issue9|proof)/u.test(database)) process.exit(1);
+    } catch { process.exit(1); }
+  '; then
+    warn "DATABASE_URL must select a loopback database whose name contains issue9 or proof"
+    exit 1
   fi
 }
 
+remove_recovery_input() {
+  rm -f -- "$RECOVERY_INPUT_FILE"
+}
+
+write_recovery_input() {
+  mkdir -p .credentialed-proof
+  remove_recovery_input
+  : > "$RECOVERY_INPUT_FILE"
+  {
+    printf '%s=%s\n' \
+      RECOVERY_REF "$RECOVERY_REF" \
+      OPERATOR_REF "$OPERATOR_REF" \
+      REASON_REF "$REASON_REF" \
+      TELEGRAM_IDENTITY_REF "$TELEGRAM_IDENTITY_REF" \
+      SOURCE_ACCOUNT_REF "$SOURCE_ACCOUNT_REF" \
+      TARGET_ACCOUNT_REF "$TARGET_ACCOUNT_REF" \
+      TARGET_LINK_TRANSACTION_REF "$TARGET_LINK_TRANSACTION_REF"
+    if [[ -n "${CONFIRMED_SOURCE_ACCOUNT_REF:-}" ]]; then
+      printf '%s=%s\n' CONFIRMED_SOURCE_ACCOUNT_REF "$CONFIRMED_SOURCE_ACCOUNT_REF"
+    fi
+    if [[ -n "${CONFIRMED_TARGET_ACCOUNT_REF:-}" ]]; then
+      printf '%s=%s\n' CONFIRMED_TARGET_ACCOUNT_REF "$CONFIRMED_TARGET_ACCOUNT_REF"
+    fi
+  } > "$RECOVERY_INPUT_FILE"
+  chmod 600 "$RECOVERY_INPUT_FILE"
+}
+
+trap remove_recovery_input EXIT
+trap 'remove_recovery_input; exit 129' HUP
+trap 'remove_recovery_input; exit 130' INT
+trap 'remove_recovery_input; exit 143' TERM
+
+probe() {
+  if [[ "$PROOF_DRY_RUN" == "1" ]]; then
+    note "dry-run: skipped credentialed probe $*"
+  else
+    pnpm credentialed-proof:probe -- "$@"
+  fi
+}
+
+preflight
 banner "Sachkov Inside Telegram credentialed proof"
 
 stage "Scope and destinations"
@@ -202,11 +290,17 @@ say "This temporary proof writes secrets and provider identifiers only to ignore
 step "BotFather produces TELEGRAM_BOT_TOKEN; getMe verifies TELEGRAM_PROOF_BOT_ID and TELEGRAM_PROOF_BOT_USERNAME."
 step "The closed chat produces TELEGRAM_CANONICAL_CHAT_ID; the temporary callback produces TELEGRAM_PROOF_WEBHOOK_URL."
 step "Webhook and Platform integration credentials are written only to $ENV_FILE and matching temporary Platform configuration."
-step "Redacted observations go to ignored .credentialed-proof/evidence.json; recovery references are never persisted by this wizard."
+step "Redacted observations go to ignored .credentialed-proof/evidence.json; recovery input exists only in an ignored mode-0600 file removed after use and on exit."
 step "No GitHub secret, production environment, external message campaign, deploy, or production traffic is changed."
-if [[ "$PROOF_DRY_RUN" != "1" ]] && ! confirm "Continue with this exact scope and these destinations?"; then
-  warn "proof cancelled before any credential was captured"
-  exit 1
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  if ! confirm "Are primary-owner Telegram, BotFather, and temporary Platform sessions ready?"; then
+    warn "proof cancelled because required owner sessions are not ready"
+    exit 1
+  fi
+  if ! confirm "Continue with this exact scope and these destinations?"; then
+    warn "proof cancelled before any credential was captured"
+    exit 1
+  fi
 fi
 
 stage "BotFather identity"
@@ -236,7 +330,12 @@ if [[ "$PROOF_DRY_RUN" == "1" ]]; then
 else
   open_url "https://web.telegram.org/"
   step "Create a temporary private group, add only the proof participants, and add the dedicated bot."
-  step "Promote the bot to administrator; disable every optional permission the client permits while retaining administrator status."
+  step "Promote the bot to administrator; disable every client-assignable permission while retaining administrator status. can_manage_chat remains implied and is not an optional right."
+  if ! confirm "Does the client now show every assignable administrator permission disabled?"; then
+    warn "minimum administrator configuration is not confirmed"
+    exit 1
+  fi
+  TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED=true
   step "Send /proof_chat_id in that group so getUpdates can discover it before webhook setup."
   pause "Press Enter after the group update is visible"
   probe capture-chat-id
@@ -244,6 +343,7 @@ else
   rm .credentialed-proof/chat-id
 fi
 write_env TELEGRAM_CANONICAL_CHAT_ID "$TELEGRAM_CANONICAL_CHAT_ID"
+write_env TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED "${TELEGRAM_PROOF_MINIMUM_ADMIN_CONFIRMED:-true}"
 probe verify-chat
 
 stage "Temporary application and Platform seam"
@@ -273,7 +373,8 @@ write_env TELEGRAM_MEMBERSHIP_MODE live
 write_env TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
 write_env WORKERS_ENABLED true
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  step "Run pnpm db:migrate, then start or restart Telegram and the temporary Platform consumer with these exact values."
+  step "In the Telegram application terminal, export DOTENV_CONFIG_PATH='$ENV_FILE', run pnpm db:migrate, then start or restart the application."
+  step "Start or restart the temporary Platform consumer with the matching credentials shown in this scope."
   pause "Press Enter when both applications and the HTTPS endpoint are healthy"
 fi
 
@@ -290,15 +391,27 @@ stage "Webhook auth, durability, retry, and deduplication"
 step "Send synthetic no-PII updates to the callback with missing, wrong, and correct secret headers; missing/wrong must reject and correct must return 2xx only after inbox commit."
 step "Repeat the same synthetic update_id and confirm the durable inbox remains unique."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  step "Stop the callback, trigger one proof-chat update, wait for Telegram getWebhookInfo to record delivery failure, then restart the callback."
+  TELEGRAM_PROOF_RETRY_MARKER="$(_existing TELEGRAM_PROOF_RETRY_MARKER || true)"
+  if [[ -z "$TELEGRAM_PROOF_RETRY_MARKER" ]]; then
+    TELEGRAM_PROOF_RETRY_MARKER="inside-proof-retry-$(node -e 'process.stdout.write(require("node:crypto").randomBytes(8).toString("hex"))')"
+  fi
+  write_env TELEGRAM_PROOF_RETRY_MARKER "$TELEGRAM_PROOF_RETRY_MARKER"
+  write_env WORKERS_ENABLED false
+  step "Stop the callback, then send this exact non-secret marker in the proof chat: $TELEGRAM_PROOF_RETRY_MARKER"
   pause "Press Enter after Telegram has attempted delivery while the callback is stopped"
 fi
 probe observe-webhook-outage
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  pause "Press Enter after the callback is running and Telegram has retried"
+  step "Restart the callback with WORKERS_ENABLED=false and do not send the marker again."
+  pause "Press Enter after Telegram has retried the failed marker"
 fi
 probe verify-webhook-recovered
-probe snapshot
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  write_env WORKERS_ENABLED true
+  step "Restart with WORKERS_ENABLED=true so the durably captured marker can be processed and redacted."
+  pause "Press Enter after the worker has processed the marker"
+fi
+probe snapshot webhook-recovered
 
 stage "Ordinary and tokenized /start"
 step "In a private chat with the bot, run ordinary /start and confirm Contactability plus a durable response delivery."
@@ -307,34 +420,65 @@ step "Confirm no raw token, username, email, or provider payload appears in the 
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
   pause "Press Enter after all linking outcomes have been observed"
 fi
-probe snapshot
+probe snapshot linking-corpus
 
 stage "Membership events and reconciliation"
 step "Observe member/restricted/left/kicked or other reachable statuses and record the normalized outcome, not the raw identity."
-step "Remove and rejoin the linked subject; prove newer removal denies and newer rejoin restores."
-step "Suppress one removal event, then allow reconciliation to repair it without extending stale positive evidence."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  pause "Press Enter after event and reconciliation evidence is complete"
+  pause "Press Enter after the reachable status corpus is complete"
 fi
-probe snapshot
+probe snapshot membership-status-corpus
+step "Remove the linked subject and prove the newer observation denies access."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after removal is observed"
+fi
+probe snapshot membership-removed
+step "Rejoin the linked subject and prove the newer observation restores access."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after rejoin is observed"
+fi
+probe snapshot membership-rejoined
+step "Suppress a new removal event, then allow reconciliation to repair it without extending stale positive evidence."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after reconciliation has repaired the missed removal"
+fi
+probe snapshot reconciliation-repaired
 
 stage "Administrator loss and provider outage"
-step "Demote the bot, trigger a membership read, and confirm degraded/unavailable fail-closed behavior."
-step "Restore the exact minimum administrator configuration and confirm a newer observation recovers."
-step "Also interrupt provider reachability and confirm access remains local and expires closed."
+step "Demote the bot, then trigger a membership read."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  pause "Press Enter after demotion, restoration, and outage are recorded"
+  pause "Press Enter after the demotion and failed membership read"
+fi
+probe observe-chat-demoted
+probe snapshot administrator-demoted
+step "Restore the same minimum administrator configuration and trigger a newer membership read."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after the administrator restoration and newer observation"
 fi
 probe verify-chat
-probe snapshot
+probe snapshot administrator-restored
+step "Interrupt provider reachability, exercise access through the five-minute boundary, and confirm it expires closed."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after the provider outage has been observed"
+fi
+probe snapshot provider-outage
+step "Restore provider reachability and trigger a new membership observation."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after provider recovery"
+fi
+probe snapshot provider-restored
 
 stage "Blocked send and restored contactability"
-step "Block the bot from the temporary user, trigger a response, and record the Bot API rejection only as a delivery diagnostic."
+step "Block the bot from the temporary user and trigger a response; the Bot API rejection remains a delivery diagnostic only."
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  pause "Press Enter after the blocked-send attempt"
+fi
+probe snapshot contact-blocked
 step "Unblock the bot and send a new /start; confirm Contactability and delivery recover without inferring Membership."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  pause "Press Enter after block/unblock recovery is recorded"
+  pause "Press Enter after contactability recovery"
 fi
-probe snapshot
+probe snapshot contact-restored
 
 stage "Owner-only identity recovery rehearsal"
 say "Use only the temporary conflicting Accounts created in this proof. No direct SQL edit is allowed."
@@ -348,10 +492,10 @@ else
   ask_secret SOURCE_ACCOUNT_REF "Current source Principal reference (hidden):"
   ask_secret TARGET_ACCOUNT_REF "Target Principal reference (hidden):"
   ask_secret TARGET_LINK_TRANSACTION_REF "Target conflict transaction reference (hidden):"
-  pnpm owner:recover-identity -- --dry-run \
-    --recovery-ref "$RECOVERY_REF" --operator-ref "$OPERATOR_REF" --reason-ref "$REASON_REF" \
-    --telegram-identity-ref "$TELEGRAM_IDENTITY_REF" --source-account-ref "$SOURCE_ACCOUNT_REF" \
-    --target-account-ref "$TARGET_ACCOUNT_REF" --target-link-transaction-ref "$TARGET_LINK_TRANSACTION_REF"
+  CONFIRMED_SOURCE_ACCOUNT_REF=""
+  CONFIRMED_TARGET_ACCOUNT_REF=""
+  write_recovery_input
+  pnpm owner:recover-identity -- --dry-run < "$RECOVERY_INPUT_FILE"
   step "Compare the printed source/target fingerprints with the separately recorded owner values."
   if ! confirm "Execute this transfer on the temporary recovery fixture?"; then
     warn "actual recovery rehearsal is incomplete"
@@ -359,17 +503,16 @@ else
   fi
   ask_secret CONFIRMED_SOURCE_ACCOUNT_REF "Re-enter the source Principal reference (hidden):"
   ask_secret CONFIRMED_TARGET_ACCOUNT_REF "Re-enter the target Principal reference (hidden):"
-  pnpm owner:recover-identity -- --execute \
-    --recovery-ref "$RECOVERY_REF" --operator-ref "$OPERATOR_REF" --reason-ref "$REASON_REF" \
-    --telegram-identity-ref "$TELEGRAM_IDENTITY_REF" --source-account-ref "$SOURCE_ACCOUNT_REF" \
-    --target-account-ref "$TARGET_ACCOUNT_REF" --target-link-transaction-ref "$TARGET_LINK_TRANSACTION_REF" \
-    --confirm-source-account-ref "$CONFIRMED_SOURCE_ACCOUNT_REF" \
-    --confirm-target-account-ref "$CONFIRMED_TARGET_ACCOUNT_REF"
+  write_recovery_input
+  pnpm owner:recover-identity -- --execute < "$RECOVERY_INPUT_FILE"
+  remove_recovery_input
+  unset TELEGRAM_IDENTITY_REF SOURCE_ACCOUNT_REF TARGET_ACCOUNT_REF TARGET_LINK_TRANSACTION_REF
+  unset CONFIRMED_SOURCE_ACCOUNT_REF CONFIRMED_TARGET_ACCOUNT_REF
 fi
-probe snapshot
+probe snapshot owner-recovery
 
 stage "Redacted evidence handoff"
-probe snapshot
+probe snapshot final
 step "Give .credentialed-proof/evidence.json to the reviewing agent locally; never paste it into an issue or PR."
 step "The reviewer records only boolean outcomes, status vocabulary, counts, timestamps rounded to the proof window, and credential disposal."
 step "Do not proceed if any acceptance scenario is missing; rerun the relevant stage instead."
