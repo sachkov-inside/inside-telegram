@@ -1,11 +1,11 @@
 # Telegram credentialed proof
 
-Status: **completed with an owner-approved reduced live matrix** for Telegram #9. The application,
-wizard, probes, owner recovery interface, and safe disposal path are versioned. A dedicated test
-bot, closed supergroup, and temporary HTTPS callback were exercised without enabling production
-traffic. The owner chose to retain the bot and group as test resources and accepted their observed
-administrator rights; the remaining destructive and provider-edge scenarios are covered by the
-repository's integration suite rather than additional manual Telegram actions.
+Status: **implementation complete; credentialed execution closed with owner-approved deviations**
+for Telegram #9. The application, wizard, probes, owner recovery interface, and safe disposal path
+are versioned. A dedicated test bot, closed supergroup, and temporary HTTPS callback were exercised
+without enabling production traffic. The owner chose to retain the bot and group as test resources,
+accepted their observed administrator rights, and accepted the explicitly `Not run` live scenarios
+below rather than performing more manual Telegram actions.
 
 Prepare an ignored `.env` whose `DATABASE_URL` names an isolated loopback `issue9` or `proof`
 database, then run from the repository root with Node from `.node-version`:
@@ -50,23 +50,24 @@ CREDENTIALED_PROOF_DRY_RUN=1 ENV_FILE=<temporary-file> \
 
 The reviewing agent observed the local evidence file and owner confirmations. No identifiers or
 provider payloads are recorded in this document. `Live` means Telegram or the temporary callback
-was exercised; `automated` means the deterministic PostgreSQL integration corpus is the accepted
-evidence for that scenario.
+was exercised; `Automated` means the deterministic PostgreSQL integration corpus passed; `Not run`
+means the provider-specific live behavior was not observed; `Retained by owner` means a disposable
+resource was deliberately kept for non-production testing.
 
 | Area | Required redacted observation | Result |
 |---|---|---|
-| Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | Live identity match; token retained for the test bot by owner decision |
+| Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | **Live:** identity match. **Not run:** old-token rejection. **Retained by owner:** active test-bot credential |
 | Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, inherited global member permissions, and every current assignable administrator-right name | Live; observed rights accepted by owner and recorded privately |
 | Webhook auth | correct secret accepted; missing/wrong secret rejected | Live temporary callback |
 | Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | Live temporary callback and isolated PostgreSQL database |
-| Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | Automated; public tunnel did not provide a stable provider-edge retry observation |
-| Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | Live outbound group delivery; private start/block recovery accepted from automated coverage |
+| Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | **Not run:** stable provider-edge retry observation. **Automated:** application retry/deduplication behavior |
+| Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | **Not run:** live private start/block/unblock. **Automated:** Contactability transitions and delivery diagnostics |
 | Link bearer | valid, expired, replay, concurrent consume, same-pair idempotence, conflict | Automated |
 | Membership | each reachable raw status/is-member pair is correlated to common normalization; ordered revisions show removal deny and newer rejoin restore | Automated |
 | Reconciliation | `chat_member` is temporarily excluded, the missed removal leaves the pre-cadence revision unchanged, exact updates are restored, then a current bounded `reconciliation` denial supersedes the positive revision | Automated |
-| Provider loss | bot demotion and provider outage degrade/fail closed; restoration recovers | Automated |
-| Owner recovery | dry-run read-only; exact-confirm execute; idempotent replay; immutable audit | Automated |
-| Disposal | webhook removed, pending test updates disposed, old token rejected, chat/endpoint/secrets disposition recorded, provider identifiers removed from `.env` | Webhook and temporary endpoint disposed; bot, chat, and ignored local credentials retained as non-production test resources by owner decision |
+| Provider loss | bot demotion and provider outage degrade/fail closed; restoration recovers | **Not run:** live provider loss/restoration. **Automated:** fail-closed and recovery behavior |
+| Owner recovery | dry-run read-only; exact-confirm execute; idempotent replay; immutable audit | **Not run:** destructive temporary-account rehearsal. **Automated:** full recovery interface and audit behavior |
+| Disposal | webhook removed, pending test updates disposed, old token rejected, chat/endpoint/secrets disposition recorded, provider identifiers removed from `.env` | **Live:** webhook/pending updates and temporary endpoint disposed. **Not run:** token rejection and local scrub. **Retained by owner:** bot, chat, and ignored local credentials for non-production testing |
 | Secret scan | Git tree, issue, PR, durable report, and captured output contain no token, raw PII, chat ID, or provider payload | Pass |
 
 The tested application revision is `ed400df`; the proof window ended at approximately
