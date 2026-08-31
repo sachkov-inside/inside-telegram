@@ -1,0 +1,55 @@
+import "dotenv/config";
+
+import { createDatabase } from "../database/create-database.js";
+import { runCredentialedProofCommand } from "./credentialed-proof.js";
+
+const command = process.argv[2];
+const botToken = process.env.TELEGRAM_BOT_TOKEN;
+const botId = process.env.TELEGRAM_PROOF_BOT_ID;
+const botUsername = process.env.TELEGRAM_PROOF_BOT_USERNAME;
+
+if (!command || !botToken || !botId || !botUsername) {
+  process.stderr.write(
+    "Proof command, TELEGRAM_BOT_TOKEN, TELEGRAM_PROOF_BOT_ID and TELEGRAM_PROOF_BOT_USERNAME are required.\n",
+  );
+  process.exitCode = 1;
+} else {
+  const needsDatabase =
+    command === "snapshot" || command === "verify-webhook-auth";
+  const databaseUrl = process.env.DATABASE_URL;
+  const database =
+    needsDatabase && databaseUrl ? createDatabase(databaseUrl) : undefined;
+  try {
+    if (needsDatabase && !database) {
+      throw new Error("DATABASE_URL is required");
+    }
+    const result = await runCredentialedProofCommand(
+      command,
+      {
+        botId,
+        botIdentity: process.env.TELEGRAM_BOT_IDENTITY ?? "inside",
+        botToken,
+        botUsername,
+        chatId: process.env.TELEGRAM_CANONICAL_CHAT_ID,
+        evidencePath:
+          process.env.TELEGRAM_PROOF_EVIDENCE_PATH ??
+          ".credentialed-proof/evidence.json",
+        webhookSecret: process.env.TELEGRAM_WEBHOOK_SECRET,
+        webhookUrl: process.env.TELEGRAM_PROOF_WEBHOOK_URL,
+      },
+      database,
+    );
+    process.stdout.write(
+      typeof result === "string"
+        ? `${result}\n`
+        : `${JSON.stringify(result)}\n`,
+    );
+  } catch {
+    process.stderr.write(
+      "Credentialed proof stage failed; provider payloads and credentials were not printed.\n",
+    );
+    process.exitCode = 1;
+  } finally {
+    await database?.destroy();
+  }
+}

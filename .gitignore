@@ -1,4 +1,5 @@
 .env
+.credentialed-proof/
 .pnpm-store/
 coverage/
 dist/
