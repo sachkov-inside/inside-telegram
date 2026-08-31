@@ -27,7 +27,9 @@ non-secret fixtures:
 On a re-run, the existing bot and chat are reused without `/newbot` or `getUpdates`; prior redacted
 evidence is retained under ignored mode-`0700` `.credentialed-proof/archive/`, the active evidence
 file is restarted, and a fresh pre-scenario database baseline makes later aggregate deltas
-unambiguous.
+unambiguous. Each run creates a new retry marker. Disposal persists a non-secret checkpoint before
+each irreversible boundary, so an interruption after webhook removal, BotFather rotation, external
+resource disposal, or local scrubbing resumes that stage without archiving the completed evidence.
 
 ```bash
 bash -n scripts/credentialed-proof-wizard.sh

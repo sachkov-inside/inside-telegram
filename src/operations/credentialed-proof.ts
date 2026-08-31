@@ -303,12 +303,22 @@ export async function runCredentialedProofCommand(
     }
     const snapshot = await redactedDatabaseSnapshot(database);
     if (snapshotLabel === "reconciliation-repaired") {
+      const removedSnapshot = await findApplicationSnapshot(
+        environment.evidencePath,
+        "membership-removed",
+      );
+      const rejoinedSnapshot = await findApplicationSnapshot(
+        environment.evidencePath,
+        "membership-rejoined",
+      );
       const suppressedSnapshot = await findApplicationSnapshot(
         environment.evidencePath,
         "removal-event-suppressed",
       );
       validateReconciliationRepair(
         snapshot.membershipTransitions,
+        removedSnapshot.membershipTransitions,
+        rejoinedSnapshot.membershipTransitions,
         suppressedSnapshot.membershipTransitions,
       );
     }
@@ -705,43 +715,74 @@ export function validateRecordedMembershipNormalization(row: {
 
 export function validateReconciliationRepair(
   value: unknown,
-  priorValue: unknown,
+  removedValue: unknown,
+  rejoinedValue: unknown,
+  suppressedValue: unknown,
 ): void {
-  if (!Array.isArray(value) || !Array.isArray(priorValue)) {
+  if (
+    !Array.isArray(value) ||
+    !Array.isArray(removedValue) ||
+    !Array.isArray(rejoinedValue) ||
+    !Array.isArray(suppressedValue)
+  ) {
     throw new Error("Membership transition evidence is unavailable");
   }
   const transitions = value as RedactedMembershipTransition[];
-  const priorTransitions = priorValue as RedactedMembershipTransition[];
-  const priorMembers = new Map<
-    string,
-    { readonly revision: bigint; readonly sequence: number }
-  >();
-  for (const transition of priorTransitions) {
-    if (
-      transition.normalizedState === "member" &&
-      transition.decision === "member" &&
-      transition.freshnessBounded &&
-      transition.isCurrentRevision &&
-      transition.revision
-    ) {
-      priorMembers.set(transition.identityFingerprint, {
-        revision: BigInt(transition.revision),
-        sequence: transition.sequence,
-      });
-    }
-  }
-  const repaired = transitions.some((transition) => {
-    const priorMember = priorMembers.get(transition.identityFingerprint);
+  const removed = currentTransitions(
+    removedValue as RedactedMembershipTransition[],
+  );
+  const rejoined = currentTransitions(
+    rejoinedValue as RedactedMembershipTransition[],
+  );
+  const suppressed = currentTransitions(
+    suppressedValue as RedactedMembershipTransition[],
+  );
+  const targets = [...rejoined.values()].filter((rejoinedTransition) => {
+    const removedTransition = removed.get(
+      rejoinedTransition.identityFingerprint,
+    );
+    const suppressedTransition = suppressed.get(
+      rejoinedTransition.identityFingerprint,
+    );
     return (
+      rejoinedTransition.normalizedState === "member" &&
+      rejoinedTransition.decision === "member" &&
+      rejoinedTransition.mappingObserved &&
+      rejoinedTransition.freshnessBounded &&
+      rejoinedTransition.revision !== null &&
+      removedTransition?.normalizedState === "non_member" &&
+      removedTransition.decision === "not_member" &&
+      removedTransition.revision !== null &&
+      BigInt(rejoinedTransition.revision) >
+        BigInt(removedTransition.revision) &&
+      suppressedTransition?.normalizedState === "member" &&
+      suppressedTransition.decision === "member" &&
+      suppressedTransition.revision === rejoinedTransition.revision &&
+      suppressedTransition.sequence === rejoinedTransition.sequence
+    );
+  });
+  if (targets.length !== 1) {
+    throw new Error(
+      "Reconciliation did not supersede positive Membership evidence with a current bounded denial",
+    );
+  }
+  const target = targets[0];
+  if (!target || target.revision === null) {
+    throw new Error("Membership reconciliation target is unavailable");
+  }
+  const targetRevision = BigInt(target.revision);
+  const repaired = transitions.some((transition) => {
+    return (
+      transition.identityFingerprint === target.identityFingerprint &&
       transition.source === "reconciliation" &&
       transition.normalizedState === "non_member" &&
       transition.decision === "not_member" &&
+      transition.mappingObserved &&
       transition.freshnessBounded &&
       transition.isCurrentRevision &&
       transition.revision !== null &&
-      priorMember !== undefined &&
-      transition.sequence > priorMember.sequence &&
-      BigInt(transition.revision) > priorMember.revision
+      transition.sequence > target.sequence &&
+      BigInt(transition.revision) > targetRevision
     );
   });
   if (!repaired) {
@@ -749,6 +790,16 @@ export function validateReconciliationRepair(
       "Reconciliation did not supersede positive Membership evidence with a current bounded denial",
     );
   }
+}
+
+function currentTransitions(
+  transitions: readonly RedactedMembershipTransition[],
+): Map<string, RedactedMembershipTransition> {
+  return new Map(
+    transitions
+      .filter((transition) => transition.isCurrentRevision)
+      .map((transition) => [transition.identityFingerprint, transition]),
+  );
 }
 
 async function findApplicationSnapshot(

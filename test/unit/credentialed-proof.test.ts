@@ -265,22 +265,46 @@ describe("credentialed Telegram proof redaction", () => {
       sequence: 2,
       source: "reconciliation",
     } as const;
+    const removed = {
+      ...base,
+      decision: "not_member",
+      isCurrentRevision: true,
+      normalizedState: "non_member",
+      rawStatus: "left",
+      revision: "0",
+      sequence: 0,
+    } as const;
+    const rejoined = { ...base, isCurrentRevision: true } as const;
     expect(() =>
       validateReconciliationRepair(
         [base, repaired],
-        [{ ...base, isCurrentRevision: true }],
+        [removed],
+        [rejoined],
+        [rejoined],
       ),
     ).not.toThrow();
     expect(() =>
       validateReconciliationRepair(
         [base, { ...repaired, isCurrentRevision: false }],
-        [{ ...base, isCurrentRevision: true }],
+        [removed],
+        [rejoined],
+        [rejoined],
       ),
     ).toThrow(/did not supersede/u);
     expect(() =>
       validateReconciliationRepair(
         [base, repaired],
-        [{ ...repaired, isCurrentRevision: true }],
+        [removed],
+        [rejoined],
+        [{ ...rejoined, revision: "2" }],
+      ),
+    ).toThrow(/did not supersede/u);
+    expect(() =>
+      validateReconciliationRepair(
+        [base, { ...repaired, identityFingerprint: "other1234567" }],
+        [removed],
+        [rejoined],
+        [rejoined],
       ),
     ).toThrow(/did not supersede/u);
   });

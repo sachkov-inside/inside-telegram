@@ -83,9 +83,21 @@ describe("credentialed proof evidence", () => {
       }),
     ]);
     expect(() =>
-      validateReconciliationRepair(transitions, [
-        { ...transitions[0], isCurrentRevision: true },
-      ]),
+      validateReconciliationRepair(
+        transitions,
+        [
+          {
+            ...transitions[0],
+            decision: "not_member",
+            isCurrentRevision: true,
+            normalizedState: "non_member",
+            revision: "0",
+            sequence: 0,
+          },
+        ],
+        [{ ...transitions[0], isCurrentRevision: true }],
+        [{ ...transitions[0], isCurrentRevision: true }],
+      ),
     ).not.toThrow();
     expect(JSON.stringify(transitions)).not.toMatch(
       /identity-ref-sensitive|account-ref-sensitive|telegram_user/u,

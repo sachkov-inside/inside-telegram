@@ -271,8 +271,88 @@ probe() {
   fi
 }
 
+scrub_proof_environment() {
+  write_env TELEGRAM_BOT_TOKEN revoked
+  write_env TELEGRAM_PROOF_BOT_ID disposed
+  write_env TELEGRAM_PROOF_BOT_USERNAME disposed
+  write_env TELEGRAM_WEBHOOK_SECRET disposed
+  write_env TELEGRAM_CANONICAL_CHAT_ID disposed
+  write_env TELEGRAM_PROOF_WEBHOOK_URL disposed
+  write_env TELEGRAM_PROOF_RETRY_MARKER disposed
+  write_env PLATFORM_INTEGRATION_SECRET disposed
+  write_env PLATFORM_EVIDENCE_DELIVERY_URL disposed
+  write_env PLATFORM_EVIDENCE_DELIVERY_SECRET disposed
+  write_env PLATFORM_EVIDENCE_DELIVERY_MODE disabled
+  write_env TELEGRAM_DELIVERY_MODE disabled
+  write_env TELEGRAM_MEMBERSHIP_MODE disabled
+  write_env WORKERS_ENABLED false
+  write_env TELEGRAM_PROOF_DISPOSAL_STATE complete
+  unset TELEGRAM_BOT_TOKEN TELEGRAM_PROOF_BOT_ID TELEGRAM_PROOF_BOT_USERNAME
+  unset TELEGRAM_WEBHOOK_SECRET TELEGRAM_CANONICAL_CHAT_ID TELEGRAM_PROOF_WEBHOOK_URL
+  unset TELEGRAM_PROOF_RETRY_MARKER PLATFORM_INTEGRATION_SECRET
+  unset PLATFORM_EVIDENCE_DELIVERY_URL PLATFORM_EVIDENCE_DELIVERY_SECRET
+}
+
+complete_credential_disposal() {
+  local state="$1"
+  if [[ -z "$state" ]]; then
+    if ! confirm "Delete pending test updates, revoke the bot token, and dispose the temporary chat now?"; then
+      warn "proof cannot complete until every ephemeral credential and resource is disposed"
+      exit 1
+    fi
+    state="webhook-removal-pending"
+    write_env TELEGRAM_PROOF_DISPOSAL_STATE "$state"
+  fi
+  if [[ "$state" == "webhook-removal-pending" ]]; then
+    probe remove-webhook
+    state="token-rotation-pending"
+    write_env TELEGRAM_PROOF_DISPOSAL_STATE "$state"
+  fi
+  if [[ "$state" == "token-rotation-pending" ]]; then
+    open_url "https://t.me/BotFather"
+    step "If the old token is still valid, send /token, select this dedicated proof bot, and generate a replacement. If BotFather already issued the replacement, do not rotate again."
+    pause "Press Enter after the old token is revoked"
+    probe verify-revoked
+    state="external-resources-pending"
+    write_env TELEGRAM_PROOF_DISPOSAL_STATE "$state"
+  fi
+  if [[ "$state" == "external-resources-pending" ]]; then
+    step "Delete or leave the temporary closed group according to the recorded disposition; remove the temporary HTTPS endpoint and Platform credentials."
+    pause "Press Enter after the chat, endpoint, and matching Platform secrets are disposed"
+    write_env TELEGRAM_PROOF_TEMPORARY_RESOURCES_DISPOSED true
+    probe record-resource-disposal
+    state="local-scrub-pending"
+    write_env TELEGRAM_PROOF_DISPOSAL_STATE "$state"
+  fi
+  if [[ "$state" == "local-scrub-pending" ]]; then
+    scrub_proof_environment
+    state="complete"
+  fi
+  if [[ "$state" != "complete" ]]; then
+    warn "unknown TELEGRAM_PROOF_DISPOSAL_STATE; inspect the protected ENV_FILE"
+    exit 1
+  fi
+  step "Give the final redacted evidence file to the reviewing agent locally and retain no terminal transcript."
+}
+
 preflight
 banner "Sachkov Inside Telegram credentialed proof"
+
+if [[ "$PROOF_DRY_RUN" != "1" ]]; then
+  PROOF_DISPOSAL_STATE="$(_existing TELEGRAM_PROOF_DISPOSAL_STATE || true)"
+  if [[ "$PROOF_DISPOSAL_STATE" == "complete" ]]; then
+    note "credentialed proof disposal is already complete; evidence was preserved"
+    finish
+    exit 0
+  fi
+  if [[ -n "$PROOF_DISPOSAL_STATE" ]]; then
+    _STAGE_INDEX=12
+    stage "Resume credential and temporary-resource disposal"
+    complete_credential_disposal "$PROOF_DISPOSAL_STATE"
+    finish
+    exit 0
+  fi
+fi
 
 stage "Scope and destinations"
 say "This temporary proof writes secrets and provider identifiers only to ignored $ENV_FILE."
@@ -410,10 +490,7 @@ stage "Webhook auth, durability, retry, and deduplication"
 step "Send synthetic no-PII updates to the callback with missing, wrong, and correct secret headers; missing/wrong must reject and correct must return 2xx only after inbox commit."
 step "Repeat the same synthetic update_id and confirm the durable inbox remains unique."
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  TELEGRAM_PROOF_RETRY_MARKER="$(_existing TELEGRAM_PROOF_RETRY_MARKER || true)"
-  if [[ -z "$TELEGRAM_PROOF_RETRY_MARKER" ]]; then
-    TELEGRAM_PROOF_RETRY_MARKER="inside-proof-retry-$(node -e 'process.stdout.write(require("node:crypto").randomBytes(8).toString("hex"))')"
-  fi
+  TELEGRAM_PROOF_RETRY_MARKER="inside-proof-retry-$(node -e 'process.stdout.write(require("node:crypto").randomBytes(8).toString("hex"))')"
   write_env TELEGRAM_PROOF_RETRY_MARKER "$TELEGRAM_PROOF_RETRY_MARKER"
   write_env WORKERS_ENABLED false
   step "Configure the temporary HTTPS edge to return HTTP 503 without forwarding, then send this exact non-secret marker in the proof chat: $TELEGRAM_PROOF_RETRY_MARKER"
@@ -547,36 +624,7 @@ stage "Credential and temporary-resource disposal"
 if [[ "$PROOF_DRY_RUN" == "1" ]]; then
   note "dry-run: skipped external disposal and left only non-secret fixture values in the temporary ENV_FILE"
 else
-  if ! confirm "Delete pending test updates, revoke the bot token, and dispose the temporary chat now?"; then
-    warn "proof cannot complete until every ephemeral credential and resource is disposed"
-    exit 1
-  fi
-  probe remove-webhook
-  open_url "https://t.me/BotFather"
-  step "Send /token, select this dedicated proof bot, and generate a replacement token; this revokes the token currently held by the wizard."
-  pause "Press Enter after BotFather issues the replacement and the old token is revoked"
-  probe verify-revoked
-  step "Delete or leave the temporary closed group according to the recorded disposition; remove the temporary HTTPS endpoint and Platform credentials."
-  pause "Press Enter after the chat, endpoint, and matching Platform secrets are disposed"
-  write_env TELEGRAM_PROOF_TEMPORARY_RESOURCES_DISPOSED true
-  probe record-resource-disposal
-  write_env TELEGRAM_BOT_TOKEN revoked
-  write_env TELEGRAM_PROOF_BOT_ID disposed
-  write_env TELEGRAM_PROOF_BOT_USERNAME disposed
-  write_env TELEGRAM_WEBHOOK_SECRET disposed
-  write_env TELEGRAM_CANONICAL_CHAT_ID disposed
-  write_env TELEGRAM_PROOF_WEBHOOK_URL disposed
-  write_env TELEGRAM_PROOF_RETRY_MARKER disposed
-  write_env PLATFORM_INTEGRATION_SECRET disposed
-  write_env PLATFORM_EVIDENCE_DELIVERY_URL disposed
-  write_env PLATFORM_EVIDENCE_DELIVERY_SECRET disposed
-  write_env PLATFORM_EVIDENCE_DELIVERY_MODE disabled
-  write_env TELEGRAM_DELIVERY_MODE disabled
-  write_env TELEGRAM_MEMBERSHIP_MODE disabled
-  write_env WORKERS_ENABLED false
-  unset TELEGRAM_BOT_TOKEN TELEGRAM_PROOF_BOT_ID TELEGRAM_PROOF_BOT_USERNAME
-  unset TELEGRAM_CANONICAL_CHAT_ID TELEGRAM_PROOF_WEBHOOK_URL TELEGRAM_PROOF_RETRY_MARKER
-  step "Give the final redacted evidence file to the reviewing agent locally and retain no terminal transcript."
+  complete_credential_disposal ""
 fi
 
 finish
