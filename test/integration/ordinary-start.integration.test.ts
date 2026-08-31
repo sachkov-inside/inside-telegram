@@ -43,6 +43,7 @@ const config: ApplicationConfig = {
   linkedNonMemberText: "Synthetic non-member status",
   linkedUnavailableText: "Synthetic unavailable status",
   membershipMode: "disabled",
+  membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_secret",
@@ -91,6 +92,7 @@ afterAll(async () => {
 
 describe("database foundation", () => {
   it("rebuilds the identity-linking migration down and forward", async () => {
+    await migrateDown(database);
     await migrateDown(database);
     await migrateDown(database);
     const membershipRemoved = await sql<{ exists: boolean }>`

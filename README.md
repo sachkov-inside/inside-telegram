@@ -7,11 +7,11 @@ surface for Inside communications and marketing. Its first delivery connects a T
 to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
 evidence to Platform without making content requests wait for Telegram.
 
-Current stage: **responsive Membership Evidence from initial checks and durable member-status
-events**. Final Platform confirmation schedules a canonical-chat check, while authenticated
-`chat_member` updates produce ordered newer evidence through the same normalization and outbox.
-Bot registration, real credentials, missed-event reconciliation, cross-application convergence,
-deployment, and production enablement remain explicit later gates.
+Current stage: **responsive and self-repairing Membership Evidence**. Final Platform confirmation
+schedules a canonical-chat check, authenticated `chat_member` updates produce ordered newer
+evidence, and durable reconciliation repairs missed events before positive evidence can outlive its
+five-minute bound. Bot registration, real credentials, cross-application convergence, deployment,
+and production enablement remain explicit later gates.
 
 ## Ordinary `/start` runtime
 
@@ -102,6 +102,23 @@ commit and SHA-256 snapshot in
 - Unlinked subjects create neither a PlatformLink nor evidence. The durable audit records only
   canonical correlation, normalized disposition, linked/unlinked state, and redacted actor facts;
   processed inbox payloads are discarded as before.
+
+## Durable Membership reconciliation
+
+- Every PlatformLink gets a durable PostgreSQL schedule. The configurable cadence defaults to four
+  minutes and cannot be configured at or beyond the five-minute positive-evidence validity.
+- Workers claim due links with row locks and recover expired one-minute leases after a crash or
+  restart. A batch is bounded by both item count and elapsed time; no user-facing HTTP path runs a
+  reconciliation.
+- Each check calls the same provider prerequisite, `getChatMember`, normalization, ordering,
+  revision, and evidence-outbox pipeline as initial checks. Missed removal and rejoin therefore
+  converge without a new link or manual database edit.
+- Unavailable Telegram reads and lost administrator capability fail closed, do not advance the
+  prior positive observation cursor, and retry with bounded 15–60 second backoff. One failing link
+  does not starve later due work.
+- Metrics expose only aggregate due count, oldest due age, success/failure/degraded counters, and
+  evidence delivery backlog. Telegram IDs, usernames, Account references, tokens, and secrets are
+  never metric labels.
 
 ## Durable documents
 

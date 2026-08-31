@@ -28,6 +28,11 @@ import {
 } from "./membership-normalization.js";
 import { lockProviderStateChanges } from "./membership-provider-delivery-lock.js";
 import {
+  reconcileMembershipDue,
+  type ReconciliationBatchOutcome,
+  type WorkBudget,
+} from "./membership-reconciliation.js";
+import {
   TELEGRAM_MEMBERSHIP,
   type TelegramChatMemberResult,
   type TelegramMembership,
@@ -405,6 +410,19 @@ export class MembershipEvidenceProvider {
         responsePlanned: response !== undefined,
       };
     });
+  }
+
+  async reconcileDue(
+    budget: WorkBudget,
+    clock: Clock,
+  ): Promise<ReconciliationBatchOutcome> {
+    return reconcileMembershipDue(
+      this.database,
+      budget,
+      clock,
+      this.config.membershipReconciliationCadenceMilliseconds,
+      (check) => this.observe(check),
+    );
   }
 
   private async existingOutcome(

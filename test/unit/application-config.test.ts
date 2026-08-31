@@ -22,6 +22,7 @@ describe("application configuration", () => {
     expect(config.deliveryMode).toBe("disabled");
     expect(config.evidenceDeliveryMode).toBe("disabled");
     expect(config.membershipMode).toBe("disabled");
+    expect(config.membershipReconciliationCadenceMilliseconds).toBe(240_000);
     expect(config.workersEnabled).toBe(true);
   });
 
@@ -75,5 +76,20 @@ describe("application configuration", () => {
         PLATFORM_EVIDENCE_DELIVERY_MODE: "live",
       }),
     ).toThrow("PLATFORM_EVIDENCE_DELIVERY_URL is required");
+  });
+
+  it("keeps reconciliation cadence inside the evidence validity bound", () => {
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS: "120000",
+      }).membershipReconciliationCadenceMilliseconds,
+    ).toBe(120_000);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS: "300000",
+      }),
+    ).toThrow("TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS");
   });
 });

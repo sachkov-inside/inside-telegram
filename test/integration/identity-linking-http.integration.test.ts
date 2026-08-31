@@ -30,6 +30,7 @@ const config: ApplicationConfig = {
   linkedNonMemberText: "Synthetic non-member status",
   linkedUnavailableText: "Synthetic unavailable status",
   membershipMode: "disabled",
+  membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,
   webhookSecret: "synthetic_webhook_secret",
