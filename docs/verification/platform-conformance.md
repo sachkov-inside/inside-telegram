@@ -97,6 +97,7 @@ CONFORMANCE_PLATFORM_EVIDENCE_URL=http://127.0.0.1:44101/integrations/telegram/v
 CONFORMANCE_EVIDENCE_SECRET=issue8_evidence_proof_secret \
 CONFORMANCE_LINK_SECRET=issue8_linking_proof_secret \
 CONFORMANCE_WEBHOOK_SECRET=issue8_webhook_proof_secret \
+CONFORMANCE_CONTROL_SECRET=issue8_control_proof_secret \
 pnpm conformance:platform-provider
 
 # Platform repository
@@ -106,12 +107,14 @@ CONFORMANCE_TELEGRAM_CONTROL_URL=http://127.0.0.1:44103 \
 CONFORMANCE_EVIDENCE_SECRET=issue8_evidence_proof_secret \
 CONFORMANCE_LINK_SECRET=issue8_linking_proof_secret \
 CONFORMANCE_WEBHOOK_SECRET=issue8_webhook_proof_secret \
+CONFORMANCE_CONTROL_SECRET=issue8_control_proof_secret \
 pnpm conformance:telegram-membership
 ```
 
-The scripts reject non-loopback endpoints and database names without an explicit proof/conformance
-marker. The Platform command exits after emitting a redacted `CONFORMANCE_RESULT`; stop the
-Telegram provider with `Ctrl-C` and dispose both task databases.
+The scripts reject non-loopback endpoints, PostgreSQL routing query parameters, and database names
+without an explicit proof/conformance marker. The loopback-only control endpoint requires its own
+synthetic bearer. The Platform command exits after emitting a redacted `CONFORMANCE_RESULT`; stop
+the Telegram provider with `Ctrl-C` and dispose both task databases.
 
 The Workspace harness health/diff command separately reports pre-existing managed drift between
 the installed Telegram harness and the current Workspace package (`WORKFLOW.md` and

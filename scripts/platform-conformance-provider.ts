@@ -17,12 +17,20 @@ import {
   type TelegramChatMemberResult,
   type TelegramMembership,
 } from "../src/modules/membership-evidence/telegram-membership.js";
+import {
+  localProofDatabaseUrl,
+  loopbackHttpUrl,
+} from "./conformance-safety.js";
 
-const databaseUrl = localProofUrl(required("DATABASE_URL"), "DATABASE_URL");
-const evidenceUrl = localProofUrl(
+const databaseUrl = localProofDatabaseUrl(
+  required("DATABASE_URL"),
+  "DATABASE_URL",
+);
+const evidenceUrl = loopbackHttpUrl(
   required("CONFORMANCE_PLATFORM_EVIDENCE_URL"),
   "CONFORMANCE_PLATFORM_EVIDENCE_URL",
 );
+const controlSecret = required("CONFORMANCE_CONTROL_SECRET");
 const appPort = port("CONFORMANCE_TELEGRAM_PORT", 44_102);
 const controlPort = port("CONFORMANCE_TELEGRAM_CONTROL_PORT", 44_103);
 
@@ -83,6 +91,10 @@ await application.listen(appPort, "127.0.0.1");
 
 const control = createServer(async (request, response) => {
   response.setHeader("content-type", "application/json");
+  if (request.headers.authorization !== `Bearer ${controlSecret}`) {
+    response.writeHead(401).end(JSON.stringify({ error: "unauthorized" }));
+    return;
+  }
   if (request.method === "GET" && request.url === "/state") {
     response.end(
       JSON.stringify({
@@ -156,18 +168,6 @@ async function readBody(
     throw new TypeError("Control body must be an object");
   }
   return Object.fromEntries(Object.entries(parsed));
-}
-
-function localProofUrl(value: string, name: string): string {
-  const url = new URL(value);
-  if (
-    (url.hostname !== "127.0.0.1" && url.hostname !== "localhost") ||
-    (name === "DATABASE_URL" &&
-      !/(proof|conformance)/u.test(url.pathname.toLowerCase()))
-  ) {
-    throw new Error(`${name} must target a loopback proof database/endpoint`);
-  }
-  return value;
 }
 
 function port(name: string, fallback: number): number {
