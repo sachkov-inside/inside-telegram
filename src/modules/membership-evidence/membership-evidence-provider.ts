@@ -147,8 +147,8 @@ export class MembershipEvidenceProvider {
           "account_ref",
           "bot_identity",
           "evidence_version",
-          "last_membership_event_at",
-          "last_membership_event_update_id",
+          "last_membership_observation_at",
+          "last_membership_observation_update_id",
         ])
         .where("telegram_identity_ref", "=", link.telegram_identity_ref)
         .forUpdate()
@@ -176,8 +176,8 @@ export class MembershipEvidenceProvider {
       if (
         !isNewerMembershipEvent(
           envelope,
-          lockedLink.last_membership_event_at,
-          lockedLink.last_membership_event_update_id,
+          lockedLink.last_membership_observation_at,
+          lockedLink.last_membership_observation_update_id,
         )
       ) {
         await recordMembershipEventAudit(transaction, envelope, {
@@ -253,6 +253,9 @@ export class MembershipEvidenceProvider {
         .returning("bot_identity")
         .executeTakeFirst();
       if (inserted) {
+        if (transition.state !== "ready") {
+          await rejectUnsafePositiveEvidence(transaction, envelope.eventAt);
+        }
         await recordMembershipEventAudit(transaction, envelope, {
           diagnosticCode: transition.diagnosticCode,
           disposition: "provider_state",
@@ -297,6 +300,9 @@ export class MembershipEvidenceProvider {
         })
         .where("bot_identity", "=", envelope.botIdentity)
         .execute();
+      if (transition.state !== "ready") {
+        await rejectUnsafePositiveEvidence(transaction, envelope.eventAt);
+      }
       await recordMembershipEventAudit(transaction, envelope, {
         diagnosticCode: transition.diagnosticCode,
         disposition: "provider_state",
@@ -351,7 +357,12 @@ export class MembershipEvidenceProvider {
     return this.database.transaction().execute(async (transaction) => {
       const lockedLink = await transaction
         .selectFrom("platform_links")
-        .select(["account_ref", "bot_identity", "evidence_version"])
+        .select([
+          "account_ref",
+          "bot_identity",
+          "evidence_version",
+          "last_membership_observation_at",
+        ])
         .where("telegram_identity_ref", "=", check.telegramIdentityRef)
         .forUpdate()
         .executeTakeFirstOrThrow();
@@ -372,6 +383,17 @@ export class MembershipEvidenceProvider {
           providerState: providerState.state,
           responsePlanned: false,
         };
+      }
+      if (
+        observed.normalizedState !== "unavailable" &&
+        lockedLink.last_membership_observation_at !== null &&
+        observedAt < lockedLink.last_membership_observation_at
+      ) {
+        return currentOutcome(
+          transaction,
+          check.telegramIdentityRef,
+          lockedLink.bot_identity,
+        );
       }
 
       const evidence = await recordEvidence(transaction, {
@@ -604,15 +626,19 @@ async function recordEvidence(
           .updateTable("platform_links")
           .set({
             evidence_version: sql`evidence_version + 1`,
-            last_membership_event_at: record.event.eventAt,
-            last_membership_event_update_id: record.event.updateId,
+            last_membership_observation_at: record.event.eventAt,
+            last_membership_observation_update_id: record.event.updateId,
           })
           .where("telegram_identity_ref", "=", record.telegramIdentityRef)
           .returning("evidence_version")
           .executeTakeFirstOrThrow()
       : await transaction
           .updateTable("platform_links")
-          .set({ evidence_version: sql`evidence_version + 1` })
+          .set({
+            evidence_version: sql`evidence_version + 1`,
+            last_membership_observation_at: record.observedAt,
+            last_membership_observation_update_id: null,
+          })
           .where("telegram_identity_ref", "=", record.telegramIdentityRef)
           .returning("evidence_version")
           .executeTakeFirstOrThrow();
@@ -625,8 +651,8 @@ async function recordEvidence(
     await transaction
       .updateTable("platform_links")
       .set({
-        last_membership_event_at: record.event.eventAt,
-        last_membership_event_update_id: record.event.updateId,
+        last_membership_observation_at: record.event.eventAt,
+        last_membership_observation_update_id: record.event.updateId,
       })
       .where("telegram_identity_ref", "=", record.telegramIdentityRef)
       .execute();
@@ -670,6 +696,35 @@ async function recordEvidence(
     })
     .execute();
   return evidence;
+}
+
+async function currentOutcome(
+  transaction: Transaction<DatabaseSchema>,
+  telegramIdentityRef: string,
+  botIdentity: string,
+): Promise<EvidenceOutcome> {
+  const stored = await transaction
+    .selectFrom("membership_check_results")
+    .innerJoin(
+      "membership_evidence_outbox",
+      "membership_evidence_outbox.result_ref",
+      "membership_check_results.result_ref",
+    )
+    .select("membership_evidence_outbox.envelope")
+    .where("telegram_identity_ref", "=", telegramIdentityRef)
+    .orderBy("observed_at", "desc")
+    .orderBy("membership_check_results.id", "desc")
+    .executeTakeFirstOrThrow();
+  const provider = await transaction
+    .selectFrom("membership_provider_state")
+    .select("state")
+    .where("bot_identity", "=", botIdentity)
+    .executeTakeFirstOrThrow();
+  return {
+    evidence: readStoredMembershipEvidence(stored.envelope),
+    providerState: provider.state,
+    responsePlanned: false,
+  };
 }
 
 function createEvidence(
@@ -747,13 +802,15 @@ function isNewerMembershipEvent(
   lastEventAt: Date | null,
   lastUpdateId: string | null,
 ): boolean {
-  if (!lastEventAt || lastUpdateId === null) {
+  if (!lastEventAt) {
     return true;
   }
   const timeDifference = envelope.eventAt.getTime() - lastEventAt.getTime();
   return (
     timeDifference > 0 ||
-    (timeDifference === 0 && BigInt(envelope.updateId) > BigInt(lastUpdateId))
+    (timeDifference === 0 &&
+      lastUpdateId !== null &&
+      BigInt(envelope.updateId) > BigInt(lastUpdateId))
   );
 }
 
@@ -774,6 +831,28 @@ function providerTransition(chatMember: TelegramChatMember): {
     diagnosticCode: "bot_administrator_required",
     state: "degraded",
   };
+}
+
+async function rejectUnsafePositiveEvidence(
+  transaction: Transaction<DatabaseSchema>,
+  providerLostAt: Date,
+): Promise<void> {
+  const unsafeResults = transaction
+    .selectFrom("membership_check_results")
+    .select("result_ref")
+    .where("normalized_state", "=", "member")
+    .where("observed_at", ">=", providerLostAt);
+  await transaction
+    .updateTable("membership_evidence_outbox")
+    .set({
+      diagnostic_code: "provider_lost_before_delivery",
+      locked_at: null,
+      state: "rejected",
+      updated_at: providerLostAt,
+    })
+    .where("state", "in", ["pending", "retry_scheduled", "delivering"])
+    .where("result_ref", "in", unsafeResults)
+    .execute();
 }
 
 async function recordMembershipEventAudit(

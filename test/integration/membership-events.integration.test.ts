@@ -565,6 +565,145 @@ describe("durable Membership events", () => {
       evidenceVersion: latest.evidence.evidenceVersion + 1,
     });
   });
+
+  it("does not let a delayed event overwrite a newer direct observation", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    await provider.accept({
+      actorIsSubject: false,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "left" },
+      eventAt: new Date("2030-01-01T00:13:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1300",
+    });
+
+    const reconciled = await new MembershipEvidenceProvider(
+      database,
+      config,
+      { now: () => new Date("2030-01-01T00:15:00.000Z") },
+      new ControlledTelegramMembership(),
+    ).observe({
+      checkRef: "reconciliation-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    expect(reconciled.evidence).toMatchObject({
+      decision: "member",
+      evidenceVersion: 3,
+    });
+
+    await expect(
+      provider.accept({
+        actorIsSubject: false,
+        botIdentity: config.botIdentity,
+        canonicalChatId: config.canonicalChatId,
+        chatMember: { status: "left" },
+        eventAt: new Date("2030-01-01T00:14:00.000Z"),
+        kind: "subject",
+        subjectTelegramUserId: "42",
+        updateId: "1301",
+      }),
+    ).resolves.toBeUndefined();
+  });
+
+  it("does not let a stale direct response overwrite a newer event", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    const removal = await provider.accept({
+      actorIsSubject: false,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "left" },
+      eventAt: new Date("2030-01-01T00:20:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "2000",
+    });
+    expect(removal?.evidence).toMatchObject({
+      decision: "not_member",
+      evidenceVersion: 2,
+    });
+
+    const staleDirect = await new MembershipEvidenceProvider(
+      database,
+      config,
+      { now: () => new Date("2030-01-01T00:19:00.000Z") },
+      new ControlledTelegramMembership(),
+    ).observe({
+      checkRef: "stale-reconciliation-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    expect(staleDirect.evidence).toEqual(removal?.evidence);
+  });
+
+  it("cancels a pending positive that was observed after delayed admin loss", async () => {
+    const confirmation = await confirmLink("42");
+    const provider = new MembershipEvidenceProvider(
+      database,
+      config,
+      clock,
+      new ControlledTelegramMembership(),
+    );
+    await provider.observe({
+      checkRef: "initial-check",
+      telegramIdentityRef: confirmation.telegramIdentityRef,
+    });
+    const platform = new ControlledPlatformEvidenceDelivery();
+    const deliveries = new MembershipEvidenceDeliveryProcessor(
+      new MembershipEvidenceOutbox(database),
+      platform,
+    );
+    await deliveries.processNext(linkedAt);
+
+    const positive = await provider.accept({
+      actorIsSubject: true,
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:17:00.000Z"),
+      kind: "subject",
+      subjectTelegramUserId: "42",
+      updateId: "1701",
+    });
+    expect(positive?.evidence).toMatchObject({
+      decision: "member",
+      evidenceVersion: 2,
+    });
+
+    await provider.accept({
+      botIdentity: config.botIdentity,
+      canonicalChatId: config.canonicalChatId,
+      chatMember: { status: "member" },
+      eventAt: new Date("2030-01-01T00:16:00.000Z"),
+      kind: "provider",
+      updateId: "1700",
+    });
+
+    await expect(
+      deliveries.processNext(new Date("2030-01-01T00:18:00.000Z")),
+    ).resolves.toBeUndefined();
+    expect(platform.requests).toHaveLength(1);
+  });
 });
 
 async function confirmLink(telegramUserId: string) {

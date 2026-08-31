@@ -118,8 +118,8 @@ export interface PlatformLinksTable {
   account_ref: string;
   bot_identity: string;
   evidence_version: BigIntColumn;
-  last_membership_event_at: Timestamp | null;
-  last_membership_event_update_id: BigIntColumn | null;
+  last_membership_observation_at: Timestamp | null;
+  last_membership_observation_update_id: BigIntColumn | null;
   link_transaction_ref: string;
   linked_at: Timestamp;
   telegram_identity_ref: string;

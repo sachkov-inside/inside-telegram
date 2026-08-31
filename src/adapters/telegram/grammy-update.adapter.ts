@@ -79,12 +79,16 @@ export class GrammyUpdateAdapter {
       return { kind: "start", value: start };
     }
 
-    const membership = this.membership(botIdentity, updateId, update);
-    if (membership) {
-      return { kind: "membership", value: membership };
+    const subjectMembership = this.subjectMembershipEvent(
+      botIdentity,
+      updateId,
+      update,
+    );
+    if (subjectMembership) {
+      return { kind: "membership", value: subjectMembership };
     }
 
-    const providerMembership = this.providerMembership(
+    const providerMembership = this.providerMembershipEvent(
       botIdentity,
       updateId,
       update,
@@ -106,93 +110,55 @@ export class GrammyUpdateAdapter {
     return { kind: "ignored" };
   }
 
-  private membership(
+  private subjectMembershipEvent(
     botIdentity: string,
     updateId: string,
     update: Partial<Update>,
   ): DurableMembershipEnvelope | undefined {
-    const membershipUpdate: unknown = update.chat_member;
-    if (!isRecord(membershipUpdate)) {
+    const parsed = parseChatMemberUpdated(update.chat_member);
+    if (!parsed) {
       return undefined;
     }
-    const chat = membershipUpdate.chat;
-    const actor = membershipUpdate.from;
-    const newChatMember = membershipUpdate.new_chat_member;
-    if (
-      !isRecord(chat) ||
-      !isRecord(actor) ||
-      !isRecord(newChatMember) ||
-      !isRecord(newChatMember.user) ||
-      typeof newChatMember.status !== "string" ||
-      typeof membershipUpdate.date !== "number" ||
-      !Number.isSafeInteger(membershipUpdate.date) ||
-      membershipUpdate.date < 0
-    ) {
+    const actor = parsed.update.from;
+    if (!isRecord(actor)) {
       return undefined;
     }
 
-    const canonicalChatId = signedTelegramId(chat.id);
     const actorTelegramUserId = telegramId(actor.id);
-    const subjectTelegramUserId = telegramId(newChatMember.user.id);
-    if (!canonicalChatId || !actorTelegramUserId || !subjectTelegramUserId) {
+    const subjectTelegramUserId = telegramId(parsed.member.user.id);
+    if (!actorTelegramUserId || !subjectTelegramUserId) {
       return undefined;
     }
 
     return {
       actorIsSubject: actorTelegramUserId === subjectTelegramUserId,
       botIdentity,
-      canonicalChatId,
-      chatMember: toTelegramChatMember({
-        ...(typeof newChatMember.is_member === "boolean"
-          ? { is_member: newChatMember.is_member }
-          : {}),
-        status: newChatMember.status,
-      }),
-      eventAt: new Date(membershipUpdate.date * 1000),
+      canonicalChatId: parsed.chatId,
+      chatMember: parsed.chatMember,
+      eventAt: parsed.eventAt,
       kind: "subject",
       subjectTelegramUserId,
       updateId,
     };
   }
 
-  private providerMembership(
+  private providerMembershipEvent(
     botIdentity: string,
     updateId: string,
     update: Partial<Update>,
   ): Extract<DurableMembershipEnvelope, { kind: "provider" }> | undefined {
-    const membershipUpdate: unknown = update.my_chat_member;
-    if (!isRecord(membershipUpdate)) {
+    const parsed = parseChatMemberUpdated(update.my_chat_member);
+    if (!parsed) {
       return undefined;
     }
-    const chat = membershipUpdate.chat;
-    const newChatMember = membershipUpdate.new_chat_member;
-    if (
-      !isRecord(chat) ||
-      chat.type === "private" ||
-      !isRecord(newChatMember) ||
-      !isRecord(newChatMember.user) ||
-      newChatMember.user.is_bot !== true ||
-      typeof newChatMember.status !== "string" ||
-      typeof membershipUpdate.date !== "number" ||
-      !Number.isSafeInteger(membershipUpdate.date) ||
-      membershipUpdate.date < 0
-    ) {
-      return undefined;
-    }
-    const canonicalChatId = signedTelegramId(chat.id);
-    if (!canonicalChatId) {
+    if (parsed.chat.type === "private" || parsed.member.user.is_bot !== true) {
       return undefined;
     }
     return {
       botIdentity,
-      canonicalChatId,
-      chatMember: toTelegramChatMember({
-        ...(typeof newChatMember.is_member === "boolean"
-          ? { is_member: newChatMember.is_member }
-          : {}),
-        status: newChatMember.status,
-      }),
-      eventAt: new Date(membershipUpdate.date * 1000),
+      canonicalChatId: parsed.chatId,
+      chatMember: parsed.chatMember,
+      eventAt: parsed.eventAt,
       kind: "provider",
       updateId,
     };
@@ -337,6 +303,55 @@ function signedTelegramId(value: unknown): string | undefined {
     return undefined;
   }
   return String(value);
+}
+
+interface ParsedChatMemberUpdated {
+  readonly chat: Record<string, unknown>;
+  readonly chatId: string;
+  readonly chatMember: ReturnType<typeof toTelegramChatMember>;
+  readonly eventAt: Date;
+  readonly member: Record<string, unknown> & {
+    readonly user: Record<string, unknown>;
+  };
+  readonly update: Record<string, unknown>;
+}
+
+function parseChatMemberUpdated(
+  value: unknown,
+): ParsedChatMemberUpdated | undefined {
+  if (!isRecord(value)) {
+    return undefined;
+  }
+  const chat = value.chat;
+  const member = value.new_chat_member;
+  if (
+    !isRecord(chat) ||
+    !isRecord(member) ||
+    !isRecord(member.user) ||
+    typeof member.status !== "string" ||
+    typeof value.date !== "number" ||
+    !Number.isSafeInteger(value.date) ||
+    value.date < 0
+  ) {
+    return undefined;
+  }
+  const chatId = signedTelegramId(chat.id);
+  if (!chatId) {
+    return undefined;
+  }
+  return {
+    chat,
+    chatId,
+    chatMember: toTelegramChatMember({
+      ...(typeof member.is_member === "boolean"
+        ? { is_member: member.is_member }
+        : {}),
+      status: member.status,
+    }),
+    eventAt: new Date(value.date * 1000),
+    member: { ...member, user: member.user },
+    update: value,
+  };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

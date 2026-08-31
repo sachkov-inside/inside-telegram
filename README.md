@@ -92,11 +92,13 @@ commit and SHA-256 snapshot in
   `new_chat_member.user.id`; the event actor is never substituted for it and persists only as the
   redacted `actor_is_subject` audit fact.
 - Linked subject events use `ChatMemberUpdated.date` as source ordering and `update_id` only as a
-  same-second tie-breaker. Duplicate, delayed, concurrent, and week-gap/random update IDs cannot
-  roll back the last accepted event or its monotonic evidence revision.
+  same-second tie-breaker. Successful direct observations and events share one ordering cursor, so
+  duplicate, delayed, concurrent, and week-gap/random update IDs cannot roll back a newer current
+  observation or its monotonic evidence revision.
 - Removal and restriction events issue negative evidence even after a provider degradation.
   Unknown future status is unavailable. A canonical `my_chat_member` demotion immediately marks
-  the provider degraded and blocks fresh positive evidence until a newer administrator recovery.
+  the provider degraded, rejects pending positive evidence observed after the loss, and blocks new
+  positive evidence until a newer administrator recovery.
 - Unlinked subjects create neither a PlatformLink nor evidence. The durable audit records only
   canonical correlation, normalized disposition, linked/unlinked state, and redacted actor facts;
   processed inbox payloads are discarded as before.

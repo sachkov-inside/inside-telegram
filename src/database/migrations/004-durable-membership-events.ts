@@ -5,8 +5,8 @@ export const durableMembershipEventsMigration: Migration = {
   async up(db: Kysely<unknown>): Promise<void> {
     await db.schema
       .alterTable("platform_links")
-      .addColumn("last_membership_event_at", "timestamptz")
-      .addColumn("last_membership_event_update_id", "bigint")
+      .addColumn("last_membership_observation_at", "timestamptz")
+      .addColumn("last_membership_observation_update_id", "bigint")
       .execute();
     await db.schema
       .alterTable("membership_provider_state")
@@ -54,8 +54,8 @@ export const durableMembershipEventsMigration: Migration = {
       .execute();
     await db.schema
       .alterTable("platform_links")
-      .dropColumn("last_membership_event_update_id")
-      .dropColumn("last_membership_event_at")
+      .dropColumn("last_membership_observation_update_id")
+      .dropColumn("last_membership_observation_at")
       .execute();
   },
 };
