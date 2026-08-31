@@ -10,6 +10,10 @@ Production credentials, Telegram registration, deployment, and traffic remain Te
 | Telegram | `sachkov-inside/inside-telegram@4d9aca2c5431200317a547a2c32d0fdc81e9cdb0` | identity-link provider and Membership Evidence producer |
 | Platform | `sachkov-inside/platform@1e10837689a39665087da26fa6038faebbeb7596` | Account-bound link consumer, evidence ingress, entitlement projection, and ContentAccess |
 
+The versioned split harness was then rerun successfully at Telegram
+`6b0afc258312435b3cddec4c6c48d1202ab8b897` and Platform
+`2aee06c55a0cf9194afd6fa9278b9a7ba296136b`; the application revisions above were unchanged.
+
 The proof ran each application from its own worktree, package graph, migration ledger, and
 PostgreSQL database. The only application seam was authenticated loopback HTTP. No test or runtime
 imported code, packages, migrations, database tables, or fixtures from the other checkout.
