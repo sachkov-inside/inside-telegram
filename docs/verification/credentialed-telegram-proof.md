@@ -1,8 +1,11 @@
 # Telegram credentialed proof
 
-Status: **pending owner-assisted execution** for Telegram #9. The application, wizard, probes,
-owner recovery interface, and safe disposal path are versioned; no real BotFather credential,
-closed chat, or temporary HTTPS callback has been supplied in this branch.
+Status: **completed with an owner-approved reduced live matrix** for Telegram #9. The application,
+wizard, probes, owner recovery interface, and safe disposal path are versioned. A dedicated test
+bot, closed supergroup, and temporary HTTPS callback were exercised without enabling production
+traffic. The owner chose to retain the bot and group as test resources and accepted their observed
+administrator rights; the remaining destructive and provider-edge scenarios are covered by the
+repository's integration suite rather than additional manual Telegram actions.
 
 Prepare an ignored `.env` whose `DATABASE_URL` names an isolated loopback `issue9` or `proof`
 database, then run from the repository root with Node from `.node-version`:
@@ -43,26 +46,32 @@ CREDENTIALED_PROOF_DRY_RUN=1 ENV_FILE=<temporary-file> \
   bash scripts/credentialed-proof-wizard.sh
 ```
 
-## Required final evidence
+## Final evidence disposition
 
-The reviewing agent replaces `pending` only after observing the local evidence file and the owner
-confirmations. Record no identifiers or provider payloads in this document.
+The reviewing agent observed the local evidence file and owner confirmations. No identifiers or
+provider payloads are recorded in this document. `Live` means Telegram or the temporary callback
+was exercised; `automated` means the deterministic PostgreSQL integration corpus is the accepted
+evidence for that scenario.
 
 | Area | Required redacted observation | Result |
 |---|---|---|
-| Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | pending |
-| Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, inherited global member permissions, and every current assignable administrator-right name | pending |
-| Webhook auth | correct secret accepted; missing/wrong secret rejected | pending |
-| Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | pending |
-| Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | pending |
-| Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | pending |
-| Link bearer | valid, expired, replay, concurrent consume, same-pair idempotence, conflict | pending |
-| Membership | each reachable raw status/is-member pair is correlated to common normalization; ordered revisions show removal deny and newer rejoin restore | pending |
-| Reconciliation | `chat_member` is temporarily excluded, the missed removal leaves the pre-cadence revision unchanged, exact updates are restored, then a current bounded `reconciliation` denial supersedes the positive revision | pending |
-| Provider loss | bot demotion and provider outage degrade/fail closed; restoration recovers | pending |
-| Owner recovery | dry-run read-only; exact-confirm execute; idempotent replay; immutable audit | pending |
-| Disposal | webhook removed, pending test updates disposed, old token rejected, chat/endpoint/secrets disposition recorded, provider identifiers removed from `.env` | pending |
-| Secret scan | Git tree, issue, PR, durable report, and captured output contain no token, raw PII, chat ID, or provider payload | pending |
+| Bot identity | `getMe` id/username match the dedicated BotFather bot; old token rejects after revoke | Live identity match; token retained for the test bot by owner decision |
+| Closed chat | private group/supergroup type, owner-confirmed client minimum, implied `can_manage_chat`, inherited global member permissions, and every current assignable administrator-right name | Live; observed rights accepted by owner and recorded privately |
+| Webhook auth | correct secret accepted; missing/wrong secret rejected | Live temporary callback |
+| Webhook durability | inbox insert precedes `2xx`; duplicate update remains one durable inbox item | Live temporary callback and isolated PostgreSQL database |
+| Webhook retry | exact synthetic marker absent during observed HTTP `503`/pending state, then present once after retry with provider queue drained | Automated; public tunnel did not provide a stable provider-edge retry observation |
+| Contactability | ordinary `/start`, block diagnostic, unblock + new `/start` recovery | Live outbound group delivery; private start/block recovery accepted from automated coverage |
+| Link bearer | valid, expired, replay, concurrent consume, same-pair idempotence, conflict | Automated |
+| Membership | each reachable raw status/is-member pair is correlated to common normalization; ordered revisions show removal deny and newer rejoin restore | Automated |
+| Reconciliation | `chat_member` is temporarily excluded, the missed removal leaves the pre-cadence revision unchanged, exact updates are restored, then a current bounded `reconciliation` denial supersedes the positive revision | Automated |
+| Provider loss | bot demotion and provider outage degrade/fail closed; restoration recovers | Automated |
+| Owner recovery | dry-run read-only; exact-confirm execute; idempotent replay; immutable audit | Automated |
+| Disposal | webhook removed, pending test updates disposed, old token rejected, chat/endpoint/secrets disposition recorded, provider identifiers removed from `.env` | Webhook and temporary endpoint disposed; bot, chat, and ignored local credentials retained as non-production test resources by owner decision |
+| Secret scan | Git tree, issue, PR, durable report, and captured output contain no token, raw PII, chat ID, or provider payload | Pass |
+
+The tested application revision is `ed400df`; the proof window ended at approximately
+2026-08-31 18:50 UTC. `pnpm check:full` passed with 113 unit and 73 PostgreSQL integration tests,
+GitHub Application CI passed, and Standards and Spec reviews both returned PASS on that revision.
 
 ## Final report fields
 
