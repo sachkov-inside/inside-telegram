@@ -7,6 +7,7 @@ import {
 } from "../../database/database.js";
 import {
   type MembershipEvidence,
+  type MembershipEvidenceSource,
   readStoredMembershipEvidence,
 } from "./membership-evidence.js";
 import { withProviderDeliveryLock } from "./membership-provider-delivery-lock.js";
@@ -18,6 +19,7 @@ export interface ClaimedMembershipEvidenceDelivery {
   readonly attemptNumber: number;
   readonly evidence: MembershipEvidence;
   readonly idempotencyKey: string;
+  readonly source: MembershipEvidenceSource;
 }
 
 @Injectable()
@@ -57,7 +59,7 @@ export class MembershipEvidenceOutbox {
 
       const delivery = await transaction
         .selectFrom("membership_evidence_outbox")
-        .select(["attempt_count", "envelope", "id"])
+        .select(["attempt_count", "envelope", "id", "source"])
         .where("state", "in", ["pending", "retry_scheduled"])
         .where("available_at", "<=", now)
         .orderBy("id")
@@ -84,6 +86,7 @@ export class MembershipEvidenceOutbox {
         attemptNumber,
         evidence: readStoredMembershipEvidence(delivery.envelope),
         idempotencyKey: delivery.id,
+        source: delivery.source,
       };
     });
   }

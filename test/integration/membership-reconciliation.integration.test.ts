@@ -4,7 +4,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
-import { migrateDown, migrateToLatest } from "../../src/database/migrator.js";
+import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
 import type { Clock } from "../../src/modules/identity-linking/clock.js";
 import { MembershipEvidenceProvider } from "../../src/modules/membership-evidence/membership-evidence-provider.js";
 import type {
@@ -75,11 +75,13 @@ afterAll(async () => {
 
 describe("durable Membership reconciliation", () => {
   it("rebuilds its migration down and forward", async () => {
-    await migrateDown(database);
-    const removed = await tableExists("membership_reconciliations");
-    expect(removed).toBe(false);
-
-    await migrateToLatest(database);
+    try {
+      await migrateTo(database, "004-durable-membership-events");
+      const removed = await tableExists("membership_reconciliations");
+      expect(removed).toBe(false);
+    } finally {
+      await migrateToLatest(database);
+    }
     await expect(tableExists("membership_reconciliations")).resolves.toBe(true);
   });
 
@@ -132,6 +134,12 @@ describe("durable Membership reconciliation", () => {
       due_at: new Date("2030-01-01T00:08:00.000Z"),
       state: "pending",
     });
+    const reconciliationDelivery = await database
+      .selectFrom("membership_evidence_outbox")
+      .select("source")
+      .where("result_ref", "like", "reconciliation:%")
+      .executeTakeFirstOrThrow();
+    expect(reconciliationDelivery.source).toBe("reconciliation");
     const responses = await database
       .selectFrom("start_response_deliveries")
       .select(({ fn }) => fn.countAll<string>().as("count"))

@@ -1,5 +1,7 @@
 import type { ColumnType, Generated, Kysely } from "kysely";
 
+import type { MembershipEvidenceSource } from "../modules/membership-evidence/membership-evidence.js";
+
 export type Contactability = "blocked" | "reachable";
 export type UpdateState = "failed" | "pending" | "processed" | "processing";
 export type StartResponseDeliveryState =
@@ -163,6 +165,7 @@ export interface MembershipEvidenceOutboxTable {
   id: string;
   locked_at: Timestamp | null;
   result_ref: string;
+  source: MembershipEvidenceSource;
   state: MembershipEvidenceDeliveryState;
   updated_at: Timestamp;
 }
