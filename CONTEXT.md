@@ -11,17 +11,17 @@ Telegram permits delivery. A BotContact may be unlinked and may have no Membersh
 _Avoid_: Subscriber, member, lead
 
 **TelegramIdentity**:
-The provider-verified Telegram identity from which bot updates originate. It is not a Platform
-Account, Membership, username, or profile snapshot.
+The provider-verified Telegram identity from which bot updates originate. It is not an Account,
+Membership, username, or profile snapshot.
 _Avoid_: Telegram account, username, BotContact
 
 **PlatformLink**:
-The historical association between one TelegramIdentity and one opaque Platform Account reference.
+The historical association between one TelegramIdentity and one opaque Account reference.
 It does not grant Membership or content access.
 _Avoid_: Login, Membership link, Account merge
 
 **LinkTransaction**:
-A short-lived, single-use invitation from an authenticated Platform Account to prove and confirm
+A short-lived, single-use invitation from an authenticated Account flow to prove and confirm
 one PlatformLink through the bot.
 _Avoid_: Referral, auth session, permanent link token
 
