@@ -11,8 +11,8 @@ Sachkov Inside получает отдельное Telegram application с dedic
 Первый релиз позволяет человеку:
 
 1. открыть bot обычным `/start` или через short-lived deep link из Platform;
-2. стать `BotContact` независимо от наличия Platform Account и Membership;
-3. безопасно связать Telegram identity с уже authenticated Platform Account;
+2. стать `BotContact` независимо от наличия Account и Membership;
+3. безопасно связать Telegram identity с уже authenticated Account;
 4. получить точный transactional ответ о linking и Membership state;
 5. получить доступ к закрытым Platform Materials только после принятия Platform свежего
    Membership Evidence.
@@ -26,7 +26,7 @@ identity, наблюдает Membership Signal и передаёт normalized bo
 ### BotContact
 
 Любой обычный `/start` создаёт или реактивирует BotContact. Контакт существует независимо от
-Platform Account, link и Membership и в будущем входит в общую messaging/marketing audience.
+Account, link и Membership и в будущем входит в общую messaging/marketing audience.
 
 Telegram block прекращает техническую доставку сообщений, но не удаляет контакт или историю.
 Отдельной команды `/stop`, category consent или автоматического retention/deletion в принятой
@@ -36,9 +36,9 @@ Telegram block прекращает техническую доставку со
 
 Platform создаёт high-entropy short-lived single-use token и deep link на bot. `/start` связывает
 token с Telegram identity, но не завершает перенос доступа самостоятельно. Пользователь завершает
-подтверждение в своей authenticated Platform session.
+подтверждение в authenticated Account flow Platform.
 
-Одна Telegram identity исторически принадлежит одному Platform Account. Повторное связывание той
+Одна Telegram identity исторически принадлежит одному Account. Повторное связывание той
 же пары идемпотентно; conflict не делает silent merge или transfer. Exceptional transfer выполняет
 только владелец через отдельную audited CLI/runbook процедуру.
 
@@ -80,7 +80,7 @@ protected operations после принятия Platform; stale или unavaila
 - billing, Tribute API/webhooks или payment state;
 - content posting, community moderation или admin dashboard;
 - production domains, permanent credentials, release, monitoring, backup/recovery и production GO;
-- Platform Account/Profile UI и финальная Platform authorization implementation.
+- Account/Profile UI и финальная Platform authorization implementation.
 
 ## Долгосрочная роль
 
@@ -102,4 +102,3 @@ provider outage.
 
 Это не production release. Production topology, secrets operations, observability, capacity,
 backup/recovery и enablement получают отдельную owner-approved specification.
-

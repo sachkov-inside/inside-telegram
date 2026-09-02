@@ -1,14 +1,21 @@
 # Writing Agent Briefs
 
-An agent brief is a structured comment posted on a GitHub issue or PR when it moves to `ready-for-agent`. It is the authoritative specification that an AFK agent will work from. The original body and discussion are context: the agent brief is the contract.
+An agent brief is a structured tracker comment posted on a work item or change request when it
+moves to the repository's configured `ready-for-agent` role. It is the authoritative specification
+that an AFK agent will work from. The original body and discussion are context; the agent brief is
+the contract.
 
-The brief states **what the agent should do**, which stretches to both surfaces: for an issue, that's building the change from nothing; for a PR, it's what's left to do *to the existing diff*: finish it, close gaps, address review points. Same principles either way; the PR example below shows the difference.
+The brief states **what the agent should do** on either surface: for a work item, that means building
+the change from nothing; for a change request, it means what remains *in the existing diff*: finish
+it, close gaps, and address review points. The same principles apply to both.
 
 ## Principles
 
 ### Durability over precision
 
-The issue may sit in `ready-for-agent` for days or weeks. The codebase will change in the meantime. Write the brief so it stays useful even as files are renamed, moved, or refactored.
+The item may sit in the configured `ready-for-agent` state for days or weeks. The codebase will
+change in the meantime. Write the brief so it stays useful even as files are renamed, moved, or
+refactored.
 
 - **Do** describe interfaces, types, and behavioral contracts
 - **Do** name specific types, function signatures, or config shapes that the agent should look for or modify
@@ -29,7 +36,8 @@ Describe **what** the system should do, not **how** to implement it. The agent w
 
 The agent needs to know when it's done. Every agent brief must have concrete, testable acceptance criteria. Each criterion should be independently verifiable.
 
-- **Good:** "Running `gh issue list --label needs-triage` returns issues that have been through initial classification"
+- **Good:** "Querying the repository tracker for its configured `needs-triage` role returns only
+  items that have completed initial classification"
 - **Bad:** "Triage should work correctly"
 
 ### Explicit scope boundaries
@@ -145,9 +153,10 @@ checked for matches.
 - Bug reports (only enhancement rejections go to `.out-of-scope/`)
 ```
 
-### Good agent brief (PR)
+### Good agent brief (change request)
 
-For a PR, "Current behavior" describes the state of the diff, and the brief asks the agent to finish or fix it rather than build from scratch.
+For a change request, "Current behavior" describes the state of the diff, and the brief asks the
+agent to finish or fix it rather than build from scratch.
 
 ```markdown
 ## Agent Brief
@@ -156,7 +165,7 @@ For a PR, "Current behavior" describes the state of the diff, and the brief asks
 **Summary:** Finish the contributor's `--json` output flag for `triage list`
 
 **Current behavior:**
-The PR adds a `--json` flag that serializes the issue list to JSON. The happy
+The change request adds a `--json` flag that serializes the issue list to JSON. The happy
 path works and the diff matches the project's command structure. Two gaps
 remain: errors are still printed as human text (not JSON), and the new flag has
 no test coverage.
@@ -169,7 +178,7 @@ is untouched when the flag is absent.
 **Key interfaces:**
 - The command's error path should emit `{ "error": string }` under `--json`
   instead of the plain-text error
-- Reuse the existing serializer the PR already added; don't introduce a second
+- Reuse the existing serializer the change request already added; don't introduce a second
 
 **Acceptance criteria:**
 - [ ] `triage list --json` emits valid JSON for both success and error cases
@@ -179,7 +188,7 @@ is untouched when the flag is absent.
 
 **Out of scope:**
 - Adding `--json` to any other command
-- Changing the JSON shape of the success payload the PR already defined
+- Changing the JSON shape of the success payload the change request already defined
 ```
 
 ### Bad agent brief

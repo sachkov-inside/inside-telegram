@@ -16,7 +16,7 @@
 
 - Первый release — Membership bridge, а не campaign platform.
 - Linking использует `/start`, а не Telegram OIDC.
-- Обычный `/start` создаёт BotContact без требования Platform link.
+- Обычный `/start` создаёт BotContact без требования Account link.
 - V1 outbound messages только transactional.
 - В будущем тот же bot владеет communications и marketing capabilities через отдельные specs.
 - Все BotContacts являются будущей messaging audience; отдельного consent/category state нет.
