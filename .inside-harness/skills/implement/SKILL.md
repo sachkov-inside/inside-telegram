@@ -14,8 +14,9 @@ Run typechecking regularly, single test files regularly, and the full test suite
 ## Review closure
 
 For implementation, specification, or architecture changes, read and follow `Review closure`,
-`Architecture fitness`, and `Pruning` in the repository-root `WORKFLOW.md`. Those sections are the
-authority for finding dispositions, learning promotion, and completion.
+`Pull request CI closure`, `Architecture fitness`, and `Pruning` in the
+repository-root `WORKFLOW.md`. Those sections are the authority for finding dispositions,
+current-head CI ownership, learning promotion, and completion.
 
 Invoke `/code-review` from the original fixed point. When review changes code or durable documents,
 re-run the relevant verification and invoke `/code-review` from that same fixed point again. Commit
