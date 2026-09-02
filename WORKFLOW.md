@@ -158,6 +158,24 @@ Work is ready for owner merge when:
   Definition of Done;
 - the owner gives explicit merge approval.
 
+### Pull request CI closure
+
+The writing agent owns the pull request feedback loop through a terminal result for its current
+remote head. After opening or updating a pull request, resolve that head commit and monitor every
+check started for it until each reaches a terminal state. Pending or queued checks are ongoing work,
+not an owner handoff, and a successful run for a superseded head is not evidence for the current
+change.
+
+When a task-relevant check fails, times out, is cancelled on the current head, or is unexpectedly
+skipped, inspect its provider logs and failure artifacts, diagnose the cause, fix it in the same task
+worktree, run the relevant local verification and review closure, push, and repeat against the new
+remote head. Treat an infrastructure or provider outage as an external blocker only after diagnosis
+and safe retries; preserve the worktree and report the exact check and run.
+
+A pull request is ready for owner merge only when its intended local commit matches the remote head,
+all required checks for that head succeeded, no task-relevant check is pending or failed, and review
+closure is complete. Merge, release and deployment remain subject to their explicit owner gates.
+
 Implementation, specification, and architecture changes run Standards and Spec `code-review` from
 an agreed fixed point. Trivial docs or chore work needs only a bounded diff review and relevant
 verification.
