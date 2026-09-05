@@ -1,0 +1,48 @@
+name: inside-production-telegram
+
+x-runtime: &runtime
+  image: ${TELEGRAM_IMAGE:?TELEGRAM_IMAGE is required}
+  env_file:
+    - ${TELEGRAM_CONFIG_DIR:?TELEGRAM_CONFIG_DIR is required}/application.env
+  environment:
+    HOST: 0.0.0.0
+    PORT: "3002"
+  init: true
+  read_only: true
+  tmpfs:
+    - /tmp:size=16m,mode=1777
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  networks: [database, egress]
+  logging:
+    driver: json-file
+    options:
+      max-size: 10m
+      max-file: "3"
+
+services:
+  migrate:
+    <<: *runtime
+    command: [node, dist/database/migrate.js]
+    profiles: [operations]
+    restart: "no"
+
+  app:
+    <<: *runtime
+    ports:
+      - "127.0.0.1:${TELEGRAM_LOOPBACK_PORT:?TELEGRAM_LOOPBACK_PORT is required}:3002"
+    restart: unless-stopped
+    stop_grace_period: 60s
+    mem_limit: 512m
+    healthcheck:
+      test: [CMD, node, dist/operations/check-readiness.js]
+      interval: 15s
+      timeout: 8s
+      retries: 4
+      start_period: 15s
+
+networks:
+  database:
+    external: true
+    name: ${TELEGRAM_DATABASE_NETWORK:?TELEGRAM_DATABASE_NETWORK is required}
+  egress:

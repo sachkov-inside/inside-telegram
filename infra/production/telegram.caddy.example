@@ -1,0 +1,12 @@
+telegram.example.com {
+	@provider {
+		method POST
+		path /webhooks/telegram /integrations/platform/v1/identity-links /integrations/platform/v1/identity-links/*/confirm
+	}
+	handle @provider {
+		reverse_proxy 127.0.0.1:3303
+	}
+	handle {
+		respond 404
+	}
+}

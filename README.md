@@ -14,6 +14,10 @@ bound. The production HTTP adapters have passed the two-application conformance 
 in [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md). Bot
 registration, real credentials, deployment, and production enablement remain explicit later gates.
 
+The permanent deployment kit and its verification/recovery procedure are documented in
+[`docs/operations/production.md`](docs/operations/production.md). Its presence does not mean the
+production bot has been enabled.
+
 ## Ordinary `/start` runtime
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
