@@ -22,11 +22,12 @@ export class StartResponseDeliveryProcessor {
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
   ) {}
 
-  async processAvailable(limit = 50, now = new Date()): Promise<number> {
+  async processAvailable(limit = 50, now?: Date): Promise<number> {
     let processed = 0;
     for (; processed < limit; processed += 1) {
+      const attemptedAt = now ?? new Date();
       const delivery = await this.queue.claimNext(
-        now,
+        attemptedAt,
         this.config.signInEnabled === true,
       );
       if (!delivery) {
@@ -51,7 +52,7 @@ export class StartResponseDeliveryProcessor {
             }
           : {}),
       });
-      await this.queue.recordResult(delivery, result, now);
+      await this.queue.recordResult(delivery, result, now ?? new Date());
       this.metrics.increment(`delivery_${result.kind}`);
     }
     return processed;

@@ -69,7 +69,7 @@ export function loadApplicationConfig(
   const signInEnabled = signInFlag === "true";
   const signInIntegrationSecret = signInEnabled
     ? required(environment, "TELEGRAM_SIGN_IN_INTEGRATION_SECRET")
-    : undefined;
+    : environment.TELEGRAM_SIGN_IN_INTEGRATION_SECRET?.trim() || undefined;
   if (
     signInIntegrationSecret &&
     (!/^[A-Za-z0-9_-]{32,256}$/.test(signInIntegrationSecret) ||

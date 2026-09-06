@@ -7,7 +7,15 @@ import {
 } from "@nestjs/platform-fastify";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../../src/app.module.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
@@ -82,6 +90,90 @@ afterAll(async () => {
 });
 
 describe("bot sign-in provider", () => {
+  it("reports disabled over authenticated HTTP after loading a disabled runtime configuration", async () => {
+    const disabledConfig = loadApplicationConfig({
+      DATABASE_URL: databaseUrl,
+      PLATFORM_INTEGRATION_SECRET: config.platformIntegrationSecret,
+      TELEGRAM_BOT_IDENTITY: config.botIdentity,
+      TELEGRAM_CANONICAL_CHAT_ID: config.canonicalChatId,
+      TELEGRAM_LINK_RECEIPT_TEXT: config.linkReceiptText,
+      TELEGRAM_LINKED_MEMBER_TEXT: config.linkedMemberText,
+      TELEGRAM_LINKED_NON_MEMBER_TEXT: config.linkedNonMemberText,
+      TELEGRAM_LINKED_UNAVAILABLE_TEXT: config.linkedUnavailableText,
+      TELEGRAM_WEBHOOK_SECRET: config.webhookSecret,
+      TELEGRAM_WELCOME_TEXT: config.welcomeText,
+      TELEGRAM_SIGN_IN_ENABLED: "false",
+      TELEGRAM_SIGN_IN_INTEGRATION_SECRET: config.signInIntegrationSecret,
+      WORKERS_ENABLED: "false",
+    });
+    const challenge = await register();
+    await start(challenge, 42);
+    await callback(challenge, 42);
+    const disabledApplication =
+      await NestFactory.create<NestFastifyApplication>(
+        AppModule.register(disabledConfig),
+        new FastifyAdapter(),
+        { logger: false },
+      );
+    try {
+      await disabledApplication.init();
+      const disabledHttp = disabledApplication
+        .getHttpAdapter()
+        .getInstance() as FastifyInstance;
+      for (const path of ["status", "consume"]) {
+        const response = await disabledHttp.inject({
+          method: "POST",
+          url: `/integrations/identity/v1/sign-in/${challenge.requestRef}/${path}`,
+          headers: {
+            authorization: `Bearer ${config.signInIntegrationSecret}`,
+          },
+          payload: { contractVersion, browserSecret: challenge.browserSecret },
+        });
+        expect(response.statusCode).toBe(200);
+        expect(response.headers["cache-control"]).toBe("no-store");
+        expect(response.json()).toMatchObject({ status: "disabled" });
+      }
+      const registration = await disabledHttp.inject({
+        method: "POST",
+        url: "/integrations/identity/v1/sign-in",
+        headers: { authorization: `Bearer ${config.signInIntegrationSecret}` },
+        payload: newChallenge().envelope,
+      });
+      expect(registration.json()).toMatchObject({ status: "disabled" });
+      expect(await status(challenge)).toMatchObject({ status: "approved" });
+    } finally {
+      await disabledApplication.close();
+    }
+  });
+
+  it("does not send a sign-in prompt that expires behind an earlier delivery", async () => {
+    const current = new Date();
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(current);
+    try {
+      await webhook(privateStartUpdate(++updateId, 43));
+      const challenge = await register();
+      await start(challenge, 42);
+      const messages: TelegramTextMessage[] = [];
+      const delivery = new StartResponseDeliveryProcessor(
+        new StartResponseDeliveryQueue(database),
+        {
+          async sendText(message) {
+            messages.push(message);
+            vi.setSystemTime(new Date(challenge.envelope.expiresAt));
+            return { kind: "delivered", providerMessageId: "1" };
+          },
+        },
+        new RuntimeMetrics(),
+        config,
+      );
+      expect(await delivery.processAvailable()).toBe(1);
+      expect(messages[0]?.buttons).toBeUndefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("requires dedicated server credentials and a closed versioned envelope", async () => {
     const challenge = newChallenge();
     for (const authorization of [

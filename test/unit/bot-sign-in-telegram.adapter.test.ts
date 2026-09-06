@@ -9,6 +9,27 @@ import { GrammyCallbackAnswersAdapter } from "../../src/adapters/telegram/grammy
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 
 describe("Telegram sign-in transport", () => {
+  it("cancels a stuck cosmetic callback so the caller can process the next update", async () => {
+    let aborted = false;
+    const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
+      answerCallbackQuery(_id, _options, signal) {
+        return new Promise((_resolve, reject) => {
+          if (!signal) throw new Error("Expected bounded callback signal");
+          signal.addEventListener(
+            "abort",
+            () => {
+              aborted = true;
+              reject(new Error("Synthetic timeout"));
+            },
+            { once: true },
+          );
+        });
+      },
+    });
+    await adapter.answer("synthetic-id");
+    expect(aborted).toBe(true);
+  });
+
   it("discards provider-supplied internal markers instead of trusting them", () => {
     const update = privateStartUpdate(1, 42);
     const prepared = prepareTelegramUpdateForInbox({

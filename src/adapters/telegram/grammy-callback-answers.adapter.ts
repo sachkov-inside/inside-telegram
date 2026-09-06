@@ -11,9 +11,13 @@ export class GrammyCallbackAnswersAdapter implements TelegramCallbackAnswers {
 
   async answer(callbackQueryId: string): Promise<void> {
     try {
-      await this.api.answerCallbackQuery(callbackQueryId, {
-        text: "Вернитесь в исходную вкладку сайта и проверьте результат входа.",
-      });
+      await this.api.answerCallbackQuery(
+        callbackQueryId,
+        {
+          text: "Вернитесь в исходную вкладку сайта и проверьте результат входа.",
+        },
+        AbortSignal.timeout(2_000),
+      );
     } catch {
       // Ephemeral UI acknowledgement may already have expired. The durable decision is independent.
     }
