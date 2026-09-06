@@ -49,6 +49,7 @@ addFormats.default(ajv);
 const validateEvidence = ajv.compile(evidenceSchema);
 const clock: Clock = { now: () => now };
 const config: ApplicationConfig = {
+  marketingEnabled: false,
   botIdentity: "inside",
   canonicalChatId: "-1000000000000",
   databaseUrl,

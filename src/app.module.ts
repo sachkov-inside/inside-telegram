@@ -1,3 +1,12 @@
+import { Api } from "grammy";
+import { Funnels } from "./modules/communications/funnels.js";
+import { MarketingEntry } from "./modules/communications/marketing-entry.js";
+import { FunnelScheduler } from "./modules/communications/funnel-scheduler.js";
+import { COMMUNICATION_TRANSPORT } from "./modules/communications/communication-delivery.js";
+import {
+  GrammyCommunicationsAdapter,
+  DisabledCommunicationTransport,
+} from "./adapters/telegram/grammy-communications.adapter.js";
 import { Communications } from "./modules/communications/communications.js";
 import { CommunicationsController } from "./modules/communications/communications.controller.js";
 import {
@@ -125,6 +134,18 @@ export class AppModule {
           },
         },
         Communications,
+        Funnels,
+        MarketingEntry,
+        FunnelScheduler,
+        {
+          provide: COMMUNICATION_TRANSPORT,
+          useFactory: () =>
+            config.marketingEnabled &&
+            config.deliveryMode === "live" &&
+            config.botToken
+              ? new GrammyCommunicationsAdapter(new Api(config.botToken))
+              : new DisabledCommunicationTransport(),
+        },
         {
           provide: AUTHOR_AUTHORIZATION,
           useFactory: () =>

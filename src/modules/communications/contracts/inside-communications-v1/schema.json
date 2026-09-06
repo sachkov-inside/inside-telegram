@@ -218,7 +218,7 @@
         },
         "code": {
           "type": "string",
-          "pattern": "^m_[A-Za-z0-9_-]{1,48}$"
+          "pattern": "^m_[A-Za-z0-9_-]{1,40}$"
         },
         "name": {
           "type": "string",

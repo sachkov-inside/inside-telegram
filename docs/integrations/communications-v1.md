@@ -4,8 +4,9 @@ This application owns the physical `inside-communications-v1` schema and fixture
 [`src/modules/communications/contracts/inside-communications-v1/`](../../src/modules/communications/contracts/inside-communications-v1/).
 The product authority remains the accepted
 [Workspace contract](https://github.com/sachkov-inside/workspace/blob/1553211220c44882dbacce7519dd50e35493090e/docs/specifications/telegram-communications-v1.md).
-This document describes transport and the implemented template slice of
-[Telegram #27](https://github.com/sachkov-inside/inside-telegram/issues/27), not a second product brief.
+This document describes the transport implemented by [Telegram #27](https://github.com/sachkov-inside/inside-telegram/issues/27)
+and the funnel runtime in [Telegram #28](https://github.com/sachkov-inside/inside-telegram/issues/28),
+not a second product brief.
 
 ## Implemented operations
 
@@ -35,19 +36,86 @@ operation-specific `payload`. Unknown fields and versions return `400 malformed`
   `404 not_found`, `400 malformed`, `422 unsupported_content`, `409 revision_conflict|operation_conflict`,
   `503 authorization_unavailable`, and `501 not_implemented`.
 
-The schema also defines funnels, publish/preview/rollback, source links, broadcasts, explicit
-retry/skip, test send, eligibility, tracking and statistics. `intro.read/save` addresses one common
-intro by stable ID; `funnels.save.entryResponse` separates the zero-delay response from scheduled
-steps. `deliveries.read` exposes paginated per-delivery revision, content snapshot, per-part state,
-redacted attempt evidence and cancellation so an operator can build `delivery.resolve` without
-losing the original unknown attempt. They are **contract-only** in this
-slice; they return `501`, create no runtime state and send nothing. `expectedRevision` is `0` for
-queries/events and the current aggregate revision for mutations. The scheduling and publication
-semantics remain in the Workspace contract and subsequent owning tickets. Eligibility is a
-Platform-owned operation over published free Material/Series targets; the vendored envelope can
-be used by its authenticated endpoint. Tracking uses the bounded service actor
-`{ serviceRef: "platform-tracking" }`, because a public hit need not have an Account. That actor
-is accepted only for tracking operations and cannot manage templates or communications.
+## Funnel operations and runtime
+
+`funnels.save/read/list/publish/lifecycle`, `intro.save/read` and `deliveries.read` are implemented.
+They use the same service credential, fresh Account permission check, owner isolation, expected
+revision and durable operation replay as templates. Save creates/updates the draft; source CRUD
+is the draft's `sources` list. Publish freezes the entire draft, including entry response, step
+parts and buttons, in an immutable publication record. Revision increases on every mutation;
+replay of the same operation returns its original result even after later changes. List and
+history pages contain at most 100 items with opaque UUID cursors. History includes the contact's
+common intro and individual multipart states/attempts, without raw Telegram IDs.
+
+Sources keep their ID/code reservation after removal or archive. A removed source no longer
+routes after publish; reuse for another funnel is rejected. Step IDs and part ownership remain
+historical. Reusing a deleted step, moving a historical part to a different step or replacing the
+initial response ID is rejected. Content can be changed under its existing ID. Archive is the
+non-destructive removal operation. `pause/resume/archive/restore` preserve enrollment and delivery
+history; restore returns to paused. Exactly one published selection is used by ordinary `/start`.
+Publishing a new default changes that selection atomically; draft `isDefault` describes the
+selection requested at its next publication.
+
+`intro.save` configures the one bot-wide common block under a stable `introId`; it has no implicit
+Telegram send. Later edits do not resend an already claimed intro. No definitions, scenarios or
+author copy are seeded by migrations. The current owner direction is one common funnel, with
+owner-authored content; multiple funnels exist only in synthetic tests for the runtime contract.
+
+`TELEGRAM_MARKETING_ENABLED=false` is independent of service delivery and is the default.
+Before starting enabled workers, the application requires an intro and an available published
+default funnel. Marketing dispatch additionally uses `TELEGRAM_DELIVERY_MODE=live`; its production
+transport is otherwise disabled. The release gate is still separate, especially until #29 and
+Platform convergence complete. Defining or publishing a draft never changes this configuration.
+
+Ingress reserves `m_` plus 1–40 base64url characters for marketing sources. The 42-character
+maximum deliberately stays below **every** legacy 43–64-character auth token, including tokens
+starting with `m_`. The narrowed source schema and positive/negative fixtures prevent generating
+an unreachable source. Short `signin_` payloads remain service errors in this branch; #24's
+unmerged adapter owns actual sign-in handling. Marketing does not capture auth or callbacks.
+An unavailable/unknown source gets a durable fallback and a `/start` keyboard button without
+joining a different funnel. A thematic entry enrolls only its own funnel. Update receipts dedupe
+fallback, intro and immediate response intents; deliberate new updates record separate source
+events and repeat only the entry response, preserving the initial enrollment response anchor.
+
+Migration `011-communication-funnels` owns definitions, publications, source/step reservations,
+opaque communication contacts, source events, enrollments, per-part delivery state and shared
+transport slots. Intro has one unique delivery key per contact. Each scheduled step has one key
+per enrollment and stable step ID. The next step is materialized only after the preceding step's
+confirmed terminal completion; its due time is `max(enrolledAt, firstPublishedAt, previousCompletionAt)
++ delay`. A restarted worker reads this state from PostgreSQL. There are no daily caps or quiet
+hours between funnels. A pending initial response must finish before its scheduled steps.
+
+The short claim transaction serializes workers for one bot and commits an `in_flight` part with a
+unique attempt ID **before** external I/O. A stale claim becomes `unknown`, never sendable again
+by lease expiry. Lost transport responses are unknown; confirmed API rejections get bounded
+retries (at most three attempts per part) or a terminal failure. `429 retry_after` defers the bot's
+shared capacity. The result transaction records the exact attempt and completion; a lost database
+acknowledgement cannot turn persisted `sent` into another dispatch. Late evidence for the same
+attempt can settle unknown to sent without erasing the earlier uncertainty. Confirmed parts are
+never retried. Failure/unknown blocks remaining parts and subsequent scheduled steps in that funnel.
+
+The shared PostgreSQL transport reservation allows one private-chat message per second and one
+bot message per 40 ms, with no paid broadcast mode. Service responses have priority before marketing
+claims and use the same slots while marketing is enabled. These conservative intervals follow the
+[Telegram limits](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this).
+Contactability and the persisted marketing preference are reread under row locks before the
+marketing claim; lifecycle is checked under the publication row lock. External calls already
+claimed cannot be cancelled retroactively. Test transport covers all six supported media types.
+
+`funnels.preview/rollback`, `delivery.resolve`, broadcasts, explicit test send, eligibility,
+tracking and statistics remain contract-only and return `501 not_implemented`. #29 owns changes
+and backfill hardening for existing audiences, unstarted snapshot replacement, deletion/cancel,
+operator resolution of unknown, and stop/resume suppression without backlog. The preliminary
+preference column is not a user-facing stop implementation. #28's scheduler is not a marketing
+release. Platform #308 owns the editor; #310 owns complete user acceptance. Eligibility remains
+Platform-owned; tracking's bounded service actor cannot manage communications.
+
+`test/integration/funnels.integration.test.ts` proves author isolation and revision conflicts,
+parallel source entry and intro dedup, relative scheduling, two workers, 429, unknown, shared
+service priority and crash boundaries against real PostgreSQL. `test/unit/grammy-communications.adapter.test.ts`
+covers transport mapping and namespace boundaries; the versioned schema fixtures include a
+positive marketing source and a negative legacy-auth collision. Adapter architecture checks also
+run their existing passing and deliberately failing seam fixtures.
 
 ## Platform author authorization operation
 

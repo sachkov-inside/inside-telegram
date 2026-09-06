@@ -1,3 +1,4 @@
+import { MarketingEntry } from "../communications/marketing-entry.js";
 import { Communications } from "../communications/communications.js";
 import { translateTemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
 import { Inject, Injectable } from "@nestjs/common";
@@ -23,6 +24,7 @@ export class TelegramUpdateProcessor {
     private readonly membershipEvidence: MembershipEvidenceProvider,
     @Inject(Communications)
     private readonly communications: Communications,
+    @Inject(MarketingEntry) private readonly marketing: MarketingEntry,
   ) {}
 
   async processAvailable(limit = 50, now = new Date()): Promise<number> {
@@ -44,7 +46,11 @@ export class TelegramUpdateProcessor {
         if (command.kind === "start") {
           await this.botContacts.observeStart(
             command.value.contact,
-            command.value.linkToken ? "link-receipt" : "welcome",
+            command.value.linkToken
+              ? "link-receipt"
+              : this.marketing.enabled()
+                ? "none"
+                : "welcome",
           );
           if (command.value.linkToken) {
             await this.identityLinking.acceptStart({
@@ -53,6 +59,12 @@ export class TelegramUpdateProcessor {
               observedAt: command.value.contact.observedAt,
               telegramUserId: command.value.contact.telegramUserId,
             });
+          }
+          if (!command.value.linkToken && this.marketing.enabled()) {
+            await this.marketing.enter(
+              command.value.contact,
+              command.value.marketingSource,
+            );
           }
         } else if (command.kind === "contactability") {
           await this.botContacts.observeContactability(command.value);

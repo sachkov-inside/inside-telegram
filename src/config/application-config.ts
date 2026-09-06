@@ -8,6 +8,7 @@ export interface ApplicationConfig {
   readonly canonicalChatId: string;
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
+  readonly marketingEnabled: boolean;
   readonly evidenceDeliveryMode: EvidenceDeliveryMode;
   readonly host: string;
   readonly linkReceiptText: string;
@@ -150,6 +151,10 @@ export function loadApplicationConfig(
     canonicalChatId,
     databaseUrl,
     deliveryMode,
+    marketingEnabled: parseBoolean(
+      environment.TELEGRAM_MARKETING_ENABLED,
+      false,
+    ),
     evidenceDeliveryMode,
     host: environment.HOST ?? "127.0.0.1",
     linkReceiptText: required(environment, "TELEGRAM_LINK_RECEIPT_TEXT"),

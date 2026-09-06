@@ -1,3 +1,9 @@
+import type {
+  FunnelStep,
+  FunnelSource,
+  EntryResponse,
+  MessagePart,
+} from "./funnel-types.js";
 import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 import schema from "./contracts/inside-communications-v1/schema.json" with { type: "json" };
@@ -34,6 +40,17 @@ export interface CommunicationsRequest {
   readonly expectedRevision: number;
   readonly actor: Actor | { readonly serviceRef: "platform-tracking" };
   readonly payload: {
+    readonly funnelId?: string;
+    readonly contactId?: string;
+    readonly cursor?: string;
+    readonly name?: string;
+    readonly isDefault?: boolean;
+    readonly steps?: readonly FunnelStep[];
+    readonly sources?: readonly FunnelSource[];
+    readonly entryResponse?: EntryResponse;
+    readonly introId?: string;
+    readonly parts?: readonly MessagePart[];
+    readonly action?: "pause" | "resume" | "archive" | "restore";
     readonly templateId?: string;
     readonly content?: TemplateContent;
   };

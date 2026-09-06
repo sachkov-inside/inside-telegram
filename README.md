@@ -25,7 +25,11 @@ It also provides versioned contracts for the later communications operations. Pl
 permission authority; author checks fail closed until its authorization endpoint is configured.
 See [`docs/integrations/communications-v1.md`](docs/integrations/communications-v1.md) for the
 wire contract, fixtures, media validation and the limits of this enabling delivery. The editor,
-marketing scheduler, broadcasts and production activation belong to subsequent tickets.
+broadcasts and production activation belong to subsequent tickets. The funnel slice now supplies
+draft/publish, source routing, one common intro and durable multipart scheduling.
+`TELEGRAM_MARKETING_ENABLED=false` remains the default. No real funnels or authored copy are
+seeded: the current product direction is one owner-authored common funnel; multiple scenarios
+exist only in synthetic tests.
 
 ## Ordinary `/start` runtime
 
