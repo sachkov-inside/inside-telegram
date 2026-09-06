@@ -25,8 +25,8 @@ Platform и проверки сохранения существующего Acc
 Membership/linking не подходит. HTTP body не должен попадать в access/error logs
 или трассировку прокси. Ответы нельзя кэшировать.
 
-1. Доверенный клиент генерирует независимые случайные `startToken` и
-   `browserSecret`: по 32 байта, base64url без padding. Browser secret остаётся
+1. Доверенный клиент генерирует независимые случайные `startToken` (26 байт,
+   208 бит) и `browserSecret` (32 байта): base64url без padding. Browser secret остаётся
    в защищённом состоянии исходной browser/Logto transaction; его нельзя помещать
    в deep link, callback button или публичный URL.
 2. `POST /integrations/identity/v1/sign-in` получает ровно `contractVersion`,
@@ -37,7 +37,9 @@ Membership/linking не подходит. HTTP body не должен попад
    Повтор с теми же параметрами идемпотентен. Изменить привязку браузера нельзя.
 3. Клиент открывает `https://t.me/<bot_username>?start=signin_<startToken>`.
    Ingress заменяет аргумент `/start` на digest до сохранения inbox. Префикс
-   отделяет вход от существующего связывания authenticated Account.
+   вместе с длиной payload 42 символа отделяет вход от существующего связывания
+   authenticated Account: старый контракт допускает 43–64 символа, и его токены
+   сохраняют смысл, даже если случайно начинаются с `signin_`.
 4. Первый private human `/start` закрепляет кандидата и атомарно планирует
    единственное сообщение с кнопками «Подтвердить вход» и «Это не я».
    Повторная доставка update или пересылка ссылки другому пользователю не

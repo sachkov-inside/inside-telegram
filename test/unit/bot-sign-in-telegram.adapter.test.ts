@@ -12,8 +12,9 @@ describe("Telegram sign-in transport", () => {
   it("cancels a stuck cosmetic callback so the caller can process the next update", async () => {
     let aborted = false;
     const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
-      answerCallbackQuery(_id, _options, signal) {
+      fetch(_url: unknown, options?: { signal?: AbortSignal }) {
         return new Promise((_resolve, reject) => {
+          const signal = options?.signal;
           if (!signal) throw new Error("Expected bounded callback signal");
           signal.addEventListener(
             "abort",
@@ -69,6 +70,25 @@ describe("Telegram sign-in transport", () => {
     expect(JSON.stringify(payload)).not.toContain("signin_short");
   });
 
+  it("preserves legacy linking tokens even when they begin with signin_", () => {
+    const token = `signin_${"a".repeat(36)}`;
+    const payload = prepareTelegramUpdateForInbox(
+      privateStartUpdate(1, 42, { text: `/start ${token}` }),
+    );
+    const command = new GrammyUpdateAdapter().translate(
+      "inside",
+      "1",
+      payload,
+      new Date(),
+    );
+    expect(command).toMatchObject({
+      kind: "start",
+      value: { linkToken: { kind: "digest" } },
+    });
+    if (command.kind !== "start") throw new Error("Expected start");
+    expect(command.value.signInToken).toBeUndefined();
+  });
+
   it("maps confirmation buttons to inline Telegram callback data", async () => {
     let received: unknown;
     const adapter = new GrammyMessagesAdapter("synthetic", {
@@ -93,7 +113,7 @@ describe("Telegram sign-in transport", () => {
 
   it("does not undo a durable decision when callback acknowledgement expires", async () => {
     const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
-      async answerCallbackQuery() {
+      async fetch() {
         throw new Error("Expired synthetic callback");
       },
     });

@@ -458,7 +458,7 @@ describe("bot sign-in provider", () => {
 });
 
 function newChallenge() {
-  const startToken = randomBytes(32).toString("base64url");
+  const startToken = randomBytes(26).toString("base64url");
   const browserSecret = randomBytes(32).toString("base64url");
   const requestRef = randomUUID();
   return {

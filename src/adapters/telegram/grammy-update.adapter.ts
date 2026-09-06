@@ -56,10 +56,13 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
     return { ...payload, message };
   }
 
-  const signIn = start.argument.startsWith("signin_");
+  // Legacy linking accepts every base64url payload of 43–64 characters, including this prefix.
+  // Reserve a shorter namespace so existing valid link tokens keep their exact meaning.
+  const signIn =
+    start.argument.startsWith("signin_") && start.argument.length < 43;
   const argument = signIn ? start.argument.slice(7) : start.argument;
   const valid = signIn
-    ? /^[A-Za-z0-9_-]{43}$/.test(argument)
+    ? /^[A-Za-z0-9_-]{35}$/.test(argument)
     : /^[A-Za-z0-9_-]{43,64}$/.test(argument);
   const linkToken = valid
     ? {
