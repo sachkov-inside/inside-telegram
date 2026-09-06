@@ -1,3 +1,5 @@
+import { communicationLock } from "../communications/communication-state.js";
+import { updateMarketingAvailability } from "../communications/marketing-preferences.js";
 import { sql } from "kysely";
 import { Inject, Injectable } from "@nestjs/common";
 
@@ -47,6 +49,10 @@ export class BotContacts {
     responseKind: StartResponseKind = "welcome",
   ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
+      await communicationLock(
+        transaction,
+        `communications-scheduler:${this.config.botIdentity}`,
+      );
       await sql`select pg_advisory_xact_lock(hashtextextended(${`bot-contact:${start.botIdentity}:${start.telegramUserId}`}, 0))`.execute(
         transaction,
       );
@@ -58,6 +64,13 @@ export class BotContacts {
         .forUpdate()
         .executeTakeFirst();
 
+      await updateMarketingAvailability(
+        transaction,
+        start.botIdentity,
+        start.telegramUserId,
+        start.observedAt,
+        true,
+      );
       let contact: ContactOutcome["contact"];
       if (!existing) {
         await transaction
@@ -140,6 +153,17 @@ export class BotContacts {
     observation: VerifiedPrivateContactability,
   ): Promise<boolean> {
     return this.database.transaction().execute(async (transaction) => {
+      await communicationLock(
+        transaction,
+        `communications-scheduler:${this.config.botIdentity}`,
+      );
+      await updateMarketingAvailability(
+        transaction,
+        observation.botIdentity,
+        observation.telegramUserId,
+        observation.observedAt,
+        observation.contactability === "reachable",
+      );
       const contact = await transaction
         .updateTable("bot_contacts")
         .set({

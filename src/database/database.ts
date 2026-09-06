@@ -318,6 +318,18 @@ export interface DatabaseSchema {
     bot_identity: string;
     telegram_user_id: BigIntColumn;
     marketing_enabled: boolean;
+    unavailable_since: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
+  };
+  communication_preferences: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+    contact_id: string;
+    enabled: boolean;
+    observed_at: Timestamp;
   };
   communication_enrollments: {
     enrollment_id: string;

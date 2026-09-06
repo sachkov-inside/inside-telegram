@@ -1,7 +1,8 @@
-import { randomUUID } from "node:crypto";
+import { reconcileFunnels, terminal, deliveryView } from "./funnel-timeline.js";
+import { communicationLock } from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
-import { sql, type Transaction } from "kysely";
+import type { Transaction } from "kysely";
 import {
   DATABASE,
   type Database,
@@ -30,18 +31,15 @@ import type {
   DeliverySnapshot,
 } from "./funnel-types.js";
 
-export async function communicationLock(
-  tx: Transaction<DatabaseSchema>,
-  key: string,
-): Promise<void> {
-  await sql`select pg_advisory_xact_lock(hashtextextended(${key}, 0))`.execute(
-    tx,
-  );
-}
 export type FunnelResult =
   | { funnel: FunnelSnapshot }
   | { funnels: FunnelSnapshot[]; nextCursor: string | null }
   | { intro: IntroSnapshot }
+  | {
+      deliveryId: string;
+      partId: string;
+      outcome: "skipped" | "retry_requested";
+    }
   | { deliveries: DeliverySnapshot[]; nextCursor: string | null };
 
 @Injectable()
@@ -87,6 +85,10 @@ export class Funnels {
       await communicationLock(
         tx,
         `communications-definitions:${this.config.botIdentity}`,
+      );
+      await communicationLock(
+        tx,
+        `communications-scheduler:${this.config.botIdentity}`,
       );
       const result = await this.apply(tx, request, actor);
       if (
@@ -204,24 +206,76 @@ export class Funnels {
         );
       const rows = await query.orderBy("d.delivery_id").limit(101).execute();
       return {
-        deliveries: rows.slice(0, 100).map((r) => ({
-          deliveryId: r.delivery_id,
-          revision: r.revision,
-          contactId: r.contact_id,
-          funnelId: r.funnel_id,
-          broadcastId: null,
-          stepId: r.step_id,
-          publishedRevision: r.published_revision,
-          snapshot: r.snapshot as MessagePart[],
-          parts: r.parts as DeliveryPart[],
-          cancelRequested: r.cancel_requested,
-          completedAt: r.completed_at?.toISOString() ?? null,
-        })),
+        deliveries: rows.slice(0, 100).map(deliveryView),
         nextCursor: rows.length > 100 ? rows[99]!.delivery_id : null,
+      };
+    }
+    if (operation === "delivery.resolve") {
+      const row = await tx
+        .selectFrom("communication_deliveries as d")
+        .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
+        .leftJoin(
+          "communication_intro as i",
+          "i.bot_identity",
+          "d.bot_identity",
+        )
+        .selectAll("d")
+        .where("d.delivery_id", "=", payload.deliveryId!)
+        .where("d.bot_identity", "=", bot)
+        .where((eb) =>
+          eb.or([
+            eb("f.owner_account_ref", "=", actor),
+            eb.and([
+              eb("d.funnel_id", "is", null),
+              eb("i.owner_account_ref", "=", actor),
+            ]),
+          ]),
+        )
+        .executeTakeFirst();
+      if (!row) throw new CommunicationsError("not_found");
+      if (row.revision !== expectedRevision || row.completed_at)
+        throw new CommunicationsError("revision_conflict");
+      const parts = row.parts as DeliveryPart[];
+      const part = parts.find((p) => p.partId === payload.partId);
+      if (!part || !["unknown", "failed"].includes(part.state))
+        throw new CommunicationsError("revision_conflict");
+      if (payload.action === "retry") {
+        if (
+          row.cancel_requested ||
+          part.attempts.length >= 90 ||
+          (part.state === "unknown" && !payload.duplicateRiskAccepted)
+        )
+          throw new CommunicationsError("revision_conflict");
+        part.state = "pending";
+        part.diagnosticCode = payload.duplicateRiskAccepted
+          ? "explicit_retry_duplicate_risk"
+          : "explicit_retry";
+      } else {
+        part.state = "skipped";
+        part.diagnosticCode = "operator_skip";
+      }
+      const updated = await tx
+        .updateTable("communication_deliveries")
+        .set({
+          parts: JSON.stringify(parts),
+          revision: row.revision + 1,
+          completed_at: terminal(parts) ? this.clock.now() : null,
+          due_at: this.clock.now(),
+          attempt_id: null,
+          locked_at: null,
+        })
+        .where("delivery_id", "=", row.delivery_id)
+        .returningAll()
+        .executeTakeFirstOrThrow();
+      return {
+        deliveryId: updated.delivery_id,
+        partId: part.partId,
+        outcome: payload.action === "retry" ? "retry_requested" : "skipped",
       };
     }
     if (
       ![
+        "funnels.rollback",
         "funnels.save",
         "funnels.read",
         "funnels.publish",
@@ -334,7 +388,7 @@ export class Funnels {
           archive: "archived",
           restore: "paused",
         } as const
-      )[payload.action!];
+      )[payload.action as "pause" | "resume" | "archive" | "restore"];
       if (!existing.published || !lifecycle)
         throw new CommunicationsError("revision_conflict");
       await tx
@@ -350,7 +404,18 @@ export class Funnels {
         },
       };
     }
-    const draft = existing.draft as FunnelDraft;
+    let draft = existing.draft as FunnelDraft;
+    const rollback = operation === "funnels.rollback";
+    if (rollback) {
+      const publication = await tx
+        .selectFrom("communication_publications")
+        .select("snapshot")
+        .where("funnel_id", "=", existing.funnel_id)
+        .where("revision", "=", payload.publishedRevision!)
+        .executeTakeFirst();
+      if (!publication) throw new CommunicationsError("not_found");
+      draft = publication.snapshot as FunnelDraft;
+    }
     const previous = existing.published as FunnelDraft | null;
     const intro = await tx
       .selectFrom("communication_intro")
@@ -379,6 +444,7 @@ export class Funnels {
         .executeTakeFirst();
       if (
         saved &&
+        !rollback &&
         previous &&
         ![previous.entryResponse, ...previous.steps].some(
           (s) => s.stepId === step.stepId,
@@ -439,11 +505,51 @@ export class Funnels {
         revision,
         published_revision: revision,
         published: JSON.stringify(draft),
+        ...(rollback ? { draft: JSON.stringify(draft) } : {}),
         lifecycle: "published",
         is_default: draft.isDefault,
       })
       .where("funnel_id", "=", draft.funnelId)
       .execute();
+    if (rollback) {
+      // Only never-attempted deletion cancellations can return. Sent, skipped and
+      // subscriber suppression remain durable markers across every revision.
+      const cancelled = await tx
+        .selectFrom("communication_deliveries")
+        .selectAll()
+        .where("funnel_id", "=", draft.funnelId)
+        .where("cancel_requested", "=", true)
+        .execute();
+      for (const delivery of cancelled) {
+        const parts = delivery.parts as DeliveryPart[];
+        if (
+          draft.steps.some((s) => s.stepId === delivery.step_id) &&
+          parts.every(
+            (p) =>
+              p.state === "cancelled" &&
+              p.diagnosticCode === "step_deleted" &&
+              p.attempts.length === 0,
+          )
+        )
+          await tx
+            .updateTable("communication_deliveries")
+            .set({
+              completed_at: null,
+              cancel_requested: false,
+              parts: JSON.stringify(
+                parts.map((p) => ({
+                  ...p,
+                  state: "pending",
+                  diagnosticCode: null,
+                })),
+              ),
+              revision: delivery.revision + 1,
+            })
+            .where("delivery_id", "=", delivery.delivery_id)
+            .execute();
+      }
+    }
+    await reconcileFunnels(tx, bot, now);
     return {
       funnel: {
         ...draft,
@@ -483,51 +589,4 @@ function requireCursor(cursor: string): string {
   )
     throw new CommunicationsError("malformed");
   return cursor;
-}
-
-export async function planDelivery(
-  tx: Transaction<DatabaseSchema>,
-  input: {
-    bot: string;
-    contactId: string;
-    funnelId?: string;
-    stepId?: string;
-    kind: "intro" | "entry" | "step" | "fallback";
-    key: string;
-    parts: readonly MessagePart[];
-    revision: number;
-    dueAt: Date;
-    now: Date;
-  },
-): Promise<void> {
-  await tx
-    .insertInto("communication_deliveries")
-    .values({
-      delivery_id: randomUUID(),
-      dedup_key: input.key,
-      bot_identity: input.bot,
-      contact_id: input.contactId,
-      funnel_id: input.funnelId ?? null,
-      step_id: input.stepId ?? null,
-      kind: input.kind,
-      published_revision: input.revision,
-      snapshot: JSON.stringify(input.parts),
-      parts: JSON.stringify(
-        input.parts.map((p) => ({
-          partId: p.partId,
-          state: "pending",
-          diagnosticCode: null,
-          attempts: [],
-        })),
-      ),
-      revision: 1,
-      due_at: input.dueAt,
-      created_at: input.now,
-      completed_at: null,
-      cancel_requested: false,
-      attempt_id: null,
-      locked_at: null,
-    })
-    .onConflict((c) => c.column("dedup_key").doNothing())
-    .execute();
 }

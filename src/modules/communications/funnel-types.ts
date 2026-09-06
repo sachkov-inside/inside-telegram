@@ -42,7 +42,15 @@ export interface PartAttempt {
 }
 export interface DeliveryPart {
   readonly partId: string;
-  state: "pending" | "in_flight" | "sent" | "failed" | "unknown";
+  state:
+    | "pending"
+    | "in_flight"
+    | "sent"
+    | "failed"
+    | "unknown"
+    | "cancelled"
+    | "skipped"
+    | "suppressed";
   diagnosticCode: string | null;
   attempts: PartAttempt[];
 }

@@ -51,7 +51,13 @@ export class TelegramUpdateProcessor {
           update.receivedAt,
         );
 
-        if (command.kind === "start") {
+        if (command.kind === "marketing_preference") {
+          await this.botContacts.observeStart(command.value.contact, "none");
+          await this.marketing.setPreference(
+            command.value.contact,
+            command.value.enabled,
+          );
+        } else if (command.kind === "start") {
           await this.botContacts.observeStart(
             command.value.contact,
             command.value.signInToken

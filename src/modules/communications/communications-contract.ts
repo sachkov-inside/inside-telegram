@@ -42,6 +42,9 @@ export interface CommunicationsRequest {
   readonly payload: {
     readonly funnelId?: string;
     readonly deliveryId?: string;
+    readonly partId?: string;
+    readonly publishedRevision?: number;
+    readonly duplicateRiskAccepted?: boolean;
     readonly broadcastId?: string;
     readonly cursor?: string;
     readonly name?: string;
@@ -51,7 +54,8 @@ export interface CommunicationsRequest {
     readonly entryResponse?: EntryResponse;
     readonly introId?: string;
     readonly parts?: readonly MessagePart[];
-    readonly action?: "pause" | "resume" | "archive" | "restore";
+    readonly action?:
+      "pause" | "resume" | "archive" | "restore" | "skip" | "retry";
     readonly templateId?: string;
     readonly content?: TemplateContent;
   };

@@ -1,11 +1,8 @@
+export { relativeDue } from "./funnel-timeline.js";
+import { reconcileFunnels, terminal, started } from "./funnel-timeline.js";
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import type { Transaction } from "kysely";
-import {
-  DATABASE,
-  type Database,
-  type DatabaseSchema,
-} from "../../database/database.js";
+import { DATABASE, type Database } from "../../database/database.js";
 import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
@@ -20,23 +17,8 @@ import {
   COMMUNICATION_TRANSPORT,
   type CommunicationTransport,
 } from "./communication-delivery.js";
-import { communicationLock, planDelivery } from "./funnels.js";
+import { communicationLock } from "./communication-state.js";
 import type { FunnelDraft, MessagePart, DeliveryPart } from "./funnel-types.js";
-export function relativeDue(
-  enrolled: Date,
-  firstPublished: Date,
-  previousCompletion: Date,
-  delaySeconds: number,
-): Date {
-  return new Date(
-    Math.max(
-      enrolled.getTime(),
-      firstPublished.getTime(),
-      previousCompletion.getTime(),
-    ) +
-      delaySeconds * 1000,
-  );
-}
 @Injectable()
 export class FunnelScheduler {
   constructor(
@@ -89,67 +71,6 @@ export class FunnelScheduler {
     }
     return processed;
   }
-  private async materialize(
-    tx: Transaction<DatabaseSchema>,
-    now: Date,
-  ): Promise<void> {
-    const enrollments = await tx
-      .selectFrom("communication_enrollments as e")
-      .innerJoin("communication_funnels as f", "f.funnel_id", "e.funnel_id")
-      .selectAll("e")
-      .select(["f.published", "f.published_revision"])
-      .where("f.bot_identity", "=", this.config.botIdentity)
-      .where("f.lifecycle", "=", "published")
-      .execute();
-    for (const enrollment of enrollments) {
-      const draft = enrollment.published as FunnelDraft;
-      const history = await tx
-        .selectFrom("communication_deliveries")
-        .selectAll()
-        .where("contact_id", "=", enrollment.contact_id)
-        .where("funnel_id", "=", enrollment.funnel_id)
-        .execute();
-      const initial = history.find(
-        (d) => d.dedup_key === enrollment.initial_entry_key,
-      );
-      if (!initial?.completed_at) continue;
-      let previous = initial.completed_at;
-      for (const step of draft.steps) {
-        const delivery = history.find(
-          (d) => d.kind === "step" && d.step_id === step.stepId,
-        );
-        if (delivery) {
-          if (!delivery.completed_at) break;
-          previous = delivery.completed_at;
-          continue;
-        }
-        const definition = await tx
-          .selectFrom("communication_step_ids")
-          .select("first_published_at")
-          .where("funnel_id", "=", draft.funnelId)
-          .where("step_id", "=", step.stepId)
-          .executeTakeFirstOrThrow();
-        await planDelivery(tx, {
-          bot: this.config.botIdentity,
-          contactId: enrollment.contact_id,
-          funnelId: draft.funnelId,
-          stepId: step.stepId,
-          kind: "step",
-          key: `step:${enrollment.enrollment_id}:${step.stepId}`,
-          parts: step.parts,
-          revision: enrollment.published_revision!,
-          now,
-          dueAt: relativeDue(
-            enrollment.enrolled_at,
-            definition.first_published_at,
-            previous,
-            step.delaySeconds,
-          ),
-        });
-        break;
-      }
-    }
-  }
   private async claim() {
     return this.database.transaction().execute(async (tx) => {
       await communicationLock(
@@ -186,7 +107,7 @@ export class FunnelScheduler {
           .where("delivery_id", "=", delivery.delivery_id)
           .execute();
       }
-      await this.materialize(tx, now);
+      await reconcileFunnels(tx, this.config.botIdentity, now);
       // A marketing backlog must never reserve capacity ahead of a ready service response.
       const service = await tx
         .selectFrom("start_response_deliveries")
@@ -209,12 +130,17 @@ export class FunnelScheduler {
             .onRef("b.telegram_user_id", "=", "c.telegram_user_id"),
         )
         .selectAll("d")
-        .select("b.private_chat_id")
+        .select(["b.private_chat_id", "c.marketing_enabled"])
         .where("d.bot_identity", "=", this.config.botIdentity)
         .where("d.completed_at", "is", null)
         .where("d.due_at", "<=", now)
         .where("d.cancel_requested", "=", false)
-        .where("c.marketing_enabled", "=", true)
+        .where((eb) =>
+          eb.or([
+            eb("c.marketing_enabled", "=", true),
+            eb("d.kind", "in", ["entry", "fallback"]),
+          ]),
+        )
         .where("b.contactability", "=", "reachable")
         .orderBy("d.due_at")
         .orderBy("d.created_at")
@@ -222,7 +148,10 @@ export class FunnelScheduler {
         .execute();
       for (const delivery of candidates) {
         const parts = delivery.parts as DeliveryPart[];
-        const part = parts.find((p) => p.state !== "sent");
+        const part = parts.find(
+          (p) =>
+            !["sent", "skipped", "cancelled", "suppressed"].includes(p.state),
+        );
         if (!part || part.state !== "pending") continue;
         if (delivery.funnel_id) {
           const funnel = await tx
@@ -232,12 +161,37 @@ export class FunnelScheduler {
             .forShare()
             .executeTakeFirstOrThrow();
           if (funnel.lifecycle !== "published") continue;
+          if (delivery.kind === "step" && !started(delivery)) {
+            const draft = funnel.published as FunnelDraft;
+            const history = await tx
+              .selectFrom("communication_deliveries")
+              .selectAll()
+              .where("contact_id", "=", delivery.contact_id)
+              .where("funnel_id", "=", delivery.funnel_id)
+              .execute();
+            if (
+              history.some(
+                (d) => d.kind === "step" && !d.completed_at && started(d),
+              )
+            )
+              continue;
+            const next = draft.steps.find(
+              (s) =>
+                !history.some(
+                  (d) =>
+                    d.kind === "step" &&
+                    d.step_id === s.stepId &&
+                    d.completed_at,
+                ),
+            );
+            if (next?.stepId !== delivery.step_id) continue;
+          }
           const intro = await tx
             .selectFrom("communication_deliveries")
             .select("completed_at")
             .where("dedup_key", "=", `intro:${delivery.contact_id}`)
             .executeTakeFirst();
-          if (!intro?.completed_at) continue;
+          if (delivery.marketing_enabled && !intro?.completed_at) continue;
         }
         // Re-read under shared row locks; stop/block updates serialize with the dispatch intent.
         const eligibility = await tx
@@ -252,7 +206,8 @@ export class FunnelScheduler {
           .forShare(["c", "b"])
           .executeTakeFirstOrThrow();
         if (
-          !eligibility.marketing_enabled ||
+          (!eligibility.marketing_enabled &&
+            !["entry", "fallback"].includes(delivery.kind)) ||
           eligibility.contactability !== "reachable"
         )
           continue;
@@ -265,6 +220,7 @@ export class FunnelScheduler {
           ))
         )
           continue;
+        if (part.attempts.length >= 90) continue;
         const attemptId = randomUUID();
         part.state = "in_flight";
         await tx
@@ -334,7 +290,8 @@ export class FunnelScheduler {
                 ? "retryable"
                 : "unknown",
         diagnosticCode: code,
-        duplicateRiskAccepted: false,
+        duplicateRiskAccepted:
+          part.diagnosticCode === "explicit_retry_duplicate_risk",
       });
       part.diagnosticCode = code;
       part.state =
@@ -345,6 +302,13 @@ export class FunnelScheduler {
             : result.kind === "api_retryable" && part.attempts.length < 3
               ? "pending"
               : "failed";
+      if (
+        delivery.cancel_requested &&
+        ["pending", "failed"].includes(part.state)
+      ) {
+        part.state = "cancelled";
+        part.diagnosticCode = "cancel_requested";
+      }
       const due =
         result.kind === "api_retryable"
           ? new Date(
@@ -360,8 +324,8 @@ export class FunnelScheduler {
           revision: delivery.revision + 1,
           due_at: due,
           locked_at: null,
-          attempt_id: null,
-          completed_at: parts.every((p) => p.state === "sent") ? now : null,
+          attempt_id: part.state === "unknown" ? attemptId : null,
+          completed_at: terminal(parts) ? now : null,
         })
         .where("delivery_id", "=", deliveryId)
         .execute();

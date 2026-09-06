@@ -17,6 +17,13 @@ export type TelegramUpdateCommand =
       readonly callbackQueryId: string;
     }
   | {
+      readonly kind: "marketing_preference";
+      readonly value: {
+        readonly contact: VerifiedPrivateStart;
+        readonly enabled: boolean;
+      };
+    }
+  | {
       readonly kind: "contactability";
       readonly value: VerifiedPrivateContactability;
     }
@@ -117,6 +124,25 @@ export class GrammyUpdateAdapter {
         value: decision,
         callbackQueryId: update.callback_query.id,
       };
+    const preference = /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/.exec(
+      update.message?.text?.trim() ?? "",
+    );
+    if (preference) {
+      const privateCommand = this.privateStart(
+        botIdentity,
+        updateId,
+        { ...update, message: { ...update.message!, text: "/start" } },
+        observedAt,
+      );
+      if (privateCommand)
+        return {
+          kind: "marketing_preference",
+          value: {
+            contact: privateCommand.contact,
+            enabled: preference[1] === "/resume",
+          },
+        };
+    }
     const start = this.privateStart(botIdentity, updateId, update, observedAt);
     if (start) {
       return { kind: "start", value: start };
