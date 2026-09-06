@@ -20,6 +20,7 @@ export interface ApplicationConfig {
   readonly platformEvidenceDeliverySecret?: string;
   readonly platformEvidenceDeliveryUrl?: string;
   readonly platformAuthorAuthorizationUrl?: string;
+  readonly platformAuthorContentValidationUrl?: string;
   readonly platformAuthorAuthorizationSecret?: string;
   readonly platformIntegrationSecret: string;
   readonly platformTrackingRedirectUrl?: string;
@@ -164,6 +165,31 @@ export function loadApplicationConfig(
       );
   }
 
+  const platformAuthorContentValidationUrl =
+    environment.PLATFORM_AUTHOR_CONTENT_VALIDATION_URL;
+  if (platformAuthorContentValidationUrl) {
+    if (!platformAuthorAuthorizationUrl || !platformAuthorAuthorizationSecret)
+      throw new Error(
+        "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL requires author authorization configuration",
+      );
+    assertHttpUrl(
+      platformAuthorContentValidationUrl,
+      "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL",
+    );
+    const url = new URL(platformAuthorContentValidationUrl);
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    )
+      throw new Error(
+        "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
+      );
+  }
+
   let platformTrackingRedirectUrl = environment.PLATFORM_TRACKING_REDIRECT_URL;
   let platformTrackingTargetPrefixes: string[] | undefined;
   if (
@@ -229,6 +255,9 @@ export function loadApplicationConfig(
   return Object.freeze({
     ...(platformTrackingRedirectUrl
       ? { platformTrackingRedirectUrl, platformTrackingTargetPrefixes }
+      : {}),
+    ...(platformAuthorContentValidationUrl
+      ? { platformAuthorContentValidationUrl }
       : {}),
     ...(platformAuthorAuthorizationUrl
       ? { platformAuthorAuthorizationUrl, platformAuthorAuthorizationSecret }

@@ -16,6 +16,44 @@ const validEnvironment = {
 };
 
 describe("application configuration", () => {
+  it("keeps content validation disabled until a secure authenticated endpoint is configured", () => {
+    expect(
+      loadApplicationConfig(validEnvironment)
+        .platformAuthorContentValidationUrl,
+    ).toBeUndefined();
+    const authorization = {
+      ...validEnvironment,
+      PLATFORM_AUTHOR_AUTHORIZATION_URL: "https://platform.test/authorize",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic-authorization-secret",
+    };
+    const url =
+      "https://platform.test/integrations/telegram/v1/communications/validate-content";
+    expect(
+      loadApplicationConfig({
+        ...authorization,
+        PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: url,
+      }).platformAuthorContentValidationUrl,
+    ).toBe(url);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: url,
+      }),
+    ).toThrow("requires author authorization");
+    for (const bad of [
+      "http://platform.test/validate",
+      "https://user:password@platform.test/validate",
+      "https://platform.test/validate?token=secret",
+      "https://platform.test/validate#fragment",
+    ])
+      expect(() =>
+        loadApplicationConfig({
+          ...authorization,
+          PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: bad,
+        }),
+      ).toThrow("PLATFORM_AUTHOR_CONTENT_VALIDATION_URL");
+  });
+
   it("keeps external delivery disabled by default", () => {
     const config = loadApplicationConfig(validEnvironment);
 

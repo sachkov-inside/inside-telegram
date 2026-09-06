@@ -1,3 +1,8 @@
+import {
+  AUTHOR_CONTENT_VALIDATION,
+  DisabledAuthorContentValidation,
+} from "./modules/communications/author-content-validation.js";
+import { HttpAuthorContentValidationAdapter } from "./adapters/platform/http-author-content-validation.adapter.js";
 import { CommunicationTracking } from "./modules/communications/communication-tracking.js";
 import { Api } from "grammy";
 import { Funnels } from "./modules/communications/funnels.js";
@@ -178,6 +183,17 @@ export class AppModule {
                   config.platformAuthorAuthorizationSecret,
                 )
               : new DisabledAuthorAuthorization(),
+        },
+        {
+          provide: AUTHOR_CONTENT_VALIDATION,
+          useFactory: () =>
+            config.platformAuthorContentValidationUrl &&
+            config.platformAuthorAuthorizationSecret
+              ? new HttpAuthorContentValidationAdapter(
+                  config.platformAuthorContentValidationUrl,
+                  config.platformAuthorAuthorizationSecret,
+                )
+              : new DisabledAuthorContentValidation(),
         },
         BackgroundWorkers,
         BotContacts,
