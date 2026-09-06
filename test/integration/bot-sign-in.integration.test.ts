@@ -431,7 +431,11 @@ describe("bot sign-in provider", () => {
       config,
     );
     expect(await delivery.processAvailable()).toBe(1);
-    expect(messages[0]?.text).toContain(challenge.confirmationCode);
+    expect(messages[0]?.text).toBe("Вы входите в Sachkov Inside?");
+    expect(messages[0]?.buttons?.map((button) => button.text)).toEqual([
+      "Это я",
+      "Это не я",
+    ]);
     expect(messages[0]?.buttons?.map((button) => button.callbackData)).toEqual([
       `signin:approve:${challenge.requestRef}`,
       `signin:deny:${challenge.requestRef}`,

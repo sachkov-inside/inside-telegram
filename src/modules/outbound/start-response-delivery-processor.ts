@@ -41,7 +41,7 @@ export class StartResponseDeliveryProcessor {
           ? {
               buttons: [
                 {
-                  text: "Подтвердить вход",
+                  text: "Это я",
                   callbackData: `signin:approve:${delivery.signInRequestRef}`,
                 },
                 {

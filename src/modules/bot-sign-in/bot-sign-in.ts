@@ -158,7 +158,7 @@ export class BotSignIn {
           delivered_at: null,
           diagnostic_code: null,
           locked_at: null,
-          message_text: `Вход в Sachkov Inside. Код запроса: ${request.confirmation_code}.\n\nСравните код с исходной вкладкой сайта. Подтверждайте только вход, который вы начали сами. Не подтверждайте запрос по чужой ссылке. После подтверждения вернитесь в исходную вкладку.`,
+          message_text: "Вы входите в Sachkov Inside?",
           private_chat_id: contact.privateChatId,
           source_key: `sign-in:${request.request_ref}`,
           state: "pending",
