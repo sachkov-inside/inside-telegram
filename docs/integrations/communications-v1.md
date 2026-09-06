@@ -72,8 +72,9 @@ Platform convergence completes. Defining or publishing a draft never changes thi
 Ingress reserves `m_` plus 1–40 base64url characters for marketing sources. The 42-character
 maximum deliberately stays below **every** legacy 43–64-character auth token, including tokens
 starting with `m_`. The narrowed source schema and positive/negative fixtures prevent generating
-an unreachable source. Short `signin_` payloads remain service errors in this branch; #24's
-unmerged adapter owns actual sign-in handling. Marketing does not capture auth or callbacks.
+an unreachable source. The merged #24 adapter handles `signin_` plus 35 base64url characters
+and private confirmation callbacks. Malformed short sign-in payloads stay in that service lane.
+Marketing and preference commands do not capture auth or sign-in callbacks.
 An unavailable/unknown source gets a durable fallback and a `/start` keyboard button without
 joining a different funnel. A thematic entry enrolls only its own funnel. Update receipts dedupe
 fallback, intro and immediate response intents; deliberate new updates record separate source
@@ -203,9 +204,10 @@ validation never truncates text or silently drops an entity. These constraints u
 ## Persistence and verification
 
 Migration `010-communications-templates` adds templates, author modes, operation results and intake
-receipts. Names 008/009 belong to the currently separate bot-sign-in PR #25; whichever change lands
-second must reconcile migration order against deployed state before release. Do not install an
-older missing migration behind an already applied migration.
+receipts. The merged sign-in sequence owns `008-bot-sign-in`, `009-sign-in-reservation` and
+`010-sign-in-message-result`. The migrator preserves the two supported historical deployment
+orders through its explicit communications compatibility exception. Migration-history tests cover
+both orders and reject missing dependencies; `012-marketing-preferences` follows the merged history.
 
 Transaction-scoped PostgreSQL advisory locks serialize each author and template/operation. The
 confirmed identity link is held against transfer during intake authorization and save. A unique
@@ -225,11 +227,11 @@ HTTP provider, PostgreSQL concurrency, rollback faults, lost acknowledgement rep
 snapshot and a fake Telegram transport. The existing adapter guardrail and negative fixture cover
 the transport/persistence boundary in `pnpm check:full`.
 
-The main baseline for this ticket is `04b572ad748423e193d918c1ceec552c3985bc84`. PR #25's sign-in
-namespace (`signin_` plus 35 base64url characters, below the legacy 43–64-character range) was
-inspected for compatibility: the new intake hook runs only after the existing router returns
-ignored, never captures `/start`, and never processes callbacks. This is routing regression
-coverage, not a claim that the unmerged sign-in implementation ran in this branch.
+The #29 review base is `fc4bdbead4b578763acd7778afa9e7686dabf17c`, including merged PR #25.
+Full repository verification runs the actual combined sign-in, identity, Membership and
+communications implementations with fake transports and real PostgreSQL. The author intake hook
+runs only after the router returns ignored; `/stop` and `/resume` accept explicit private human
+commands, while sign-in callbacks and legacy link tokens keep their existing handlers.
 
 No real author permission endpoint, Platform editor, credentialed Telegram message, marketing
 release or production enablement is proven here. Platform #307 supplies authorization, #308 the
