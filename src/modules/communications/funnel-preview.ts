@@ -49,16 +49,20 @@ export async function previewFunnel(
     .execute();
   const history = await tx
     .selectFrom("communication_deliveries")
-    .select(["contact_id", "step_id", "completed_at", "dedup_key"])
+    .select(["contact_id", "step_id", "completed_at", "dedup_key", "kind"])
     .where("bot_identity", "=", bot)
     .where("funnel_id", "=", draft.funnelId)
     .execute();
+  const historyByContact = new Map<string, typeof history>();
+  for (const delivery of history) {
+    const contactHistory = historyByContact.get(delivery.contact_id) ?? [];
+    contactHistory.push(delivery);
+    historyByContact.set(delivery.contact_id, contactHistory);
+  }
   let eligibleContacts = 0;
   let completedParticipantsReceivingNewSteps = 0;
   for (const participant of participants) {
-    const deliveries = history.filter(
-      (delivery) => delivery.contact_id === participant.contact_id,
-    );
+    const deliveries = historyByContact.get(participant.contact_id) ?? [];
     const completed = new Set(
       deliveries
         .filter((delivery) => delivery.completed_at !== null)
@@ -74,6 +78,10 @@ export async function previewFunnel(
         (delivery) =>
           delivery.dedup_key === participant.initial_entry_key &&
           delivery.completed_at !== null,
+      ) &&
+      !deliveries.some(
+        (delivery) =>
+          delivery.kind === "step" && delivery.completed_at === null,
       ) &&
       before.every((step) => completed.has(step.stepId))
     ) {

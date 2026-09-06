@@ -1463,3 +1463,28 @@ describe("publication preview #34", () => {
     });
   });
 });
+
+it("preview does not call a removed unknown lane completed", async () => {
+  const value = await initialComplete();
+  await tick(10);
+  transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
+  await tick(10);
+  const withoutUnknown = { ...value, steps: [value.steps[0]!] };
+  await publish(withoutUnknown);
+  const added = { stepId: randomUUID(), delaySeconds: 10, parts: [part("C")] };
+  await funnels.execute(
+    command(
+      "funnels.save",
+      { ...withoutUnknown, steps: [...withoutUnknown.steps, added] },
+      4,
+    ),
+  );
+  const response = await http(
+    command("funnels.preview", { funnelId: value.funnelId }, 5),
+  );
+  expect(response.statusCode).toBe(200);
+  expect(response.json().preview).toMatchObject({
+    eligibleContacts: 1,
+    completedParticipantsReceivingNewSteps: 0,
+  });
+});
