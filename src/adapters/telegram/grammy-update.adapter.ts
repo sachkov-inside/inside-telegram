@@ -125,7 +125,9 @@ export class GrammyUpdateAdapter {
         callbackQueryId: update.callback_query.id,
       };
     const preference = /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/.exec(
-      update.message?.text?.trim() ?? "",
+      typeof update.message?.text === "string"
+        ? update.message.text.trim()
+        : "",
     );
     if (preference) {
       const privateCommand = this.privateStart(

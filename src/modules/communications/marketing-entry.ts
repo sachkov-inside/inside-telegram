@@ -1,3 +1,4 @@
+import { cancelDelivery } from "./funnel-timeline.js";
 import { updateMarketingAvailability } from "./marketing-preferences.js";
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
@@ -207,14 +208,21 @@ export class MarketingEntry {
         .where("bot_identity", "=", start.botIdentity)
         .executeTakeFirstOrThrow();
       const introSnapshot = intro.snapshot as IntroSnapshot;
-      if (contact.marketing_enabled)
-        await planDelivery(tx, {
-          ...common,
-          kind: "intro",
-          key: `intro:${contact.contact_id}`,
-          parts: introSnapshot.parts,
-          revision: introSnapshot.revision,
-        });
+      await planDelivery(tx, {
+        ...common,
+        kind: "intro",
+        key: `intro:${contact.contact_id}`,
+        parts: introSnapshot.parts,
+        revision: introSnapshot.revision,
+      });
+      if (!contact.marketing_enabled) {
+        const intro = await tx
+          .selectFrom("communication_deliveries")
+          .selectAll()
+          .where("dedup_key", "=", `intro:${contact.contact_id}`)
+          .executeTakeFirstOrThrow();
+        await cancelDelivery(tx, intro, now, "marketing_unavailable");
+      }
       await tx
         .insertInto("communication_enrollments")
         .values({

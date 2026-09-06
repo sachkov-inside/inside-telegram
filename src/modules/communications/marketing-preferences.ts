@@ -1,6 +1,10 @@
 import type { Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
-import { cancelDelivery, reconcileFunnels } from "./funnel-timeline.js";
+import {
+  cancelDelivery,
+  reconcileFunnels,
+  started,
+} from "./funnel-timeline.js";
 
 // The caller holds the scheduler lock before contact rows. The shared unavailable
 // interval ends only when both transport and the explicit subscriber preference allow it.
@@ -25,15 +29,15 @@ export async function updateMarketingAvailability(
     await reconcileFunnels(tx, bot, now, contact.contact_id);
   }
   if (!available && !contact.unavailable_since) {
-    const intros = await tx
+    const unfinished = await tx
       .selectFrom("communication_deliveries")
       .selectAll()
       .where("contact_id", "=", contact.contact_id)
-      .where("kind", "=", "intro")
       .where("completed_at", "is", null)
       .execute();
-    for (const intro of intros)
-      await cancelDelivery(tx, intro, now, "marketing_unavailable");
+    for (const delivery of unfinished)
+      if (delivery.kind !== "step" || started(delivery))
+        await cancelDelivery(tx, delivery, now, "marketing_unavailable");
   }
   await tx
     .updateTable("communication_contacts")

@@ -141,3 +141,47 @@ describe("communication transport", () => {
     expect(relativeDue(d(1), d(100), d(500), 20)).toEqual(d(520));
   });
 });
+
+it("accepts only explicit private human stop/resume commands and leaves auth namespaces separate", () => {
+  const adapter = new GrammyUpdateAdapter();
+  for (const text of ["/stop", "/resume", "/stop@InsideBot"]) {
+    const value = adapter.translate(
+      "inside",
+      "1",
+      {
+        message: {
+          text,
+          from: { id: 42, is_bot: false },
+          chat: { id: 42, type: "private" },
+        },
+      },
+      new Date(),
+    );
+    expect(value.kind).toBe("marketing_preference");
+  }
+  for (const message of [
+    {
+      text: "/stop",
+      from: { id: 42, is_bot: false },
+      chat: { id: 42, type: "group" },
+    },
+    {
+      text: "/resume",
+      from: { id: 42, is_bot: true },
+      chat: { id: 42, type: "private" },
+    },
+    {
+      text: "/stop extra",
+      from: { id: 42, is_bot: false },
+      chat: { id: 42, type: "private" },
+    },
+    {
+      text: 123,
+      from: { id: 42, is_bot: false },
+      chat: { id: 42, type: "private" },
+    },
+  ])
+    expect(adapter.translate("inside", "1", { message }, new Date()).kind).toBe(
+      "ignored",
+    );
+});

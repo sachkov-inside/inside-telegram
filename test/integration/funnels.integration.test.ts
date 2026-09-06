@@ -1160,3 +1160,203 @@ describe("published audience updates and subscriber preferences #29", () => {
     ).toBe(false);
   });
 });
+
+describe("preference and publication crash/race boundaries #29", () => {
+  it("serializes publish and stop against an in-flight multipart dispatch, then settles partial cancellation", async () => {
+    const value = draft();
+    const first = {
+      ...value.steps[0]!,
+      parts: [part("first"), part("must cancel")],
+    };
+    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    let release!: (result: TelegramDeliveryResult) => void;
+    let claimed!: () => void;
+    const claimReady = new Promise<void>((r) => {
+      claimed = r;
+    });
+    transport.send.mockImplementationOnce(async (message) => {
+      sent.push(message);
+      claimed();
+      return new Promise<TelegramDeliveryResult>((r) => {
+        release = r;
+      });
+    });
+    now = new Date(+now + 10000);
+    const dispatch = scheduler.processAvailable(1);
+    await claimReady;
+    await Promise.all([
+      preference(false, "10"),
+      publish({ ...value, steps: [value.steps[1]!] }),
+    ]);
+    const inFlight = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(inFlight.cancel_requested).toBe(true);
+    expect(inFlight.completed_at).toBeNull();
+    expect((inFlight.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+      "in_flight",
+      "cancelled",
+    ]);
+    now = new Date(+now + 3000);
+    release({ kind: "delivered", providerMessageId: "synthetic" });
+    await dispatch;
+    const terminal = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(terminal.completed_at).toEqual(now);
+    expect((terminal.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+      "sent",
+      "cancelled",
+    ]);
+    await tick(100);
+    expect(sent.some((m) => m.content.text === "must cancel")).toBe(false);
+  });
+  it("stop and duplicate resume updates commit one preference receipt and service reply, including with marketing disabled", async () => {
+    await initialComplete();
+    const webhook = app.get(TelegramWebhook);
+    const processor = app.get(TelegramUpdateProcessor);
+    const update = (id: number, text: string) => ({
+      update_id: id,
+      message: {
+        message_id: id,
+        date: 1,
+        chat: { id: 42, type: "private" },
+        from: { id: 42, is_bot: false },
+        text,
+      },
+    });
+    await webhook.accept(config.webhookSecret, update(100, "/stop"));
+    await processor.processAvailable(10, new Date("2031-01-01"));
+    expect(
+      (
+        await database
+          .selectFrom("communication_contacts")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).marketing_enabled,
+    ).toBe(false);
+    await webhook.accept(config.webhookSecret, update(100, "/stop"));
+    await processor.processAvailable(10, new Date("2031-01-01"));
+    expect(
+      await database
+        .selectFrom("communication_preferences")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(1);
+    const receipt = await database
+      .selectFrom("start_response_deliveries")
+      .selectAll()
+      .where("source_key", "like", "marketing-preference:%")
+      .execute();
+    expect(receipt).toHaveLength(1);
+    expect(receipt[0]!.message_text).toContain("/resume");
+    const disabled = new MarketingEntry(
+      database,
+      { ...config, marketingEnabled: false },
+      clock,
+    );
+    const start = {
+      botIdentity: "inside",
+      telegramUserId: "42",
+      privateChatId: "42",
+      updateId: "101",
+      observedAt: now,
+    };
+    await Promise.all([
+      disabled.setPreference(start, true),
+      disabled.setPreference(start, true),
+    ]);
+    expect(
+      await database
+        .selectFrom("communication_preferences")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(2);
+    expect(
+      await database
+        .selectFrom("start_response_deliveries")
+        .selectAll()
+        .where("source_key", "like", "marketing-preference:%")
+        .execute(),
+    ).toHaveLength(2);
+    await disabled.setPreference({ ...start, updateId: "100" }, false);
+    expect(
+      (
+        await database
+          .selectFrom("communication_contacts")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).marketing_enabled,
+    ).toBe(true);
+  });
+  it("preserves a frozen started snapshot through edits and accepts late evidence for the exact unknown attempt", async () => {
+    const value = draft();
+    const first = {
+      ...value.steps[0]!,
+      parts: [part("frozen one"), part("frozen two")],
+    };
+    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    await tick(10);
+    await publish({
+      ...value,
+      steps: [
+        { ...first, parts: [part("new one"), part("new two")] },
+        value.steps[1]!,
+      ],
+    });
+    transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
+    await tick();
+    const unknown = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(unknown.attempt_id).not.toBeNull();
+    await tick(100);
+    const calls = transport.send.mock.calls.length;
+    await scheduler.record(unknown.delivery_id, unknown.attempt_id!, {
+      kind: "delivered",
+      providerMessageId: "late",
+    });
+    await scheduler.record(unknown.delivery_id, unknown.attempt_id!, {
+      kind: "delivered",
+      providerMessageId: "late",
+    });
+    const settled = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect((settled.snapshot as MessagePart[])[1]!.content.text).toBe(
+      "frozen two",
+    );
+    expect(
+      (settled.parts as DeliveryPart[])[1]!.attempts.map((a) => a.outcome),
+    ).toEqual(["unknown", "sent"]);
+    expect(transport.send.mock.calls.length).toBe(calls);
+    expect(settled.completed_at).toEqual(now);
+  });
+});
+
+it("keeps first-entry intro suppressed when the subscriber stopped before enrollment", async () => {
+  const value = await setup();
+  await app
+    .get(BotContacts)
+    .observeStart(
+      {
+        botIdentity: "inside",
+        telegramUserId: "42",
+        privateChatId: "42",
+        updateId: "9",
+        observedAt: now,
+      },
+      "none",
+    );
+  await preference(false, "10");
+  await start("11");
+  await tick();
+  expect(sent.map((m) => m.content.text)).toEqual(["general:entry"]);
+  await preference(true, "12");
+  await tick(10);
+  expect(sent.at(-1)?.content.text).toBe("general:step1");
+  expect(sent.some((m) => m.content.text === "intro")).toBe(false);
+  expect(
+    (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId),
+  ).toBeDefined();
+});
