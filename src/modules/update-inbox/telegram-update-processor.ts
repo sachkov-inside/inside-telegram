@@ -29,10 +29,10 @@ export class TelegramUpdateProcessor {
     private readonly callbackAnswers: TelegramCallbackAnswers,
   ) {}
 
-  async processAvailable(limit = 50, now = new Date()): Promise<number> {
+  async processAvailable(limit = 50, now?: Date): Promise<number> {
     let processed = 0;
     for (; processed < limit; processed += 1) {
-      const update = await this.inbox.claimNext(now);
+      const update = await this.inbox.claimNext(now ?? new Date());
       if (!update) {
         break;
       }
@@ -77,12 +77,12 @@ export class TelegramUpdateProcessor {
           await this.membershipEvidence.accept(command.value);
         }
 
-        await this.inbox.markProcessed(update, now);
+        await this.inbox.markProcessed(update, now ?? new Date());
         this.metrics.increment(
           command.kind === "ignored" ? "update_ignored" : "update_processed",
         );
       } catch {
-        const outcome = await this.inbox.markFailed(update, now);
+        const outcome = await this.inbox.markFailed(update, now ?? new Date());
         if (outcome === "failed") {
           this.metrics.increment("update_failed");
         }

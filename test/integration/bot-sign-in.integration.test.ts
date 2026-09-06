@@ -32,6 +32,9 @@ import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-res
 import { StartResponseDeliveryProcessor } from "../../src/modules/outbound/start-response-delivery-processor.js";
 import type { TelegramTextMessage } from "../../src/modules/outbound/telegram-messages.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
+import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
+import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
+import { MembershipEvidenceProvider } from "../../src/modules/membership-evidence/membership-evidence-provider.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 
@@ -90,6 +93,62 @@ afterAll(async () => {
 });
 
 describe("bot sign-in provider", () => {
+  it("refreshes inbox leases after a delayed callback instead of claiming with batch-start time", async () => {
+    const current = new Date();
+    const later = new Date(current.getTime() + 60_001);
+    vi.useFakeTimers({ toFake: ["Date"] });
+    vi.setSystemTime(current);
+    const inbox = application.get(TelegramUpdateInbox);
+    const claim = vi.spyOn(inbox, "claimNext");
+    try {
+      const challenge = await register();
+      await start(challenge, 42);
+      for (const payload of [
+        decisionUpdate(challenge, 42),
+        privateStartUpdate(++updateId, 43),
+      ]) {
+        expect(
+          (
+            await fastify.inject({
+              method: "POST",
+              url: "/webhooks/telegram",
+              headers: {
+                "x-telegram-bot-api-secret-token": config.webhookSecret,
+              },
+              payload,
+            })
+          ).statusCode,
+        ).toBe(202);
+      }
+      claim.mockClear();
+      const processor = new TelegramUpdateProcessor(
+        inbox,
+        application.get(BotContacts),
+        application.get(IdentityLinking),
+        new RuntimeMetrics(),
+        application.get(MembershipEvidenceProvider),
+        signIn,
+        {
+          async answer() {
+            vi.setSystemTime(later);
+          },
+        },
+      );
+      expect(await processor.processAvailable()).toBe(2);
+      expect(claim.mock.calls[0]?.[0]).toEqual(current);
+      expect(claim.mock.calls[1]?.[0]).toEqual(later);
+      const last = await database
+        .selectFrom("telegram_updates")
+        .select(["state", "processed_at"])
+        .orderBy("update_id", "desc")
+        .executeTakeFirstOrThrow();
+      expect(last).toEqual({ state: "processed", processed_at: later });
+    } finally {
+      claim.mockRestore();
+      vi.useRealTimers();
+    }
+  });
+
   it("reports disabled over authenticated HTTP after loading a disabled runtime configuration", async () => {
     const disabledConfig = loadApplicationConfig({
       DATABASE_URL: databaseUrl,
