@@ -24,7 +24,11 @@ export interface TemplateContent {
     "text" | "photo" | "video" | "video_note" | "voice" | "document";
   readonly text: string;
   readonly entities: readonly FormattingEntity[];
-  readonly buttons: readonly { readonly text: string; readonly url: string }[];
+  readonly buttons: readonly {
+    readonly text: string;
+    readonly url: string;
+    readonly row?: number;
+  }[];
   readonly fileId?: string;
 }
 export interface TemplateSnapshot {
@@ -114,6 +118,12 @@ export function validateContent(
   )
     throw new CommunicationsError("unsupported_content");
   for (const button of content.buttons) assertSafeUrl(button.url);
+  const rows = new Map<number, number>();
+  content.buttons.forEach((b, index) =>
+    rows.set(b.row ?? index, (rows.get(b.row ?? index) ?? 0) + 1),
+  );
+  if ([...rows.values()].some((size) => size > 8))
+    throw new CommunicationsError("unsupported_content");
   for (const entity of content.entities) {
     const end = entity.offset + entity.length;
     if (

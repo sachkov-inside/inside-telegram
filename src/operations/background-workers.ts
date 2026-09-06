@@ -1,3 +1,4 @@
+import { AuthorDelivery } from "../modules/communications/author-delivery.js";
 import { FunnelScheduler } from "../modules/communications/funnel-scheduler.js";
 import {
   Inject,
@@ -45,6 +46,7 @@ export class BackgroundWorkers
     private readonly updates: TelegramUpdateProcessor,
     @Inject(StartResponseDeliveryProcessor)
     private readonly deliveries: StartResponseDeliveryProcessor,
+    @Inject(AuthorDelivery) private readonly authorDelivery: AuthorDelivery,
     @Inject(FunnelScheduler) private readonly funnels: FunnelScheduler,
     @Inject(InitialMembershipCheckProcessor)
     private readonly membershipChecks: InitialMembershipCheckProcessor,
@@ -144,6 +146,7 @@ export class BackgroundWorkers
     this.deliveryCycleRunning = true;
     try {
       await this.deliveries.processAvailable();
+      await this.authorDelivery.processAvailable();
     } catch {
       this.logger.error("Telegram delivery worker cycle failed");
     } finally {

@@ -1639,5 +1639,40 @@
       ],
       "nextCursor": null
     }
+  },
+  {
+    "name": "list-owned-posts",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.list",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "button-row",
+    "definition": "button",
+    "valid": true,
+    "value": {
+      "text": "Open",
+      "url": "https://example.com",
+      "row": 0
+    }
+  },
+  {
+    "name": "reject-negative-button-row",
+    "definition": "button",
+    "valid": false,
+    "value": {
+      "text": "Open",
+      "url": "https://example.com",
+      "row": -1
+    }
   }
 ]

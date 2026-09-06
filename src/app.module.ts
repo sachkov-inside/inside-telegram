@@ -1,3 +1,8 @@
+import { AuthorAdmin } from "./modules/communications/author-admin.js";
+import {
+  AuthorDelivery,
+  AUTHOR_TRANSPORT,
+} from "./modules/communications/author-delivery.js";
 import { CommunicationTracking } from "./modules/communications/communication-tracking.js";
 import { Api } from "grammy";
 import { Funnels } from "./modules/communications/funnels.js";
@@ -89,9 +94,7 @@ export class AppModule {
         {
           provide: TELEGRAM_CALLBACK_ANSWERS,
           useFactory: () =>
-            config.signInEnabled &&
-            config.deliveryMode === "live" &&
-            config.botToken
+            config.deliveryMode === "live" && config.botToken
               ? new GrammyCallbackAnswersAdapter(config.botToken)
               : new DisabledTelegramCallbackAnswers(),
         },
@@ -151,6 +154,17 @@ export class AppModule {
             }
             return new DisabledPlatformEvidenceDelivery();
           },
+        },
+        AuthorAdmin,
+        AuthorDelivery,
+        {
+          provide: AUTHOR_TRANSPORT,
+          useFactory: () =>
+            config.deliveryMode === "live" && config.botToken
+              ? new GrammyCommunicationsAdapter(
+                  new Api(config.botToken, { timeoutSeconds: 10 }),
+                )
+              : new DisabledCommunicationTransport(),
         },
         CommunicationTracking,
         Communications,

@@ -1,3 +1,4 @@
+import { buttonRows } from "../../modules/communications/button-rows.js";
 import { type Api, GrammyError } from "grammy";
 import type { MessageEntity } from "grammy/types";
 import type {
@@ -26,7 +27,11 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
           one_time_keyboard: true,
         }
       : {
-          inline_keyboard: c.buttons.map((b) => [{ text: b.text, url: b.url }]),
+          inline_keyboard: message.authorButtons
+            ? message.authorButtons.map((b) => [
+                { text: b.text, callback_data: b.callbackData },
+              ])
+            : buttonRows(c.buttons),
         };
     const entities = c.entities as MessageEntity[];
     const options = {

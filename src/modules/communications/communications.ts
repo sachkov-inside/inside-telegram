@@ -34,7 +34,43 @@ export class Communications {
     private readonly authorization: AuthorAuthorization,
   ) {}
 
-  async execute(request: CommunicationsRequest): Promise<TemplateSnapshot> {
+  async list(
+    request: CommunicationsRequest,
+    transaction?: Transaction<DatabaseSchema>,
+  ) {
+    if (!("accountRef" in request.actor))
+      throw new CommunicationsError("forbidden");
+    await this.requireAuthor({ kind: "account", ...request.actor });
+    let query = (transaction ?? this.database)
+      .selectFrom("communication_templates")
+      .selectAll()
+      .where("bot_identity", "=", this.config.botIdentity)
+      .where("owner_account_ref", "=", request.actor.accountRef);
+    if (request.payload.cursor) {
+      if (
+        !/^[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}$/i.test(
+          request.payload.cursor,
+        )
+      )
+        throw new CommunicationsError("malformed");
+      query = query.where("template_id", ">", request.payload.cursor);
+    }
+    const rows = await query.orderBy("template_id").limit(101).execute();
+    return {
+      templates: rows.slice(0, 100).map((row) => ({
+        templateId: row.template_id,
+        revision: row.revision,
+        botIdentity: row.bot_identity,
+        content: row.content as TemplateContent,
+      })),
+      nextCursor: rows.length > 100 ? rows[99]!.template_id : null,
+    };
+  }
+
+  async execute(
+    request: CommunicationsRequest,
+    transaction?: Transaction<DatabaseSchema>,
+  ): Promise<TemplateSnapshot> {
     if (!("accountRef" in request.actor))
       throw new CommunicationsError("not_implemented");
     const actor = request.actor;
@@ -47,7 +83,7 @@ export class Communications {
     const templateId = request.payload.templateId!;
     if (request.operation === "templates.save")
       validateContent(request.payload.content);
-    return this.database.transaction().execute(async (tx) => {
+    const work = async (tx: Transaction<DatabaseSchema>) => {
       await lock(
         tx,
         `communications-operation:${this.config.botIdentity}:${request.operationId}`,
@@ -127,7 +163,10 @@ export class Communications {
         })
         .execute();
       return result;
-    });
+    };
+    return transaction
+      ? work(transaction)
+      : this.database.transaction().execute(work);
   }
 
   async intake(input: TemplateIntake): Promise<void> {

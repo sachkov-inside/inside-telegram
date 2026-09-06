@@ -64,7 +64,10 @@ export class Funnels {
     private readonly authorization: AuthorAuthorization,
     @Inject(CLOCK) private readonly clock: Clock,
   ) {}
-  async execute(request: CommunicationsRequest): Promise<FunnelResult> {
+  async execute(
+    request: CommunicationsRequest,
+    transaction?: Transaction<DatabaseSchema>,
+  ): Promise<FunnelResult> {
     if (!("accountRef" in request.actor))
       throw new CommunicationsError("not_implemented");
     const actor = request.actor.accountRef;
@@ -76,7 +79,7 @@ export class Funnels {
       throw new CommunicationsError(
         permission === "denied" ? "forbidden" : "authorization_unavailable",
       );
-    return this.database.transaction().execute(async (tx) => {
+    const work = async (tx: Transaction<DatabaseSchema>) => {
       await communicationLock(
         tx,
         `communications-operation:${this.config.botIdentity}:${request.operationId}`,
@@ -130,7 +133,10 @@ export class Funnels {
           .execute();
       }
       return result;
-    });
+    };
+    return transaction
+      ? work(transaction)
+      : this.database.transaction().execute(work);
   }
   private async apply(
     tx: Transaction<DatabaseSchema>,
