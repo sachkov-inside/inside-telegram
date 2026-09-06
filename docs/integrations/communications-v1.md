@@ -144,8 +144,8 @@ excludes stopped/unavailable contacts, and preserves all definitions and deliver
 not send, reserve an operation receipt or calculate Platform content eligibility. Platform #308
 adds the owning content validation to this preview.
 
-Explicit test send and eligibility remain
-contract-only and return `501 not_implemented`. Platform #308 owns the editor and target validation;
+Eligibility remains contract-only and returns `501 not_implemented`. Explicit author samples are
+implemented by `templates.testSend` in #37. Platform #308 owns the editor and target validation;
 #310 owns complete user acceptance. Eligibility remains Platform-owned; tracking's bounded service
 actor cannot manage communications. These changes do not enable a marketing release.
 
@@ -268,6 +268,32 @@ An allowed response echoes the version, request ID and exact Account reference w
 revoked, inactive or mismatched subjects are denied. Missing/malformed/unavailable responses never
 authorize. HTTP 401/403 deny; transport/provider errors fail closed as unavailable. No Telegram raw
 ID, credentials or provider payload is returned by the management API.
+
+## Author admin and shared saved posts (#37)
+
+`/admin` opens the private author menu. Every command and callback checks the current confirmed link
+and `communications:manage`. The menu creates/replaces native posts, lists saved posts, configures
+HTTPS button text/URL/row, sends samples to the author, and assembles ordered broadcast parts.
+Audience, schedule (explicit Moscow UTC+3 input), launch/pause/resume/cancel and statistics call the
+same `Communications`/`Funnels` operations as the authenticated API. `/template` remains compatible.
+Callbacks carry a session menu token; stale menus cannot apply a mutation against a newer screen.
+Session state, update receipt, operation receipt, mutation and author reply queue commit together.
+
+`templates.list` returns at most 100 owner/bot-scoped snapshots and a UUID cursor. Optional zero-based
+`button.row` groups buttons horizontally (maximum 8 per row, 20 total). Missing row preserves the
+legacy vertical layout. The sender strips this internal metadata into Telegram inline keyboard rows.
+
+`templates.testSend` requires the saved revision and queues that snapshot to the actor's confirmed
+Telegram identity, with no caller-selected destination. Repeated operation IDs return the same
+`testDeliveryId`. A separate author outbox runs with service delivery enabled, even when marketing
+is disabled. It rechecks the persisted link/current permission, reserves shared transport capacity,
+and commits `sending` before Telegram I/O. A lost reply or stale sending lease becomes `unknown`;
+no automatic resend follows an uncertain result. Source edits never update queued samples.
+
+A broadcast copies selected post content. Neither Telegram source edits nor `templates.save` silently
+updates that copy: the author explicitly replaces a selected part before launch. Scheduled/paused
+broadcasts retain the existing revision and lifecycle checks. No real sends or marketing enablement
+are part of the local verification; real Telegram appearance remains owner acceptance.
 
 ## Author intake and snapshots
 

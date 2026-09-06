@@ -1,11 +1,25 @@
+import { AuthorAdmin } from "../../src/modules/communications/author-admin.js";
+import { AuthorDelivery } from "../../src/modules/communications/author-delivery.js";
+import { translateAuthorInput } from "../../src/adapters/telegram/grammy-author-admin.adapter.js";
 import { randomUUID } from "node:crypto";
 import {
   FastifyAdapter,
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { sql, Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
+import type { DatabaseSchema } from "../../src/database/database.js";
+import { Funnels } from "../../src/modules/communications/funnels.js";
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+} from "vitest";
 import { AppModule } from "../../src/app.module.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
@@ -79,7 +93,7 @@ beforeAll(async () => {
   communications = app.get(Communications);
 });
 beforeEach(async () => {
-  await sql`truncate communication_intake_receipts, communication_operations, communication_templates, communication_author_modes,
+  await sql`truncate communication_author_sessions, communication_author_receipts, communication_author_outbox, communication_broadcasts, telegram_transport_slots, communication_intake_receipts, communication_operations, communication_templates, communication_author_modes,
     link_transactions, platform_links, telegram_updates, bot_contacts, bot_contact_events, start_response_deliveries restart identity cascade`.execute(
     database,
   );
@@ -444,5 +458,403 @@ describe("durable author intake", () => {
       .where("update_id", "=", "2")
       .executeTakeFirstOrThrow();
     expect(result.outcome).toBe("unsupported_content");
+  });
+});
+
+afterEach(async () => {
+  await sql`truncate communication_author_sessions, communication_author_receipts, communication_author_outbox`.execute(
+    database,
+  );
+});
+async function authorMessage(
+  id: number,
+  text: string,
+  extra: Record<string, unknown> = {},
+) {
+  const payload = update(id, { text, ...extra });
+  await app
+    .get(TelegramUpdateInbox)
+    .accept("inside", String(id), payload, new Date());
+  await app.get(TelegramUpdateProcessor).processAvailable();
+  expect(
+    (
+      await database
+        .selectFrom("telegram_updates")
+        .select("state")
+        .where("update_id", "=", String(id))
+        .executeTakeFirst()
+    )?.state,
+  ).toBe("processed");
+}
+async function authorClick(id: number, label: string) {
+  const messages = await database
+    .selectFrom("communication_author_outbox")
+    .select("message")
+    .orderBy("sequence_id", "desc")
+    .execute();
+  const menu = messages
+    .map(
+      (r) =>
+        r.message as {
+          authorButtons?: { text: string; callbackData: string }[];
+        },
+    )
+    .find((m) => m.authorButtons);
+  const data = menu?.authorButtons?.find((b) => b.text === label)?.callbackData;
+  expect(data, label).toBeDefined();
+  const payload = {
+    update_id: id,
+    callback_query: {
+      id: String(id),
+      from: { id: 42, is_bot: false },
+      message: { chat: { id: 42, type: "private" } },
+      data,
+    },
+  };
+  const input = translateAuthorInput("inside", String(id), payload)!;
+  await Promise.all([
+    app.get(AuthorAdmin).handle(input),
+    app.get(AuthorAdmin).handle(input),
+  ]);
+  return input;
+}
+describe("author admin shared post and broadcast flow", () => {
+  it("preserves native entities, saves button rows, samples only the author and snapshots a scheduled broadcast", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Создать пост");
+    await authorMessage(102, "😀 Native post", {
+      entities: [{ type: "bold", offset: 3, length: 6 }],
+    });
+    await authorClick(103, "Добавить кнопку");
+    await authorMessage(104, "Открыть Inside");
+    await authorMessage(105, "https://inside.test/material");
+    await authorMessage(106, "1");
+    const post = (await rows())[0]!;
+    expect(post.revision).toBe(2);
+    expect(post.content).toMatchObject({
+      entities: [{ type: "bold", offset: 3, length: 6 }],
+      buttons: [{ row: 0 }],
+    });
+    await authorClick(107, "Образец себе");
+    const samples = await database
+      .selectFrom("communication_author_outbox")
+      .selectAll()
+      .execute();
+    expect(samples.every((s) => s.telegram_user_id === "42")).toBe(true);
+    expect(
+      samples.filter(
+        (s) =>
+          (s.message as { content: { text: string } }).content.text ===
+          "😀 Native post",
+      ),
+    ).toHaveLength(1);
+    const sampleRequest = {
+      ...request(),
+      operation: "templates.testSend",
+      expectedRevision: 2,
+      payload: { templateId: post.template_id },
+    };
+    const sampleResponses = await Promise.all([
+      http(sampleRequest),
+      http(sampleRequest),
+    ]);
+    expect(sampleResponses[0]!.statusCode).toBe(200);
+    expect(sampleResponses[0]!.json()).toEqual(sampleResponses[1]!.json());
+    expect(contractValidator("response")(sampleResponses[0]!.json())).toBe(
+      true,
+    );
+    expect(
+      (
+        await http({
+          ...sampleRequest,
+          operationId: randomUUID(),
+          payload: { ...sampleRequest.payload, chatId: "666" },
+        })
+      ).statusCode,
+    ).toBe(400);
+    await authorClick(108, "Вернуться к посту");
+    await authorClick(109, "Создать рассылку");
+    await authorClick(110, "Время отправки");
+    await authorMessage(111, "01.01.2099 12:00");
+    await authorClick(112, "Перейти к запуску");
+    await authorClick(113, "Запустить рассылку");
+    const before = await database
+      .selectFrom("communication_broadcasts")
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect(before.state).toBe("scheduled");
+    expect(before.scheduled_at?.toISOString()).toBe("2099-01-01T09:00:00.000Z");
+    await communications.execute({
+      ...request(),
+      expectedRevision: 2,
+      payload: {
+        templateId: post.template_id,
+        content: { ...content, text: "Changed source" },
+      },
+    });
+    expect(
+      (
+        await database
+          .selectFrom("communication_broadcasts")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).parts,
+    ).toEqual(before.parts);
+    await authorClick(114, "Приостановить");
+    await authorClick(115, "Продолжить");
+    await authorClick(116, "Отменить рассылку");
+    await authorClick(117, "Да, отменить");
+    expect(
+      (
+        await database
+          .selectFrom("communication_broadcasts")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe("cancelled");
+  });
+  it("lists only the current bot owner and checks current authorization before replay", async () => {
+    const own = request();
+    await communications.execute(own);
+    await communications.execute({
+      ...request(),
+      actor: { accountRef: "another-author" },
+    });
+    const response = await http({
+      ...request(),
+      operation: "templates.list",
+      payload: {},
+    });
+    expect(response.statusCode).toBe(200);
+    expect(
+      response
+        .json()
+        .templates.map((t: { templateId: string }) => t.templateId),
+    ).toEqual([own.payload.templateId]);
+    expect(contractValidator("response")(response.json())).toBe(true);
+    await seedLink();
+    const sample = {
+      ...request(),
+      operation: "templates.testSend",
+      expectedRevision: 1,
+      payload: own.payload.templateId
+        ? { templateId: own.payload.templateId }
+        : {},
+    };
+    expect((await http(sample)).statusCode).toBe(200);
+    authorization.result = "denied";
+    expect((await http(sample)).statusCode).toBe(403);
+  });
+  it("does not resend unknown author samples after worker restart and rejects revoked recipients", async () => {
+    await seedLink();
+    const post = request();
+    await communications.execute(post);
+    const sample = {
+      ...request(),
+      operation: "templates.testSend",
+      expectedRevision: 1,
+      payload: { templateId: post.payload.templateId! },
+    };
+    await http(sample);
+    let calls = 0;
+    const worker = () =>
+      new AuthorDelivery(
+        database,
+        { ...config, deliveryMode: "live" },
+        authorization,
+        {
+          send: async () => {
+            calls++;
+            return { kind: "transport_unknown" };
+          },
+        },
+      );
+    await worker().processAvailable();
+    await worker().processAvailable(new Date(Date.now() + 120_000));
+    expect(calls).toBe(1);
+    expect(
+      (
+        await database
+          .selectFrom("communication_author_outbox")
+          .select("state")
+          .executeTakeFirstOrThrow()
+      ).state,
+    ).toBe("unknown");
+    await http({ ...sample, operationId: randomUUID() });
+    authorization.result = "denied";
+    await worker().processAvailable(new Date(Date.now() + 240_000));
+    expect(calls).toBe(1);
+    expect(
+      await database
+        .selectFrom("communication_author_outbox")
+        .select("state")
+        .where("state", "=", "rejected")
+        .execute(),
+    ).toHaveLength(1);
+  });
+  it("honors known retry_after and keeps samples for one chat ordered across workers", async () => {
+    await seedLink();
+    const post = request();
+    await communications.execute(post);
+    const sample = {
+      ...request(),
+      operation: "templates.testSend",
+      expectedRevision: 1,
+      payload: { templateId: post.payload.templateId! },
+    };
+    await http(sample);
+    await http({ ...sample, operationId: randomUUID() });
+    const time = new Date(Date.now() + 1000);
+    let calls = 0;
+    const worker = new AuthorDelivery(
+      database,
+      { ...config, deliveryMode: "live" },
+      authorization,
+      {
+        send: async () => {
+          calls++;
+          return calls === 1
+            ? {
+                kind: "api_retryable",
+                providerErrorCode: 429,
+                retryAfterSeconds: 20,
+              }
+            : { kind: "delivered", providerMessageId: String(calls) };
+        },
+      },
+    );
+    await Promise.all([
+      worker.processAvailable(time),
+      worker.processAvailable(time),
+    ]);
+    expect(calls).toBe(1);
+    await worker.processAvailable(new Date(time.getTime() + 19_000));
+    expect(calls).toBe(1);
+    await worker.processAvailable(new Date(time.getTime() + 20_000));
+    expect(calls).toBe(2);
+    await worker.processAvailable(new Date(time.getTime() + 21_000));
+    expect(calls).toBe(3);
+    const states = await database
+      .selectFrom("communication_author_outbox")
+      .select(["state", "attempt_count"])
+      .orderBy("sequence_id")
+      .execute();
+    expect(states).toEqual([
+      { state: "delivered", attempt_count: 2 },
+      { state: "delivered", attempt_count: 1 },
+    ]);
+  });
+  it("lists posts within the existing transaction even with one available connection", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    const single = new Kysely<DatabaseSchema>({
+      dialect: new PostgresDialect({
+        pool: new Pool({
+          connectionString: databaseUrl,
+          max: 1,
+          connectionTimeoutMillis: 500,
+        }),
+      }),
+    });
+    try {
+      const admin = new AuthorAdmin(
+        single,
+        config,
+        authorization,
+        new Communications(single, config, authorization),
+        app.get(Funnels),
+        app.get(AuthorDelivery),
+      );
+      const session = await database
+        .selectFrom("communication_author_sessions")
+        .select("state")
+        .executeTakeFirstOrThrow();
+      const state = session.state as {
+        token: string;
+        actions: { kind: string }[];
+      };
+      await expect(
+        admin.handle({
+          botIdentity: "inside",
+          updateId: "101",
+          telegramUserId: "42",
+          text: "",
+          content: null,
+          callbackData: `author:${state.token}:${state.actions.findIndex((a) => a.kind === "posts")}`,
+        }),
+      ).resolves.toBe(true);
+    } finally {
+      await single.destroy();
+    }
+  });
+  it("discards a cancelled replacement when a stale menu opens a different broadcast", async () => {
+    await seedLink();
+    await communications.execute({
+      ...request(),
+      payload: {
+        templateId: randomUUID(),
+        content: { ...content, text: "Saved C" },
+      },
+    });
+    for (const name of ["Broadcast A", "Broadcast B"])
+      await app.get(Funnels).execute({
+        ...request(),
+        operation: "broadcasts.save",
+        payload: {
+          broadcastId: randomUUID(),
+          parts: [
+            { partId: randomUUID(), content: { ...content, text: name } },
+          ],
+          audience: { kind: "all" },
+          scheduledAt: null,
+        },
+      });
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Рассылки");
+    const old = await authorClick(102, "Broadcast A · v1");
+    await authorClick(103, "Сообщения и порядок");
+    await authorClick(104, "Заменить 1: Broadcast A");
+    await app.get(AuthorAdmin).handle({ ...old, updateId: "105" });
+    await authorClick(106, "Рассылки");
+    await authorClick(107, "Broadcast B · v1");
+    await authorClick(108, "Добавить сохранённый пост");
+    await authorClick(109, "Saved C");
+    const broadcasts = await database
+      .selectFrom("communication_broadcasts")
+      .select("parts")
+      .execute();
+    expect(
+      broadcasts.map((row) =>
+        (row.parts as { content: { text: string } }[]).map(
+          (p) => p.content.text,
+        ),
+      ),
+    ).toContainEqual(["Broadcast B", "Saved C"]);
+    expect(
+      broadcasts.map((row) =>
+        (row.parts as { content: { text: string } }[]).map(
+          (p) => p.content.text,
+        ),
+      ),
+    ).toContainEqual(["Broadcast A"]);
+  });
+  it("rejects stale menus without overwriting a newer web edit", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Создать пост");
+    await authorMessage(102, "First");
+    const post = (await rows())[0]!;
+    await authorClick(103, "Заменить сообщение");
+    await communications.execute({
+      ...request(),
+      expectedRevision: 1,
+      payload: {
+        templateId: post.template_id,
+        content: { ...content, text: "Web edit" },
+      },
+    });
+    await authorMessage(104, "Stale replacement");
+    expect((await rows())[0]?.content).toMatchObject({ text: "Web edit" });
   });
 });

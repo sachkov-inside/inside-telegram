@@ -43,7 +43,7 @@ export function translateTemplateIntake(
     content: snapshot(message),
   };
 }
-function snapshot(message: Record<string, unknown>): unknown {
+export function snapshot(message: Record<string, unknown>): unknown {
   if (
     message.media_group_id ||
     message.poll ||
@@ -92,6 +92,15 @@ function snapshot(message: Record<string, unknown>): unknown {
       )
     )
       return null;
+    buttons = message.reply_markup.inline_keyboard.flatMap(
+      (row: unknown, index: number) =>
+        Array.isArray(row)
+          ? row.map((button: Record<string, unknown>) => ({
+              ...button,
+              row: index,
+            }))
+          : [null],
+    );
   }
   return {
     type,

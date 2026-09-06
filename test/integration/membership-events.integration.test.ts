@@ -371,6 +371,7 @@ describe("durable Membership events", () => {
       new BotSignIn(database, config, clock),
       new DisabledTelegramCallbackAnswers(),
       new Communications(database, config, new DisabledAuthorAuthorization()),
+      { handle: async () => false },
       new MarketingEntry(database, config, clock),
     );
     const webhook = new TelegramWebhook(config, inbox, metrics);

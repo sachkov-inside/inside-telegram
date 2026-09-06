@@ -1,3 +1,5 @@
+import { AuthorAdmin } from "../communications/author-admin.js";
+import { translateAuthorInput } from "../../adapters/telegram/grammy-author-admin.adapter.js";
 import { MarketingEntry } from "../communications/marketing-entry.js";
 import { Communications } from "../communications/communications.js";
 import { translateTemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
@@ -32,6 +34,8 @@ export class TelegramUpdateProcessor {
     private readonly callbackAnswers: TelegramCallbackAnswers,
     @Inject(Communications)
     private readonly communications: Communications,
+    @Inject(AuthorAdmin)
+    private readonly authorAdmin: Pick<AuthorAdmin, "handle">,
     @Inject(MarketingEntry) private readonly marketing: MarketingEntry,
   ) {}
 
@@ -100,11 +104,23 @@ export class TelegramUpdateProcessor {
         } else if (command.kind === "membership") {
           await this.membershipEvidence.accept(command.value);
         } else if (command.kind === "ignored") {
-          const intake = translateTemplateIntake(
+          const authorInput = translateAuthorInput(
             update.botIdentity,
             update.updateId,
             update.payload,
           );
+          const handled = authorInput
+            ? await this.authorAdmin.handle(authorInput)
+            : false;
+          if (handled && authorInput?.callbackQueryId)
+            await this.callbackAnswers.answer(authorInput.callbackQueryId);
+          const intake =
+            !handled &&
+            translateTemplateIntake(
+              update.botIdentity,
+              update.updateId,
+              update.payload,
+            );
           if (intake) await this.communications.intake(intake);
         }
 

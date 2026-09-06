@@ -20,7 +20,10 @@ import { signInMessageResultMigration } from "./migrations/010-sign-in-message-r
 
 import { communicationsTemplatesMigration } from "./migrations/010-communications-templates.js";
 
+import { authorAdminMigration } from "./migrations/014-author-admin.js";
+
 const migrations = {
+  "014-author-admin": authorAdminMigration,
   "001-ordinary-start": ordinaryStartMigration,
   "002-identity-linking": identityLinkingMigration,
   "003-initial-membership-evidence": initialMembershipEvidenceMigration,

@@ -447,6 +447,7 @@ describe("bot sign-in provider", () => {
           },
         },
         application.get(Communications),
+        { handle: async () => false },
         application.get(MarketingEntry),
       );
       expect(await processor.processAvailable()).toBe(2);
