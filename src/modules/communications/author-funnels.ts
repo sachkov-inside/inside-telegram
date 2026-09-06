@@ -92,7 +92,7 @@ export class AuthorFunnels {
               ["Проверить публикацию", { kind: "f:preview" }],
             ] as Buttons)
           : []),
-        ...(!s.dirty && f.revision
+        ...(!s.dirty && f.publishedRevision !== null
           ? ([
               ...(f.lifecycle === "published"
                 ? ([

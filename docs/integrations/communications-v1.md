@@ -354,3 +354,34 @@ commands, while sign-in callbacks and legacy link tokens keep their existing han
 No real author permission endpoint, Platform editor, credentialed Telegram message, marketing
 release or production enablement is proven here. Platform #307 supplies authorization, #308 the
 editor, and #310 the cross-application acceptance. Every merge and release still requires owner GO.
+
+## Funnel author menu (#38)
+
+`/admin` → «Воронки» uses the same persisted author session, fresh confirmed-link authorization,
+update receipts and author-only outbox as posts and broadcasts. It creates and edits the entry
+response, delayed multipart steps, order, delay (seconds/minutes/hours/days), default selection and
+sources. The common intro is edited separately. Contents come from `templates.list/read`; choosing
+copies the saved version, explicit replacement retains the part ID, and additions allocate new IDs.
+Changing a saved post does not modify a chosen draft or publication.
+
+Composition remains a scratch snapshot in the author session until «Сохранить черновик». Preview
+and publish require the same saved revision; publication rechecks the exact snapshot under the
+existing definition lock. Menu callbacks and business writes share one transaction and update
+receipt. A savepoint rolls back a rejected funnel action before the menu reports a conflict,
+including conflicts discovered after a draft write. Duplicate updates cannot publish or sample twice.
+Archive, pause, resume and restore use the existing lifecycle operations. Detailed delivery history,
+retry/skip and rollback remain available in the web editor and delegated operations.
+
+`PLATFORM_AUTHOR_CONTENT_VALIDATION_URL` configures Platform's service-only
+`POST /integrations/telegram/v1/communications/validate-content`; it reuses
+`PLATFORM_AUTHOR_AUTHORIZATION_SECRET` and requires the authorization configuration. HTTPS is
+mandatory outside loopback. Request/response definitions are `contentValidationRequest` and
+`contentValidationResponse` in the canonical schema. The request includes the confirmed author and
+the selected immutable message parts. Platform rechecks the author and Material/Series eligibility
+without calling Telegram back while the author transaction holds definition locks. Request ID and
+Account association must match the response. Invalid targets, denied authorization, missing
+configuration, malformed response and unavailable Platform all prevent bot publication. The common
+intro is checked before save because saving immediately applies it to future recipients.
+
+No real Telegram send, marketing enablement or deployment is part of local verification. Author
+samples are queued only for the confirmed author's private chat and use the existing transport gate.

@@ -1,8 +1,8 @@
+import { AuthorFunnels } from "../../src/modules/communications/author-funnels.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
   type AuthorContentValidationResult,
 } from "../../src/modules/communications/author-content-validation.js";
-import { Funnels } from "../../src/modules/communications/funnels.js";
 import type {
   MessagePart,
   FunnelSnapshot,
@@ -786,6 +786,7 @@ describe("author admin shared post and broadcast flow", () => {
         new Communications(single, config, authorization),
         app.get(Funnels),
         app.get(AuthorDelivery),
+        app.get(AuthorFunnels),
       );
       const session = await database
         .selectFrom("communication_author_sessions")
@@ -1011,6 +1012,65 @@ describe("Telegram-first funnel authoring with real persisted sessions", () => {
           .executeTakeFirstOrThrow()
       ).lifecycle,
     ).toBe("published");
+  });
+  it("preserves a media snapshot, replays one funnel callback once, and rejects the next action after permission revocation", async () => {
+    await startFunnel();
+    const media = await communications.execute({
+      ...request(),
+      payload: {
+        templateId: randomUUID(),
+        content: {
+          type: "photo",
+          fileId: "synthetic-photo-file",
+          text: "Media post",
+          entities: [{ type: "italic", offset: 0, length: 5 }],
+          buttons: [],
+        },
+      },
+    });
+    await authorClick(115, "Первый ответ");
+    await authorClick(116, "Добавить сохранённый пост");
+    await authorClick(117, "Media post");
+    await authorClick(118, "К воронке");
+    const input = await authorClick(119, "Сохранить черновик");
+    const before = await database
+      .selectFrom("communication_funnels")
+      .selectAll()
+      .executeTakeFirstOrThrow();
+    expect(
+      (before.draft as FunnelSnapshot).entryResponse.parts[1]?.content,
+    ).toEqual(media.content);
+    const receipts = await database
+      .selectFrom("communication_author_receipts")
+      .selectAll()
+      .where("update_id", "=", input.updateId)
+      .execute();
+    expect(receipts).toHaveLength(1);
+    await app.get(AuthorAdmin).handle(input);
+    expect(
+      (
+        await database
+          .selectFrom("communication_funnels")
+          .select("revision")
+          .executeTakeFirstOrThrow()
+      ).revision,
+    ).toBe(before.revision);
+    authorization.result = "denied";
+    await authorClick(120, "Проверить публикацию");
+    expect(
+      (
+        await database
+          .selectFrom("communication_funnels")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).published_revision,
+    ).toBeNull();
+    expect(
+      await database
+        .selectFrom("communication_author_sessions")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
   });
   it("blocks unavailable or invalid Platform content checks and stale publication revisions", async () => {
     await startFunnel();
