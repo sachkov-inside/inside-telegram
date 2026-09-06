@@ -257,7 +257,7 @@ describe("versioned HTTP scenarios shared with consumer", () => {
     expect(recovered.content.text).toBe(content.text);
     expect((await rows())[0]?.revision).toBe(2);
   });
-  it("fails closed on unavailable authorization and explicitly defers remaining operations", async () => {
+  it("fails closed on unavailable authorization and hides missing rollback targets", async () => {
     authorization.result = "unavailable";
     expect((await http(request())).statusCode).toBe(503);
     expect(await rows()).toHaveLength(0);
@@ -270,7 +270,7 @@ describe("versioned HTTP scenarios shared with consumer", () => {
           payload: { funnelId: randomUUID(), publishedRevision: 1 },
         })
       ).statusCode,
-    ).toBe(501);
+    ).toBe(404);
   });
 });
 describe("durable author intake", () => {

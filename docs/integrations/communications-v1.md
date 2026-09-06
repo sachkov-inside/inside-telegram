@@ -5,7 +5,8 @@ This application owns the physical `inside-communications-v1` schema and fixture
 The product authority remains the accepted
 [Workspace contract](https://github.com/sachkov-inside/workspace/blob/1553211220c44882dbacce7519dd50e35493090e/docs/specifications/telegram-communications-v1.md).
 This document describes the transport implemented by [Telegram #27](https://github.com/sachkov-inside/inside-telegram/issues/27)
-and the funnel runtime in [Telegram #28](https://github.com/sachkov-inside/inside-telegram/issues/28),
+the funnel runtime in [Telegram #28](https://github.com/sachkov-inside/inside-telegram/issues/28),
+and audience updates/preferences in [Telegram #29](https://github.com/sachkov-inside/inside-telegram/issues/29),
 not a second product brief.
 
 ## Implemented operations
@@ -38,7 +39,8 @@ operation-specific `payload`. Unknown fields and versions return `400 malformed`
 
 ## Funnel operations and runtime
 
-`funnels.save/read/list/publish/lifecycle`, `intro.save/read` and `deliveries.read` are implemented.
+`funnels.save/read/list/publish/lifecycle/rollback`, `intro.save/read`, `deliveries.read` and
+`delivery.resolve` are implemented.
 They use the same service credential, fresh Account permission check, owner isolation, expected
 revision and durable operation replay as templates. Save creates/updates the draft; source CRUD
 is the draft's `sources` list. Publish freezes the entire draft, including entry response, step
@@ -64,14 +66,15 @@ owner-authored content; multiple funnels exist only in synthetic tests for the r
 `TELEGRAM_MARKETING_ENABLED=false` is independent of service delivery and is the default.
 Before starting enabled workers, the application requires an intro and an available published
 default funnel. Marketing dispatch additionally uses `TELEGRAM_DELIVERY_MODE=live`; its production
-transport is otherwise disabled. The release gate is still separate, especially until #29 and
-Platform convergence complete. Defining or publishing a draft never changes this configuration.
+transport is otherwise disabled. The release gate is still separate, until
+Platform convergence completes. Defining or publishing a draft never changes this configuration.
 
 Ingress reserves `m_` plus 1–40 base64url characters for marketing sources. The 42-character
 maximum deliberately stays below **every** legacy 43–64-character auth token, including tokens
 starting with `m_`. The narrowed source schema and positive/negative fixtures prevent generating
-an unreachable source. Short `signin_` payloads remain service errors in this branch; #24's
-unmerged adapter owns actual sign-in handling. Marketing does not capture auth or callbacks.
+an unreachable source. The merged #24 adapter handles `signin_` plus 35 base64url characters
+and private confirmation callbacks. Malformed short sign-in payloads stay in that service lane.
+Marketing and preference commands do not capture auth or sign-in callbacks.
 An unavailable/unknown source gets a durable fallback and a `/start` keyboard button without
 joining a different funnel. A thematic entry enrolls only its own funnel. Update receipts dedupe
 fallback, intro and immediate response intents; deliberate new updates record separate source
@@ -104,17 +107,47 @@ Contactability and the persisted marketing preference are reread under row locks
 marketing claim; lifecycle is checked under the publication row lock. External calls already
 claimed cannot be cancelled retroactively. Test transport covers all six supported media types.
 
-`funnels.preview/rollback`, `delivery.resolve`, broadcasts, explicit test send, eligibility,
-tracking and statistics remain contract-only and return `501 not_implemented`. #29 owns changes
-and backfill hardening for existing audiences, unstarted snapshot replacement, deletion/cancel,
-operator resolution of unknown, and stop/resume suppression without backlog. The preliminary
-preference column is not a user-facing stop implementation. #28's scheduler is not a marketing
-release. Platform #308 owns the editor; #310 owns complete user acceptance. Eligibility remains
-Platform-owned; tracking's bounded service actor cannot manage communications.
+Published changes reconcile all enrollments, including completed participants, under the same
+scheduler transaction lock as claim, result recording, stop and contactability changes. Only an
+unattempted step adopts the current snapshot/delay/order. A started step owns its lane until a
+terminal result, even if moved or deleted. The next delay uses the latest actual terminal
+completion in that enrollment, independent of the new order. Delete sets cancel-request, cancels
+pending/failed parts and waits for in-flight/unknown parts. History exposes `sent`, `cancelled`,
+`skipped` and `suppressed` separately; `completedAt` appears only when all parts are terminal.
+A sent/cancelled combination is a terminal partial cancellation, never a full sent result.
+
+`funnels.rollback` takes a historical `publishedRevision` and creates a new publication under the
+current expected revision. Historical IDs and first publication times survive. It can restore a
+never-attempted deletion cancellation; sent, skipped and subscriber-suppressed markers never reset.
+`delivery.resolve` takes a delivery revision, part ID, `skip|retry` and `duplicateRiskAccepted`.
+Only failed/unknown parts can be resolved. Unknown retry requires explicit risk acceptance; a
+cancel-request prohibits retry. The response is `{ deliveryId, partId, outcome }`, with outcome
+`skipped|retry_requested`. Original attempt evidence remains unchanged; the authorized operation
+stores actor, decision and result atomically. Retry acceptance appears on the following attempt.
+Repeated operation IDs return the same result after fresh permission checking. At most three
+automatic attempts are allowed; explicit decisions cannot grow history past the bounded limit.
+
+Private human `/stop` and `/resume` persist one global preference and a deduplicated service reply
+in one transaction, independently of marketing enablement. `/start` and sign-in never change that
+preference. A stopped subscriber can request entry navigation and retain several enrollments.
+Migration `012-marketing-preferences` adds the unavailable interval and preference receipts after
+the merged sign-in/communications history. It is not another exception to migration ordering.
+On resume or restored contactability, the current unsent order computes a virtual schedule: every
+due time no later than the return time becomes a durable suppression; the first future due stays
+unchanged. Operator pause/archive do not suppress overdue work. Unfinished immediate/started work
+receives cancel-request when availability is lost; no already claimed external effect is undone.
+
+`funnels.preview`, broadcasts, explicit test send, eligibility, tracking and statistics remain
+contract-only and return `501 not_implemented`. Platform #308 owns the editor and target validation;
+#310 owns complete user acceptance. Eligibility remains Platform-owned; tracking's bounded service
+actor cannot manage communications. These changes do not enable a marketing release.
 
 `test/integration/funnels.integration.test.ts` proves author isolation and revision conflicts,
 parallel source entry and intro dedup, relative scheduling, two workers, 429, unknown, shared
-service priority and crash boundaries against real PostgreSQL. `test/unit/grammy-communications.adapter.test.ts`
+service priority and crash boundaries against real PostgreSQL. It also covers completed/ongoing
+backfill, pending edits and reorder, rollback, multipart cancel with unknown resolution, explicit
+retry evidence, stop before/after due, first future due, edits while stopped, blocked/unblock,
+operator pause, first entry while stopped and stop/publish against an in-flight external send. `test/unit/grammy-communications.adapter.test.ts`
 covers transport mapping and namespace boundaries; the versioned schema fixtures include a
 positive marketing source and a negative legacy-auth collision. Adapter architecture checks also
 run their existing passing and deliberately failing seam fixtures.
@@ -171,9 +204,10 @@ validation never truncates text or silently drops an entity. These constraints u
 ## Persistence and verification
 
 Migration `010-communications-templates` adds templates, author modes, operation results and intake
-receipts. Names 008/009 belong to the currently separate bot-sign-in PR #25; whichever change lands
-second must reconcile migration order against deployed state before release. Do not install an
-older missing migration behind an already applied migration.
+receipts. The merged sign-in sequence owns `008-bot-sign-in`, `009-sign-in-reservation` and
+`010-sign-in-message-result`. The migrator preserves the two supported historical deployment
+orders through its explicit communications compatibility exception. Migration-history tests cover
+both orders and reject missing dependencies; `012-marketing-preferences` follows the merged history.
 
 Transaction-scoped PostgreSQL advisory locks serialize each author and template/operation. The
 confirmed identity link is held against transfer during intake authorization and save. A unique
@@ -193,11 +227,11 @@ HTTP provider, PostgreSQL concurrency, rollback faults, lost acknowledgement rep
 snapshot and a fake Telegram transport. The existing adapter guardrail and negative fixture cover
 the transport/persistence boundary in `pnpm check:full`.
 
-The main baseline for this ticket is `04b572ad748423e193d918c1ceec552c3985bc84`. PR #25's sign-in
-namespace (`signin_` plus 35 base64url characters, below the legacy 43–64-character range) was
-inspected for compatibility: the new intake hook runs only after the existing router returns
-ignored, never captures `/start`, and never processes callbacks. This is routing regression
-coverage, not a claim that the unmerged sign-in implementation ran in this branch.
+The #29 review base is `fc4bdbead4b578763acd7778afa9e7686dabf17c`, including merged PR #25.
+Full repository verification runs the actual combined sign-in, identity, Membership and
+communications implementations with fake transports and real PostgreSQL. The author intake hook
+runs only after the router returns ignored; `/stop` and `/resume` accept explicit private human
+commands, while sign-in callbacks and legacy link tokens keep their existing handlers.
 
 No real author permission endpoint, Platform editor, credentialed Telegram message, marketing
 release or production enablement is proven here. Platform #307 supplies authorization, #308 the

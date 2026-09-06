@@ -500,7 +500,7 @@ describe("durable marketing entry and scheduling", () => {
       .execute();
     await start("3");
     await tick(100);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
     await database
       .updateTable("communication_contacts")
       .set({ marketing_enabled: true })
@@ -513,7 +513,7 @@ describe("durable marketing entry and scheduling", () => {
       updateId: "4",
     });
     await tick(100);
-    expect(sent).toHaveLength(1);
+    expect(sent).toHaveLength(2);
   });
   it("a crash after claim is unknown; competing workers and DB acknowledgement faults never redispatch", async () => {
     await setup();
@@ -768,4 +768,593 @@ describe("recovery and completion serialization", () => {
         .statusCode,
     ).toBe(400);
   });
+});
+
+async function publish(value: FunnelDraft) {
+  const current = await database
+    .selectFrom("communication_funnels")
+    .select("revision")
+    .where("funnel_id", "=", value.funnelId)
+    .executeTakeFirstOrThrow();
+  await funnels.execute(command("funnels.save", value, current.revision));
+  return funnels.execute(
+    command(
+      "funnels.publish",
+      { funnelId: value.funnelId },
+      current.revision + 1,
+    ),
+  );
+}
+async function preference(enabled: boolean, updateId: string) {
+  await entry.setPreference(
+    {
+      botIdentity: "inside",
+      telegramUserId: "42",
+      privateChatId: "42",
+      updateId,
+      observedAt: now,
+    },
+    enabled,
+  );
+  // Timeline tests isolate subscriber time from the separately tested service transport lane.
+  await database
+    .updateTable("start_response_deliveries")
+    .set({ state: "delivered", delivered_at: now })
+    .execute();
+}
+async function initialComplete(value = draft()) {
+  await setup(value);
+  await start();
+  await scheduler.processAvailable();
+  await tick();
+  return value;
+}
+async function resolve(
+  deliveryId: string,
+  action: "retry" | "skip",
+  duplicateRiskAccepted = false,
+) {
+  const d = (await deliveries()).find((d) => d.delivery_id === deliveryId)!;
+  const p = (d.parts as DeliveryPart[]).find((p) =>
+    ["unknown", "failed"].includes(p.state),
+  )!;
+  return http(
+    command(
+      "delivery.resolve",
+      { deliveryId, partId: p.partId, action, duplicateRiskAccepted },
+      d.revision,
+    ),
+  );
+}
+
+describe("published audience updates and subscriber preferences #29", () => {
+  it("backfills ongoing and completed audiences from publication, once across restarts", async () => {
+    const value = await initialComplete();
+    await tick(10);
+    await tick(10);
+    const firstPublished = await database
+      .selectFrom("communication_step_ids")
+      .selectAll()
+      .execute();
+    now = new Date(+now + 30 * 86400000);
+    await start("2", undefined, "43");
+    await scheduler.processAvailable();
+    await tick();
+    const added = {
+      stepId: randomUUID(),
+      delaySeconds: 86400,
+      parts: [part("added")],
+    };
+    const publishedAt = new Date(now);
+    await publish({ ...value, steps: [...value.steps, added] });
+    await tick(100);
+    await tick(100);
+    await tick(86000);
+    expect(sent.filter((m) => m.content.text === "added")).toHaveLength(0);
+    now = new Date(+publishedAt + 86400000);
+    const second = new FunnelScheduler(database, config, clock, transport);
+    await Promise.all([
+      scheduler.processAvailable(),
+      second.processAvailable(),
+    ]);
+    await tick();
+    expect(sent.filter((m) => m.content.text === "added")).toHaveLength(1);
+    await tick(200);
+    expect(sent.filter((m) => m.content.text === "added")).toHaveLength(2);
+    await tick(86400);
+    expect(sent.filter((m) => m.content.text === "added")).toHaveLength(2);
+    expect(
+      (await deliveries()).filter((d) => d.step_id === added.stepId),
+    ).toHaveLength(2);
+    for (const old of firstPublished)
+      expect(
+        await database
+          .selectFrom("communication_step_ids")
+          .select("first_published_at")
+          .where("step_id", "=", old.step_id)
+          .executeTakeFirst(),
+      ).toEqual({ first_published_at: old.first_published_at });
+  });
+  it("edits pending snapshots, inserts/reorders before pending and uses the last actual completion", async () => {
+    const value = await initialComplete();
+    const inserted = {
+      stepId: randomUUID(),
+      delaySeconds: 5,
+      parts: [part("inserted")],
+    };
+    await publish({
+      ...value,
+      steps: [
+        inserted,
+        { ...value.steps[0]!, parts: [part("edited")] },
+        value.steps[1]!,
+      ],
+    });
+    await tick(5);
+    expect(sent.at(-1)?.content.text).toBe("inserted");
+    await tick(9);
+    expect(sent.at(-1)?.content.text).toBe("inserted");
+    await tick();
+    expect(sent.at(-1)?.content.text).toBe("edited");
+    await publish({
+      ...value,
+      steps: [value.steps[1]!, inserted, value.steps[0]!],
+    });
+    await tick(9);
+    expect(sent.at(-1)?.content.text).toBe("edited");
+    await tick();
+    expect(sent.at(-1)?.content.text).toBe("general:step2");
+    await tick(100);
+    expect(sent).toHaveLength(5);
+  });
+  it("deletes pending, preserves terminal history and rollback restores only unattempted deletion", async () => {
+    const value = await initialComplete();
+    await publish({ ...value, steps: [value.steps[1]!] });
+    const deleted = (await deliveries()).find(
+      (d) => d.step_id === value.steps[0]!.stepId,
+    )!;
+    expect(deleted.completed_at).toEqual(now);
+    expect((deleted.parts as DeliveryPart[])[0]!.state).toBe("cancelled");
+    const res = await http(
+      command(
+        "funnels.rollback",
+        { funnelId: value.funnelId, publishedRevision: 2 },
+        4,
+      ),
+    );
+    expect(res.statusCode).toBe(200);
+    expect(responseValidator(res.json())).toBe(true);
+    await tick(10);
+    expect(sent.at(-1)?.content.text).toBe("general:step1");
+    await tick(10);
+    expect(sent.at(-1)?.content.text).toBe("general:step2");
+    const first = (await deliveries()).find(
+      (d) => d.step_id === value.steps[0]!.stepId,
+    )!;
+    expect(first.delivery_id).toBe(deleted.delivery_id);
+    expect((first.parts as DeliveryPart[])[0]!.state).toBe("sent");
+  });
+  it("finishes partial cancellation at the terminal timestamp, never before unknown resolution", async () => {
+    const value = draft();
+    const circle: MessagePart = {
+      partId: randomUUID(),
+      content: {
+        type: "video_note",
+        fileId: "synthetic",
+        text: "",
+        entities: [],
+        buttons: [],
+      },
+    };
+    const first = {
+      ...value.steps[0]!,
+      parts: [circle, part("text"), part("tail")],
+    };
+    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    await tick(10);
+    transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
+    await tick();
+    const before = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    const evidence = (before.parts as DeliveryPart[])[1]!.attempts;
+    await publish({ ...value, steps: [value.steps[1]!] });
+    const cancelled = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(cancelled.cancel_requested).toBe(true);
+    expect(cancelled.completed_at).toBeNull();
+    expect((cancelled.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+      "sent",
+      "unknown",
+      "cancelled",
+    ]);
+    await tick(100);
+    expect(sent.at(-1)?.content.type).toBe("video_note");
+    expect((await resolve(before.delivery_id, "retry", true)).statusCode).toBe(
+      409,
+    );
+    const skipped = await resolve(before.delivery_id, "skip");
+    expect(skipped.statusCode).toBe(200);
+    expect(responseValidator(skipped.json())).toBe(true);
+    const resolved = (await deliveries()).find(
+      (d) => d.delivery_id === before.delivery_id,
+    )!;
+    expect((resolved.parts as DeliveryPart[])[1]!.attempts).toEqual(evidence);
+    expect(resolved.completed_at).toEqual(now);
+    await tick(9);
+    expect(sent.at(-1)?.content.type).toBe("video_note");
+    await tick();
+    expect(sent.at(-1)?.content.text).toBe("general:step2");
+  });
+  it("explicit retry requires accepting unknown risk, preserves evidence, dedupes the decision and rechecks permission", async () => {
+    await initialComplete();
+    transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
+    await tick(10);
+    const d = (await deliveries()).find((d) => d.kind === "step")!;
+    expect((await resolve(d.delivery_id, "retry")).statusCode).toBe(409);
+    const request = command(
+      "delivery.resolve",
+      {
+        deliveryId: d.delivery_id,
+        partId: (d.parts as DeliveryPart[])[0]!.partId,
+        action: "retry",
+        duplicateRiskAccepted: true,
+      },
+      d.revision,
+    );
+    const responses = await Promise.all([http(request), http(request)]);
+    expect(responses.map((r) => r.statusCode)).toEqual([200, 200]);
+    expect(responses[0]!.json()).toEqual(responses[1]!.json());
+    await tick();
+    const sentPart = (
+      (await deliveries()).find((x) => x.delivery_id === d.delivery_id)!
+        .parts as DeliveryPart[]
+    )[0]!;
+    expect(sentPart.attempts[0]!.outcome).toBe("unknown");
+    expect(sentPart.attempts[1]!.duplicateRiskAccepted).toBe(true);
+    authorization.authorize.mockResolvedValueOnce("denied");
+    expect((await http(request)).statusCode).toBe(403);
+  });
+  it.each([5, 15])(
+    "stop at %is suppresses virtual due <= resume and preserves the first future deadline",
+    async (stopAt) => {
+      const value = await initialComplete();
+      now = new Date(+now + stopAt * 1000);
+      await preference(false, "10");
+      now = new Date("2030-01-01T00:00:16Z");
+      await preference(true, "11");
+      const first = (await deliveries()).find(
+        (d) => d.step_id === value.steps[0]!.stepId,
+      )!;
+      expect((first.parts as DeliveryPart[])[0]!.state).toBe("suppressed");
+      const second = (await deliveries()).find(
+        (d) => d.step_id === value.steps[1]!.stepId,
+      )!;
+      expect(second.due_at).toEqual(new Date("2030-01-01T00:00:21Z"));
+      await tick(4);
+      expect(sent.some((m) => m.content.text.includes("step"))).toBe(false);
+      await tick();
+      expect(sent.at(-1)?.content.text).toBe("general:step2");
+      await start("12");
+      await tick(100);
+      expect(sent.some((m) => m.content.text === "general:step1")).toBe(false);
+    },
+  );
+  it("resume before any due preserves the existing deadline; stop does not remove themes or block requested navigation", async () => {
+    const a = await initialComplete();
+    const b = draft("topic", false);
+    await funnels.execute(command("funnels.save", b));
+    await funnels.execute(
+      command("funnels.publish", { funnelId: b.funnelId }, 1),
+    );
+    await preference(false, "10");
+    await start("11", "m_topic");
+    await tick();
+    expect(sent.at(-1)?.content.text).toBe("topic:entry");
+    expect(
+      (
+        await database
+          .selectFrom("communication_contacts")
+          .select("marketing_enabled")
+          .executeTakeFirstOrThrow()
+      ).marketing_enabled,
+    ).toBe(false);
+    await preference(true, "12");
+    const pending = (await deliveries()).find(
+      (d) => d.step_id === a.steps[0]!.stepId,
+    )!;
+    expect(pending.due_at).toEqual(new Date("2030-01-01T00:00:11Z"));
+    expect(
+      await database
+        .selectFrom("communication_enrollments")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(2);
+  });
+  it("recomputes edits while stopped and rollback never revives suppressed markers", async () => {
+    const value = await initialComplete();
+    await preference(false, "10");
+    now = new Date(+now + 100000);
+    const inserted = {
+      stepId: randomUUID(),
+      delaySeconds: 20,
+      parts: [part("inserted")],
+    };
+    await publish({
+      ...value,
+      steps: [inserted, value.steps[1]!, value.steps[0]!],
+    });
+    now = new Date(+now + 25000);
+    await preference(true, "11");
+    const added = (await deliveries()).find(
+      (d) => d.step_id === inserted.stepId,
+    )!;
+    expect((added.parts as DeliveryPart[])[0]!.state).toBe("suppressed");
+    expect(
+      (await deliveries()).find((d) => d.step_id === value.steps[1]!.stepId)!
+        .due_at,
+    ).toEqual(new Date("2030-01-01T00:02:11Z"));
+    const rollback = await http(
+      command(
+        "funnels.rollback",
+        { funnelId: value.funnelId, publishedRevision: 4 },
+        4,
+      ),
+    );
+    expect(rollback.statusCode).toBe(200);
+    await tick(5);
+    expect(sent.at(-1)?.content.text).toBe("general:step2");
+    expect(sent.some((m) => m.content.text === "inserted")).toBe(false);
+  });
+  it("block/unblock suppresses missed work while operator pause retains overdue work and explicit stop survives unblock", async () => {
+    const value = await initialComplete();
+    await app.get(BotContacts).observeContactability({
+      botIdentity: "inside",
+      telegramUserId: "42",
+      contactability: "blocked",
+      observedAt: now,
+      updateId: "10",
+    });
+    await tick(15);
+    await app.get(BotContacts).observeContactability({
+      botIdentity: "inside",
+      telegramUserId: "42",
+      contactability: "reachable",
+      observedAt: now,
+      updateId: "11",
+    });
+    expect(
+      (
+        (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId)!
+          .parts as DeliveryPart[]
+      )[0]!.state,
+    ).toBe("suppressed");
+    await funnels.execute(
+      command(
+        "funnels.lifecycle",
+        { funnelId: value.funnelId, action: "pause" },
+        2,
+      ),
+    );
+    await tick(100);
+    expect(sent).toHaveLength(2);
+    await funnels.execute(
+      command(
+        "funnels.lifecycle",
+        { funnelId: value.funnelId, action: "resume" },
+        3,
+      ),
+    );
+    await scheduler.processAvailable();
+    expect(sent.at(-1)?.content.text).toBe("general:step2");
+    await preference(false, "12");
+    await start("13");
+    expect(
+      (
+        await database
+          .selectFrom("communication_contacts")
+          .select("marketing_enabled")
+          .executeTakeFirstOrThrow()
+      ).marketing_enabled,
+    ).toBe(false);
+  });
+});
+
+describe("preference and publication crash/race boundaries #29", () => {
+  it("serializes publish and stop against an in-flight multipart dispatch, then settles partial cancellation", async () => {
+    const value = draft();
+    const first = {
+      ...value.steps[0]!,
+      parts: [part("first"), part("must cancel")],
+    };
+    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    let release!: (result: TelegramDeliveryResult) => void;
+    let claimed!: () => void;
+    const claimReady = new Promise<void>((r) => {
+      claimed = r;
+    });
+    transport.send.mockImplementationOnce(async (message) => {
+      sent.push(message);
+      claimed();
+      return new Promise<TelegramDeliveryResult>((r) => {
+        release = r;
+      });
+    });
+    now = new Date(+now + 10000);
+    const dispatch = scheduler.processAvailable(1);
+    await claimReady;
+    await Promise.all([
+      preference(false, "10"),
+      publish({ ...value, steps: [value.steps[1]!] }),
+    ]);
+    const inFlight = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(inFlight.cancel_requested).toBe(true);
+    expect(inFlight.completed_at).toBeNull();
+    expect((inFlight.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+      "in_flight",
+      "cancelled",
+    ]);
+    now = new Date(+now + 3000);
+    release({ kind: "delivered", providerMessageId: "synthetic" });
+    await dispatch;
+    const terminal = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(terminal.completed_at).toEqual(now);
+    expect((terminal.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+      "sent",
+      "cancelled",
+    ]);
+    await tick(100);
+    expect(sent.some((m) => m.content.text === "must cancel")).toBe(false);
+  });
+  it("stop and duplicate resume updates commit one preference receipt and service reply, including with marketing disabled", async () => {
+    await initialComplete();
+    const webhook = app.get(TelegramWebhook);
+    const processor = app.get(TelegramUpdateProcessor);
+    const update = (id: number, text: string) => ({
+      update_id: id,
+      message: {
+        message_id: id,
+        date: 1,
+        chat: { id: 42, type: "private" },
+        from: { id: 42, is_bot: false },
+        text,
+      },
+    });
+    await webhook.accept(config.webhookSecret, update(100, "/stop"));
+    await processor.processAvailable(10, new Date("2031-01-01"));
+    expect(
+      (
+        await database
+          .selectFrom("communication_contacts")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).marketing_enabled,
+    ).toBe(false);
+    await webhook.accept(config.webhookSecret, update(100, "/stop"));
+    await processor.processAvailable(10, new Date("2031-01-01"));
+    expect(
+      await database
+        .selectFrom("communication_preferences")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(1);
+    const receipt = await database
+      .selectFrom("start_response_deliveries")
+      .selectAll()
+      .where("source_key", "like", "marketing-preference:%")
+      .execute();
+    expect(receipt).toHaveLength(1);
+    expect(receipt[0]!.message_text).toContain("/resume");
+    const disabled = new MarketingEntry(
+      database,
+      { ...config, marketingEnabled: false },
+      clock,
+    );
+    const start = {
+      botIdentity: "inside",
+      telegramUserId: "42",
+      privateChatId: "42",
+      updateId: "101",
+      observedAt: now,
+    };
+    await Promise.all([
+      disabled.setPreference(start, true),
+      disabled.setPreference(start, true),
+    ]);
+    expect(
+      await database
+        .selectFrom("communication_preferences")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(2);
+    expect(
+      await database
+        .selectFrom("start_response_deliveries")
+        .selectAll()
+        .where("source_key", "like", "marketing-preference:%")
+        .execute(),
+    ).toHaveLength(2);
+    await disabled.setPreference({ ...start, updateId: "100" }, false);
+    expect(
+      (
+        await database
+          .selectFrom("communication_contacts")
+          .selectAll()
+          .executeTakeFirstOrThrow()
+      ).marketing_enabled,
+    ).toBe(true);
+  });
+  it("preserves a frozen started snapshot through edits and accepts late evidence for the exact unknown attempt", async () => {
+    const value = draft();
+    const first = {
+      ...value.steps[0]!,
+      parts: [part("frozen one"), part("frozen two")],
+    };
+    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    await tick(10);
+    await publish({
+      ...value,
+      steps: [
+        { ...first, parts: [part("new one"), part("new two")] },
+        value.steps[1]!,
+      ],
+    });
+    transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
+    await tick();
+    const unknown = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect(unknown.attempt_id).not.toBeNull();
+    await tick(100);
+    const calls = transport.send.mock.calls.length;
+    await scheduler.record(unknown.delivery_id, unknown.attempt_id!, {
+      kind: "delivered",
+      providerMessageId: "late",
+    });
+    await scheduler.record(unknown.delivery_id, unknown.attempt_id!, {
+      kind: "delivered",
+      providerMessageId: "late",
+    });
+    const settled = (await deliveries()).find(
+      (d) => d.step_id === first.stepId,
+    )!;
+    expect((settled.snapshot as MessagePart[])[1]!.content.text).toBe(
+      "frozen two",
+    );
+    expect(
+      (settled.parts as DeliveryPart[])[1]!.attempts.map((a) => a.outcome),
+    ).toEqual(["unknown", "sent"]);
+    expect(transport.send.mock.calls.length).toBe(calls);
+    expect(settled.completed_at).toEqual(now);
+  });
+});
+
+it("keeps first-entry intro suppressed when the subscriber stopped before enrollment", async () => {
+  const value = await setup();
+  await app.get(BotContacts).observeStart(
+    {
+      botIdentity: "inside",
+      telegramUserId: "42",
+      privateChatId: "42",
+      updateId: "9",
+      observedAt: now,
+    },
+    "none",
+  );
+  await preference(false, "10");
+  await start("11");
+  await tick();
+  expect(sent.map((m) => m.content.text)).toEqual(["general:entry"]);
+  await preference(true, "12");
+  await tick(10);
+  expect(sent.at(-1)?.content.text).toBe("general:step1");
+  expect(sent.some((m) => m.content.text === "intro")).toBe(false);
+  expect(
+    (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId),
+  ).toBeDefined();
 });
