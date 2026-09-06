@@ -16,7 +16,10 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { sql } from "kysely";
+import { sql, Kysely, PostgresDialect } from "kysely";
+import { Pool } from "pg";
+import type { DatabaseSchema } from "../../src/database/database.js";
+import { Funnels } from "../../src/modules/communications/funnels.js";
 import {
   afterAll,
   afterEach,
@@ -762,6 +765,100 @@ describe("author admin shared post and broadcast flow", () => {
       { state: "delivered", attempt_count: 2 },
       { state: "delivered", attempt_count: 1 },
     ]);
+  });
+  it("lists posts within the existing transaction even with one available connection", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    const single = new Kysely<DatabaseSchema>({
+      dialect: new PostgresDialect({
+        pool: new Pool({
+          connectionString: databaseUrl,
+          max: 1,
+          connectionTimeoutMillis: 500,
+        }),
+      }),
+    });
+    try {
+      const admin = new AuthorAdmin(
+        single,
+        config,
+        authorization,
+        new Communications(single, config, authorization),
+        app.get(Funnels),
+        app.get(AuthorDelivery),
+      );
+      const session = await database
+        .selectFrom("communication_author_sessions")
+        .select("state")
+        .executeTakeFirstOrThrow();
+      const state = session.state as {
+        token: string;
+        actions: { kind: string }[];
+      };
+      await expect(
+        admin.handle({
+          botIdentity: "inside",
+          updateId: "101",
+          telegramUserId: "42",
+          text: "",
+          content: null,
+          callbackData: `author:${state.token}:${state.actions.findIndex((a) => a.kind === "posts")}`,
+        }),
+      ).resolves.toBe(true);
+    } finally {
+      await single.destroy();
+    }
+  });
+  it("discards a cancelled replacement when a stale menu opens a different broadcast", async () => {
+    await seedLink();
+    await communications.execute({
+      ...request(),
+      payload: {
+        templateId: randomUUID(),
+        content: { ...content, text: "Saved C" },
+      },
+    });
+    for (const name of ["Broadcast A", "Broadcast B"])
+      await app.get(Funnels).execute({
+        ...request(),
+        operation: "broadcasts.save",
+        payload: {
+          broadcastId: randomUUID(),
+          parts: [
+            { partId: randomUUID(), content: { ...content, text: name } },
+          ],
+          audience: { kind: "all" },
+          scheduledAt: null,
+        },
+      });
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Рассылки");
+    const old = await authorClick(102, "Broadcast A · v1");
+    await authorClick(103, "Сообщения и порядок");
+    await authorClick(104, "Заменить 1: Broadcast A");
+    await app.get(AuthorAdmin).handle({ ...old, updateId: "105" });
+    await authorClick(106, "Рассылки");
+    await authorClick(107, "Broadcast B · v1");
+    await authorClick(108, "Добавить сохранённый пост");
+    await authorClick(109, "Saved C");
+    const broadcasts = await database
+      .selectFrom("communication_broadcasts")
+      .select("parts")
+      .execute();
+    expect(
+      broadcasts.map((row) =>
+        (row.parts as { content: { text: string } }[]).map(
+          (p) => p.content.text,
+        ),
+      ),
+    ).toContainEqual(["Broadcast B", "Saved C"]);
+    expect(
+      broadcasts.map((row) =>
+        (row.parts as { content: { text: string } }[]).map(
+          (p) => p.content.text,
+        ),
+      ),
+    ).toContainEqual(["Broadcast A"]);
   });
   it("rejects stale menus without overwriting a newer web edit", async () => {
     await seedLink();
