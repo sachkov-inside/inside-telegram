@@ -90,7 +90,9 @@ Platform `TELEGRAM_LINKING_ENDPOINT` указывает на HTTPS
 
 После успешного TLS и readiness вызовите Telegram `setWebhook` через защищённый операторский API
 клиент: `url=https://<telegram-domain>/webhooks/telegram`, `secret_token=TELEGRAM_WEBHOOK_SECRET`,
-`allowed_updates=["message","chat_member","my_chat_member"]`, `drop_pending_updates=false`.
+`allowed_updates=["message","chat_member","my_chat_member","callback_query"]`, `drop_pending_updates=false`.
+`callback_query` supports the separately gated [bot sign-in provider](../specifications/bot-sign-in-v1.md).
+Updating webhook registration remains an explicit owner operation; this change does not perform it.
 Токен не помещается в CLI arguments. Повторно прочитайте `getWebhookInfo`: exact URL, allowed updates,
 отсутствие ошибок доставки. Webhook не настраивается при сборке image или каждом рестарте.
 

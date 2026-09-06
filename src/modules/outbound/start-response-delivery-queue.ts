@@ -16,6 +16,7 @@ export interface ClaimedStartResponseDelivery {
   readonly id: string;
   readonly messageText: string;
   readonly privateChatId: string;
+  readonly signInRequestRef?: string;
 }
 
 @Injectable()
@@ -24,6 +25,7 @@ export class StartResponseDeliveryQueue {
 
   async claimNext(
     now: Date,
+    signInEnabled = false,
   ): Promise<ClaimedStartResponseDelivery | undefined> {
     return this.database.transaction().execute(async (transaction) => {
       const stale = await transaction
@@ -73,7 +75,34 @@ export class StartResponseDeliveryQueue {
 
       const delivery = await transaction
         .selectFrom("start_response_deliveries")
-        .select(["attempt_count", "id", "message_text", "private_chat_id"])
+        .select([
+          "attempt_count",
+          "id",
+          "message_text",
+          "private_chat_id",
+          "sign_in_request_ref",
+        ])
+        .where((eb) =>
+          eb.or([
+            eb("sign_in_request_ref", "is", null),
+            ...(signInEnabled
+              ? [
+                  eb.exists(
+                    eb
+                      .selectFrom("sign_in_requests")
+                      .select("request_ref")
+                      .whereRef(
+                        "request_ref",
+                        "=",
+                        "start_response_deliveries.sign_in_request_ref",
+                      )
+                      .where("state", "=", "awaiting_approval")
+                      .where("expires_at", ">", now),
+                  ),
+                ]
+              : []),
+          ]),
+        )
         .where("state", "in", ["pending", "retry_scheduled"])
         .where("available_at", "<=", now)
         .orderBy("id", "asc")
@@ -103,6 +132,9 @@ export class StartResponseDeliveryQueue {
         id: delivery.id,
         messageText: delivery.message_text,
         privateChatId: delivery.private_chat_id,
+        ...(delivery.sign_in_request_ref
+          ? { signInRequestRef: delivery.sign_in_request_ref }
+          : {}),
       };
     });
   }

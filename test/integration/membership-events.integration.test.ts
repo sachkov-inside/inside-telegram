@@ -6,6 +6,8 @@ import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
 import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
+import { BotSignIn } from "../../src/modules/bot-sign-in/bot-sign-in.js";
+import { DisabledTelegramCallbackAnswers } from "../../src/modules/bot-sign-in/telegram-callback-answers.js";
 import type { Clock } from "../../src/modules/identity-linking/clock.js";
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
 import { MembershipEvidenceProvider } from "../../src/modules/membership-evidence/membership-evidence-provider.js";
@@ -362,6 +364,8 @@ describe("durable Membership events", () => {
       linking,
       metrics,
       provider,
+      new BotSignIn(database, config, clock),
+      new DisabledTelegramCallbackAnswers(),
     );
     const webhook = new TelegramWebhook(config, inbox, metrics);
     const update = canonicalMembershipUpdate(

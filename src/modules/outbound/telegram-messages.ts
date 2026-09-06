@@ -1,6 +1,10 @@
 export interface TelegramTextMessage {
   readonly chatId: string;
   readonly text: string;
+  readonly buttons?: readonly {
+    readonly text: string;
+    readonly callbackData: string;
+  }[];
 }
 
 export type TelegramDeliveryResult =

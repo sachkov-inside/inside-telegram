@@ -2,6 +2,11 @@ import { Inject, Injectable } from "@nestjs/common";
 
 import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
 import { BotContacts } from "../bot-contacts/bot-contacts.js";
+import { BotSignIn } from "../bot-sign-in/bot-sign-in.js";
+import {
+  TELEGRAM_CALLBACK_ANSWERS,
+  type TelegramCallbackAnswers,
+} from "../bot-sign-in/telegram-callback-answers.js";
 import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { MembershipEvidenceProvider } from "../membership-evidence/membership-evidence-provider.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
@@ -19,6 +24,9 @@ export class TelegramUpdateProcessor {
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
     @Inject(MembershipEvidenceProvider)
     private readonly membershipEvidence: MembershipEvidenceProvider,
+    @Inject(BotSignIn) private readonly signIn: BotSignIn,
+    @Inject(TELEGRAM_CALLBACK_ANSWERS)
+    private readonly callbackAnswers: TelegramCallbackAnswers,
   ) {}
 
   async processAvailable(limit = 50, now = new Date()): Promise<number> {
@@ -40,8 +48,18 @@ export class TelegramUpdateProcessor {
         if (command.kind === "start") {
           await this.botContacts.observeStart(
             command.value.contact,
-            command.value.linkToken ? "link-receipt" : "welcome",
+            command.value.signInToken
+              ? "none"
+              : command.value.linkToken
+                ? "link-receipt"
+                : "welcome",
           );
+          if (command.value.signInToken?.kind === "digest") {
+            await this.signIn.acceptStart(
+              command.value.contact,
+              command.value.signInToken.digest,
+            );
+          }
           if (command.value.linkToken) {
             await this.identityLinking.acceptStart({
               botIdentity: command.value.contact.botIdentity,
@@ -50,6 +68,9 @@ export class TelegramUpdateProcessor {
               telegramUserId: command.value.contact.telegramUserId,
             });
           }
+        } else if (command.kind === "sign-in-decision") {
+          await this.signIn.decide(command.value);
+          await this.callbackAnswers.answer(command.callbackQueryId);
         } else if (command.kind === "contactability") {
           await this.botContacts.observeContactability(command.value);
         } else if (command.kind === "membership") {

@@ -31,7 +31,7 @@ export interface ContactOutcome {
   readonly responsePlanned: boolean;
 }
 
-export type StartResponseKind = "link-receipt" | "welcome";
+export type StartResponseKind = "link-receipt" | "welcome" | "none";
 
 @Injectable()
 export class BotContacts {
@@ -97,6 +97,8 @@ export class BotContacts {
         })
         .onConflict((conflict) => conflict.doNothing())
         .execute();
+
+      if (responseKind === "none") return { contact, responsePlanned: false };
 
       const responseDelivery = await transaction
         .insertInto("start_response_deliveries")

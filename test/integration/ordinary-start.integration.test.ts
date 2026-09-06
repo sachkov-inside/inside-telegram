@@ -619,6 +619,7 @@ async function prepareDelivery(
     new StartResponseDeliveryQueue(database),
     messages,
     new RuntimeMetrics(),
+    config,
   );
   return { messages, processor };
 }

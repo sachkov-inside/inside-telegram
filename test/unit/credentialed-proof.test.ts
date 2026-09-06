@@ -203,7 +203,12 @@ describe("credentialed Telegram proof redaction", () => {
     expect(
       validateWebhookInfo(
         {
-          allowed_updates: ["message", "my_chat_member", "chat_member"],
+          allowed_updates: [
+            "message",
+            "my_chat_member",
+            "chat_member",
+            "callback_query",
+          ],
           has_custom_certificate: false,
           pending_update_count: 0,
           url: "https://proof.example/telegram",
@@ -227,7 +232,12 @@ describe("credentialed Telegram proof redaction", () => {
     expect(
       validateWebhookInfo(
         {
-          allowed_updates: ["message", "my_chat_member", "chat_member"],
+          allowed_updates: [
+            "message",
+            "my_chat_member",
+            "chat_member",
+            "callback_query",
+          ],
           last_error_date: 1_900_000_000,
           last_error_message:
             "Wrong response from the webhook: 503 Service Unavailable",

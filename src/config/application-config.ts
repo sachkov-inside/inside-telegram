@@ -20,6 +20,8 @@ export interface ApplicationConfig {
   readonly platformEvidenceDeliveryUrl?: string;
   readonly platformIntegrationSecret: string;
   readonly port: number;
+  readonly signInEnabled?: boolean;
+  readonly signInIntegrationSecret?: string;
   readonly webhookSecret: string;
   readonly welcomeText: string;
   readonly workersEnabled: boolean;
@@ -59,6 +61,24 @@ export function loadApplicationConfig(
 
   const deliveryMode = environment.TELEGRAM_DELIVERY_MODE ?? "disabled";
   assertExternalMode(deliveryMode, "TELEGRAM_DELIVERY_MODE");
+
+  const signInFlag = environment.TELEGRAM_SIGN_IN_ENABLED ?? "false";
+  if (signInFlag !== "true" && signInFlag !== "false") {
+    throw new Error("TELEGRAM_SIGN_IN_ENABLED must be true or false");
+  }
+  const signInEnabled = signInFlag === "true";
+  const signInIntegrationSecret = signInEnabled
+    ? required(environment, "TELEGRAM_SIGN_IN_INTEGRATION_SECRET")
+    : undefined;
+  if (
+    signInIntegrationSecret &&
+    (!/^[A-Za-z0-9_-]{32,256}$/.test(signInIntegrationSecret) ||
+      signInIntegrationSecret === platformIntegrationSecret)
+  ) {
+    throw new Error(
+      "TELEGRAM_SIGN_IN_INTEGRATION_SECRET must be a separate base64url credential of at least 32 characters",
+    );
+  }
 
   const membershipMode = environment.TELEGRAM_MEMBERSHIP_MODE ?? "disabled";
   assertExternalMode(membershipMode, "TELEGRAM_MEMBERSHIP_MODE");
@@ -134,6 +154,8 @@ export function loadApplicationConfig(
     ...(platformEvidenceDeliveryUrl ? { platformEvidenceDeliveryUrl } : {}),
     platformIntegrationSecret,
     port: parsePort(environment.PORT),
+    signInEnabled,
+    ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
     webhookSecret,
     welcomeText: required(environment, "TELEGRAM_WELCOME_TEXT"),
     workersEnabled: parseBoolean(environment.WORKERS_ENABLED, true),

@@ -8,6 +8,7 @@ import { durableMembershipEventsMigration } from "./migrations/004-durable-membe
 import { membershipReconciliationMigration } from "./migrations/005-membership-reconciliation.js";
 import { platformEvidenceConformanceMigration } from "./migrations/006-platform-evidence-conformance.js";
 import { ownerIdentityRecoveryMigration } from "./migrations/007-owner-identity-recovery.js";
+import { botSignInMigration } from "./migrations/008-bot-sign-in.js";
 
 const migrationProvider: MigrationProvider = {
   async getMigrations() {
@@ -19,6 +20,7 @@ const migrationProvider: MigrationProvider = {
       "005-membership-reconciliation": membershipReconciliationMigration,
       "006-platform-evidence-conformance": platformEvidenceConformanceMigration,
       "007-owner-identity-recovery": ownerIdentityRecoveryMigration,
+      "008-bot-sign-in": botSignInMigration,
     };
   },
 };

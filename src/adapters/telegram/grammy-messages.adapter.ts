@@ -18,7 +18,18 @@ export class GrammyMessagesAdapter implements TelegramMessages {
   ): Promise<TelegramDeliveryResult> {
     const chatId = toSafeTelegramNumber(message.chatId);
     try {
-      const sent = await this.api.sendMessage(chatId, message.text);
+      const sent = message.buttons
+        ? await this.api.sendMessage(chatId, message.text, {
+            reply_markup: {
+              inline_keyboard: [
+                message.buttons.map((button) => ({
+                  text: button.text,
+                  callback_data: button.callbackData,
+                })),
+              ],
+            },
+          })
+        : await this.api.sendMessage(chatId, message.text);
       return {
         kind: "delivered",
         providerMessageId: String(sent.message_id),
@@ -46,7 +57,15 @@ export class GrammyMessagesAdapter implements TelegramMessages {
 }
 
 interface TelegramApi {
-  sendMessage(chatId: number, text: string): Promise<{ message_id: number }>;
+  sendMessage(
+    chatId: number,
+    text: string,
+    options?: {
+      reply_markup: {
+        inline_keyboard: { text: string; callback_data: string }[][];
+      };
+    },
+  ): Promise<{ message_id: number }>;
 }
 
 export class DisabledMessagesAdapter implements TelegramMessages {
