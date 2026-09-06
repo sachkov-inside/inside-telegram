@@ -1,3 +1,5 @@
+import { AuthorFunnels, type AuthorFunnelState } from "./author-funnels.js";
+import { authorRequest } from "./author-request.js";
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import { sql, type Transaction } from "kysely";
@@ -19,7 +21,6 @@ import { Communications } from "./communications.js";
 import { Funnels } from "./funnels.js";
 import { AuthorDelivery, enqueueAuthorMessage } from "./author-delivery.js";
 import {
-  COMMUNICATIONS_VERSION,
   CommunicationsError,
   validateContent,
   type CommunicationsRequest,
@@ -29,10 +30,11 @@ import type { broadcastView } from "./broadcasts.js";
 import { communicationLock } from "./communication-state.js";
 
 type Broadcast = ReturnType<typeof broadcastView>;
-type Action = { kind: string; id?: string; value?: string };
+export type Action = { kind: string; id?: string; value?: string };
 type State = {
   token: string;
   actions: Action[];
+  funnelAuthor?: AuthorFunnelState;
   template?: TemplateSnapshot;
   broadcast?: Broadcast;
   prompt?:
@@ -47,7 +49,7 @@ type State = {
   buttonUrl?: string;
 };
 type Tx = Transaction<DatabaseSchema>;
-type Context = {
+export type Context = {
   tx: Tx;
   input: AuthorInput;
   accountRef: string;
@@ -58,6 +60,7 @@ const home: [string, Action][] = [
   ["Создать пост", { kind: "new" }],
   ["Мои посты", { kind: "posts" }],
   ["Рассылки", { kind: "broadcasts" }],
+  ["Воронки", { kind: "f:list" }],
 ];
 
 @Injectable()
@@ -70,6 +73,7 @@ export class AuthorAdmin {
     @Inject(Communications) private readonly posts: Communications,
     @Inject(Funnels) private readonly funnels: Funnels,
     @Inject(AuthorDelivery) private readonly delivery: AuthorDelivery,
+    @Inject(AuthorFunnels) private readonly authorFunnels: AuthorFunnels,
   ) {}
   async handle(input: AuthorInput): Promise<boolean> {
     if (input.botIdentity !== this.config.botIdentity) return false;
@@ -179,7 +183,7 @@ export class AuthorAdmin {
           context.state = empty();
           await this.reply(
             context,
-            "Админка рассылок. Текст и медиа готовьте здесь, в Telegram.",
+            "Админка коммуникаций. Текст и медиа готовьте здесь, в Telegram.",
             home,
           );
         } else if (input.callbackData) {
@@ -192,7 +196,7 @@ export class AuthorAdmin {
             context.state = empty();
             await this.reply(
               context,
-              "Это меню уже устарело. Откройте пост или рассылку заново.",
+              "Это меню уже устарело. Откройте пост, рассылку или воронку заново.",
               home,
             );
           } else await this.act(context, action);
@@ -204,6 +208,7 @@ export class AuthorAdmin {
               !(error instanceof CommunicationsError) ||
               ![
                 "revision_conflict",
+                "malformed",
                 "unsupported_content",
                 "not_found",
               ].includes(error.code)
@@ -212,7 +217,7 @@ export class AuthorAdmin {
             context.state = empty();
             await this.reply(
               context,
-              "Данные изменились. Откройте актуальный пост или рассылку и повторите правку.",
+              "Данные изменились. Откройте актуальный пост, рассылку или воронку и повторите правку.",
               home,
             );
           }
@@ -254,15 +259,9 @@ export class AuthorAdmin {
     payload: CommunicationsRequest["payload"],
     revision = 0,
   ): CommunicationsRequest {
-    return {
-      contractVersion: COMMUNICATIONS_VERSION,
-      operationId: randomUUID(),
-      operation,
-      actor: { accountRef: c.accountRef },
-      expectedRevision: revision,
-      payload,
-    };
+    return authorRequest(c.accountRef, operation, payload, revision);
   }
+
   private async reply(
     c: Context,
     text: string,
@@ -383,25 +382,36 @@ export class AuthorAdmin {
     } catch (error) {
       if (
         !(error instanceof CommunicationsError) ||
-        !["revision_conflict", "not_found", "unsupported_content"].includes(
-          error.code,
-        )
+        ![
+          "revision_conflict",
+          "not_found",
+          "unsupported_content",
+          "malformed",
+        ].includes(error.code)
       )
         throw error;
       c.state = empty();
       await this.reply(
         c,
-        "Пост или рассылка изменились либо действие недоступно. Откройте актуальную версию.",
+        "Пост, рассылка или воронка изменились либо действие недоступно. Откройте актуальную версию.",
         home,
       );
     }
   }
   private async perform(c: Context, a: Action): Promise<void> {
+    if (a.kind === "home" && c.state.funnelAuthor?.dirty)
+      return this.authorFunnels.act(c, { kind: "f:list" }, (text, buttons) =>
+        this.reply(c, text, buttons),
+      );
+    if (a.kind.startsWith("f:"))
+      return this.authorFunnels.act(c, a, (text, buttons) =>
+        this.reply(c, text, buttons),
+      );
     const t = c.state.template;
     const b = c.state.broadcast;
     if (a.kind === "home") {
       c.state = empty();
-      return this.reply(c, "Админка рассылок", home);
+      return this.reply(c, "Админка коммуникаций", home);
     }
     if (a.kind === "new" || a.kind === "replace") {
       if (a.kind === "replace" && !t)
@@ -557,7 +567,7 @@ export class AuthorAdmin {
       if ("broadcast" in result) c.state.broadcast = result.broadcast;
       return this.broadcast(c);
     }
-    if (!b) return this.reply(c, "Выберите пост или рассылку.", home);
+    if (!b) return this.reply(c, "Выберите пост, рассылку или воронку.", home);
     if (a.kind === "broadcast-sample") {
       for (const part of b.parts)
         await enqueueAuthorMessage(c.tx, {
@@ -728,6 +738,10 @@ export class AuthorAdmin {
     return this.reply(c, "Откройте меню заново.", home);
   }
   private async answer(c: Context): Promise<void> {
+    if (c.state.funnelAuthor?.prompt)
+      return this.authorFunnels.answer(c, (text, buttons) =>
+        this.reply(c, text, buttons),
+      );
     const state = c.state;
     const text = c.input.text;
     if (state.prompt === "capture" || state.prompt === "replace") {

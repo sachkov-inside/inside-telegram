@@ -1,3 +1,9 @@
+import { AuthorFunnels } from "./modules/communications/author-funnels.js";
+import {
+  AUTHOR_CONTENT_VALIDATION,
+  DisabledAuthorContentValidation,
+} from "./modules/communications/author-content-validation.js";
+import { HttpAuthorContentValidationAdapter } from "./adapters/platform/http-author-content-validation.adapter.js";
 import { AuthorAdmin } from "./modules/communications/author-admin.js";
 import {
   AuthorDelivery,
@@ -156,6 +162,7 @@ export class AppModule {
           },
         },
         AuthorAdmin,
+        AuthorFunnels,
         AuthorDelivery,
         {
           provide: AUTHOR_TRANSPORT,
@@ -192,6 +199,17 @@ export class AppModule {
                   config.platformAuthorAuthorizationSecret,
                 )
               : new DisabledAuthorAuthorization(),
+        },
+        {
+          provide: AUTHOR_CONTENT_VALIDATION,
+          useFactory: () =>
+            config.platformAuthorContentValidationUrl &&
+            config.platformAuthorAuthorizationSecret
+              ? new HttpAuthorContentValidationAdapter(
+                  config.platformAuthorContentValidationUrl,
+                  config.platformAuthorAuthorizationSecret,
+                )
+              : new DisabledAuthorContentValidation(),
         },
         BackgroundWorkers,
         BotContacts,

@@ -2583,6 +2583,166 @@
         }
       },
       "required": ["sourceId", "sourceCode", "funnelId", "enteredAt", "outcome"]
+    },
+    "contentValidationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "enum": ["inside-communications-v1"]
+        },
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "permission": {
+          "enum": ["communications:manage"]
+        },
+        "subject": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": ["account"]
+                },
+                "accountRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": ["kind", "accountRef"]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": ["telegram"]
+                },
+                "accountRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "telegramIdentityRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "botIdentity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "kind",
+                "accountRef",
+                "telegramIdentityRef",
+                "botIdentity"
+              ]
+            }
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "minItems": 1,
+          "maxItems": 2100
+        }
+      },
+      "required": [
+        "contractVersion",
+        "requestId",
+        "permission",
+        "subject",
+        "parts"
+      ]
+    },
+    "contentTargetError": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "url": {
+          "type": "string",
+          "format": "uri"
+        },
+        "reason": {
+          "enum": ["not_found", "not_published", "not_free", "incomplete"]
+        },
+        "targetId": {
+          "oneOf": [
+            {
+              "type": "string",
+              "format": "uuid"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": ["url", "reason", "targetId"]
+    },
+    "contentValidationResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "requestId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "accountRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "targetErrors": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/contentTargetError"
+              }
+            }
+          },
+          "required": [
+            "contractVersion",
+            "requestId",
+            "status",
+            "accountRef",
+            "targetErrors"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "requestId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": ["denied"]
+            }
+          },
+          "required": ["contractVersion", "requestId", "status"]
+        }
+      ]
     }
   },
   "oneOf": [
