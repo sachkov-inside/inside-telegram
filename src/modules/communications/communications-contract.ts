@@ -41,7 +41,8 @@ export interface CommunicationsRequest {
   readonly actor: Actor | { readonly serviceRef: "platform-tracking" };
   readonly payload: {
     readonly funnelId?: string;
-    readonly contactId?: string;
+    readonly deliveryId?: string;
+    readonly broadcastId?: string;
     readonly cursor?: string;
     readonly name?: string;
     readonly isDefault?: boolean;

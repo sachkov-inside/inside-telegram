@@ -86,7 +86,8 @@ confirmed terminal completion; its due time is `max(enrolledAt, firstPublishedAt
 hours between funnels. A pending initial response must finish before its scheduled steps.
 
 The short claim transaction serializes workers for one bot and commits an `in_flight` part with a
-unique attempt ID **before** external I/O. A stale claim becomes `unknown`, never sendable again
+unique attempt ID **before** external I/O. Recovery and result recording acquire the same scheduler
+lock before reading delivery state, so recovery cannot overwrite newly confirmed parts. A stale claim becomes `unknown`, never sendable again
 by lease expiry. Lost transport responses are unknown; confirmed API rejections get bounded
 retries (at most three attempts per part) or a terminal failure. `429 retry_after` defers the bot's
 shared capacity. The result transaction records the exact attempt and completion; a lost database
@@ -96,7 +97,8 @@ never retried. Failure/unknown blocks remaining parts and subsequent scheduled s
 
 The shared PostgreSQL transport reservation allows one private-chat message per second and one
 bot message per 40 ms, with no paid broadcast mode. Service responses have priority before marketing
-claims and use the same slots while marketing is enabled. These conservative intervals follow the
+claims and use the same slots while marketing is enabled. Their worker cycles are independent,
+so slow marketing I/O cannot hold up service processing; marketing API calls time out after ten seconds. These conservative intervals follow the
 [Telegram limits](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this).
 Contactability and the persisted marketing preference are reread under row locks before the
 marketing claim; lifecycle is checked under the publication row lock. External calls already

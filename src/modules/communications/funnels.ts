@@ -193,8 +193,9 @@ export class Funnels {
         );
       if (payload.funnelId)
         query = query.where("d.funnel_id", "=", payload.funnelId);
-      if (payload.contactId)
-        query = query.where("d.contact_id", "=", payload.contactId);
+      if (payload.deliveryId)
+        query = query.where("d.delivery_id", "=", payload.deliveryId);
+      if (payload.broadcastId) return { deliveries: [], nextCursor: null };
       if (payload.cursor)
         query = query.where(
           "d.delivery_id",
@@ -475,7 +476,11 @@ function validateParts(parts: readonly MessagePart[]): void {
   for (const part of parts) validateContent(part.content);
 }
 function requireCursor(cursor: string): string {
-  if (!/^[0-9a-f-]{36}$/i.test(cursor))
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      cursor,
+    )
+  )
     throw new CommunicationsError("malformed");
   return cursor;
 }

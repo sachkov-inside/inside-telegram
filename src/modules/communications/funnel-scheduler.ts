@@ -296,6 +296,10 @@ export class FunnelScheduler {
     result: TelegramDeliveryResult,
   ): Promise<void> {
     await this.database.transaction().execute(async (tx) => {
+      await communicationLock(
+        tx,
+        `communications-scheduler:${this.config.botIdentity}`,
+      );
       const delivery = await tx
         .selectFrom("communication_deliveries")
         .selectAll()

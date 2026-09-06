@@ -143,7 +143,9 @@ export class AppModule {
             config.marketingEnabled &&
             config.deliveryMode === "live" &&
             config.botToken
-              ? new GrammyCommunicationsAdapter(new Api(config.botToken))
+              ? new GrammyCommunicationsAdapter(
+                  new Api(config.botToken, { timeoutSeconds: 10 }),
+                )
               : new DisabledCommunicationTransport(),
         },
         {

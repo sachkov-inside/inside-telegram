@@ -659,3 +659,113 @@ describe("external dispatch crash boundaries", () => {
     expect(other.json().deliveries).toEqual([]);
   });
 });
+
+describe("recovery and completion serialization", () => {
+  it("does not overwrite a confirmed part when stale recovery overlaps record", async () => {
+    await setup();
+    await start();
+    const pending = (await deliveries()).find((d) => d.kind === "intro")!;
+    const parts = pending.parts as DeliveryPart[];
+    parts[0]!.state = "in_flight";
+    const attemptId = randomUUID();
+    await database
+      .updateTable("communication_deliveries")
+      .set({
+        parts: JSON.stringify(parts),
+        attempt_id: attemptId,
+        locked_at: now,
+      })
+      .where("delivery_id", "=", pending.delivery_id)
+      .execute();
+    now = new Date(now.getTime() + 61_000);
+    let staleRead!: () => void;
+    const hasRead = new Promise<void>((resolve) => {
+      staleRead = resolve;
+    });
+    let release!: () => void;
+    const barrier = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    const intercepted = new Set<unknown>();
+    let armed = true;
+    const recoveryDatabase = database.withPlugin({
+      transformQuery(args) {
+        if (
+          armed &&
+          args.node.kind === "SelectQueryNode" &&
+          JSON.stringify(args.node).includes(
+            '"column":{"kind":"IdentifierNode","name":"locked_at"}',
+          )
+        ) {
+          intercepted.add(args.queryId);
+          armed = false;
+        }
+        return args.node;
+      },
+      async transformResult(args) {
+        if (intercepted.has(args.queryId)) {
+          staleRead();
+          await barrier;
+        }
+        return args.result;
+      },
+    });
+    const recovery = new FunnelScheduler(
+      recoveryDatabase,
+      config,
+      clock,
+      transport,
+    ).processAvailable(1);
+    await hasRead;
+    const completing = scheduler.record(pending.delivery_id, attemptId, {
+      kind: "delivered",
+      providerMessageId: "123",
+    });
+    try {
+      await vi.waitFor(
+        async () => {
+          const waiting = await sql<{
+            count: string;
+          }>`select count(*) from pg_stat_activity where datname=current_database() and wait_event='advisory'`.execute(
+            database,
+          );
+          expect(Number(waiting.rows[0]!.count)).toBeGreaterThan(0);
+        },
+        { timeout: 1500, interval: 10 },
+      );
+    } finally {
+      release();
+      await Promise.all([recovery, completing]);
+    }
+    const saved = (await deliveries()).find(
+      (d) => d.delivery_id === pending.delivery_id,
+    )!;
+    expect((saved.parts as DeliveryPart[])[0]!.state).toBe("sent");
+    expect(saved.completed_at).not.toBeNull();
+    expect(
+      (saved.parts as DeliveryPart[])[0]!.attempts.map((a) => a.outcome),
+    ).toEqual(["unknown", "sent"]);
+  });
+  it("filters delivery history by its exact ID instead of returning unrelated deliveries", async () => {
+    await setup();
+    await start();
+    const initial = (await deliveries()).find((d) => d.kind === "intro")!;
+    const response = await http(
+      command("deliveries.read", { deliveryId: initial.delivery_id }),
+    );
+    expect(
+      response
+        .json()
+        .deliveries.map((d: { deliveryId: string }) => d.deliveryId),
+    ).toEqual([initial.delivery_id]);
+    expect(
+      (
+        await http(command("deliveries.read", { broadcastId: randomUUID() }))
+      ).json().deliveries,
+    ).toEqual([]);
+    expect(
+      (await http(command("deliveries.read", { cursor: "-".repeat(36) })))
+        .statusCode,
+    ).toBe(400);
+  });
+});

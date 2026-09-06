@@ -24,6 +24,9 @@ export class BackgroundWorkers
   implements OnApplicationBootstrap, OnApplicationShutdown
 {
   private readonly logger = new Logger(BackgroundWorkers.name);
+  private marketingCycleRunning = false;
+  private marketingCycle?: Promise<void>;
+  private marketingTimer?: NodeJS.Timeout;
   private deliveryCycleRunning = false;
   private deliveryTimer?: NodeJS.Timeout;
   private evidenceCycleRunning = false;
@@ -67,6 +70,14 @@ export class BackgroundWorkers
       this.deliveryTimer = setInterval(() => void this.runDeliveryCycle(), 500);
       this.deliveryTimer.unref();
       void this.runDeliveryCycle();
+      if (this.config.marketingEnabled) {
+        this.marketingTimer = setInterval(
+          () => void this.runMarketingCycle(),
+          500,
+        );
+        this.marketingTimer.unref();
+        void this.runMarketingCycle();
+      }
     }
 
     if (this.config.membershipMode === "live") {
@@ -87,11 +98,12 @@ export class BackgroundWorkers
 
   async onApplicationShutdown(): Promise<void> {
     this.stopping = true;
+    clearInterval(this.marketingTimer);
     clearInterval(this.updateTimer);
     clearInterval(this.deliveryTimer);
     clearInterval(this.evidenceTimer);
     clearInterval(this.membershipTimer);
-    await this.membershipCycle;
+    await Promise.all([this.membershipCycle, this.marketingCycle]);
   }
 
   private async runUpdateCycle(): Promise<void> {
@@ -108,6 +120,23 @@ export class BackgroundWorkers
     }
   }
 
+  private runMarketingCycle(): Promise<void> {
+    if (this.marketingCycleRunning || this.stopping) return Promise.resolve();
+    this.marketingCycleRunning = true;
+    const cycle = this.funnels
+      .processAvailable()
+      .then(() => undefined)
+      .catch(() => {
+        this.logger.error("Marketing worker cycle failed");
+      })
+      .finally(() => {
+        this.marketingCycleRunning = false;
+        this.marketingCycle = undefined;
+      });
+    this.marketingCycle = cycle;
+    return cycle;
+  }
+
   private async runDeliveryCycle(): Promise<void> {
     if (this.deliveryCycleRunning) {
       return;
@@ -115,7 +144,6 @@ export class BackgroundWorkers
     this.deliveryCycleRunning = true;
     try {
       await this.deliveries.processAvailable();
-      await this.funnels.processAvailable();
     } catch {
       this.logger.error("Telegram delivery worker cycle failed");
     } finally {
