@@ -14,3 +14,14 @@ export async function lockIdentityLinkAccount(
     )
   `.execute(transaction);
 }
+
+/** Serializes ownership decisions for a Telegram identity across both entry paths. */
+export async function lockTelegramIdentity(
+  transaction: Transaction<DatabaseSchema>,
+  botIdentity: string,
+  telegramUserId: string,
+): Promise<void> {
+  await sql`select pg_advisory_xact_lock(hashtextextended(${`inside-telegram:identity:${JSON.stringify([botIdentity, telegramUserId])}`}, 0))`.execute(
+    transaction,
+  );
+}

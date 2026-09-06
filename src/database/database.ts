@@ -75,6 +75,16 @@ export interface BotContactEventsTable {
 }
 
 export interface StartResponseDeliveriesTable {
+  edit_message_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  sign_in_request_ref: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   attempt_count: number;
   available_at: Timestamp;
   bot_identity: string;
@@ -239,7 +249,36 @@ export interface IdentityLinkRecoveriesTable {
   telegram_user_id: BigIntColumn;
 }
 
+export interface SignInRequestsTable {
+  confirmation_message_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  request_ref: string;
+  bot_identity: string;
+  start_token_digest: string;
+  browser_secret_digest: string;
+  confirmation_code: string;
+  state: "pending" | "awaiting_approval" | "approved" | "denied" | "consumed";
+  telegram_user_id: BigIntColumn | null;
+  private_chat_id: BigIntColumn | null;
+  created_at: Timestamp;
+  expires_at: Timestamp;
+  approved_at: Timestamp | null;
+  consumed_at: Timestamp | null;
+}
+
+export interface SignInSubjectsTable {
+  reserved_for_sign_in: Generated<boolean>;
+  subject_ref: string;
+  bot_identity: string;
+  telegram_user_id: BigIntColumn;
+}
+
 export interface DatabaseSchema {
+  sign_in_requests: SignInRequestsTable;
+  sign_in_subjects: SignInSubjectsTable;
   communication_funnels: {
     funnel_id: string;
     bot_identity: string;

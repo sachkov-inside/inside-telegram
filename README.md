@@ -83,6 +83,13 @@ The Workspace-owned Membership Evidence schema and fixtures are vendored with a 
 commit and SHA-256 snapshot in
 [`src/contracts/inside-membership-evidence-v1/`](src/contracts/inside-membership-evidence-v1/).
 
+## Bot sign-in provider (disabled; website integration pending)
+
+The optional provider proves a private Telegram identity after an explicit confirmation button.
+It does not issue a website session or create/merge an Account. The protocol, server-side switch,
+and remaining Platform integration gates are in
+[`docs/specifications/bot-sign-in-v1.md`](docs/specifications/bot-sign-in-v1.md).
+
 ## Initial Membership Evidence
 
 - `TELEGRAM_CANONICAL_CHAT_ID` is required configuration and contains no committed real chat
@@ -106,7 +113,7 @@ commit and SHA-256 snapshot in
 ## Durable member-status events
 
 - Webhook registration must explicitly use
-  `allowed_updates=["message","chat_member","my_chat_member"]`; omitted registration is unsafe
+  `allowed_updates=["message","chat_member","my_chat_member","callback_query"]`; omitted registration is unsafe
   because Telegram excludes `chat_member` from its default set. Old update variants are still
   accepted into the durable inbox and safely ignored by processing.
 - Only the exact configured canonical chat can affect Membership. The subject comes from
@@ -190,6 +197,14 @@ The full repository check uses a real PostgreSQL database:
 pnpm infra:up
 DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm check:full
 ```
+
+Migration keys are retained across the independently deployed communications and sign-in branches.
+Only the independently deployed `010-communications-templates` → `011-communication-funnels`
+sequence may cross the sign-in sequence. Both sequences must retain their dependency order;
+all other applied migrations must remain an ordered prefix. The shared migrator enforces this under Kysely's migration
+lock for up, down and targeted commands. Rollback follows actual application order. PostgreSQL
+regressions cover both historical deployment orders, preserve existing data during backfill and
+reject a missing dependent sign-in migration. Do not rename applied keys or edit the ledger.
 
 The application CI runs the same command on Node 24 with PostgreSQL 18. The repository harness is
 verified with:

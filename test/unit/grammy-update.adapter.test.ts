@@ -22,6 +22,7 @@ describe("GrammyUpdateAdapter", () => {
       "message",
       "chat_member",
       "my_chat_member",
+      "callback_query",
     ]);
   });
 

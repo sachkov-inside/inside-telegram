@@ -230,6 +230,7 @@ describe("initial Membership Evidence", () => {
       new StartResponseDeliveryQueue(database),
       messages,
       new RuntimeMetrics(),
+      config,
     );
     await expect(responses.processAvailable(10, now)).resolves.toBe(2);
     expect(messages.sent.map((message) => message.text)).toEqual([
@@ -300,6 +301,7 @@ describe("initial Membership Evidence", () => {
         new StartResponseDeliveryQueue(database),
         messages,
         new RuntimeMetrics(),
+        config,
       ).processAvailable(10, now);
       expect(messages.sent.at(-1)?.text).toBe(responseText);
     },
@@ -569,6 +571,10 @@ class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
 
 class ControlledTelegramMessages implements TelegramMessages {
   readonly sent: TelegramTextMessage[] = [];
+
+  async editText(): Promise<TelegramDeliveryResult> {
+    throw new Error("Unexpected message edit");
+  }
 
   async sendText(
     message: TelegramTextMessage,

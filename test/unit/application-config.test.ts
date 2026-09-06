@@ -20,10 +20,43 @@ describe("application configuration", () => {
     const config = loadApplicationConfig(validEnvironment);
 
     expect(config.deliveryMode).toBe("disabled");
+    expect(config.signInEnabled).toBe(false);
+    expect(config.signInIntegrationSecret).toBeUndefined();
     expect(config.evidenceDeliveryMode).toBe("disabled");
     expect(config.membershipMode).toBe("disabled");
     expect(config.membershipReconciliationCadenceMilliseconds).toBe(240_000);
     expect(config.workersEnabled).toBe(true);
+  });
+
+  it("requires a separate sign-in credential only when enabled", () => {
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_ENABLED: "true",
+      }),
+    ).toThrow("TELEGRAM_SIGN_IN_INTEGRATION_SECRET");
+    const credential = "synthetic_sign_in_credential_for_tests_only";
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_ENABLED: "true",
+        TELEGRAM_SIGN_IN_INTEGRATION_SECRET: credential,
+      }).signInEnabled,
+    ).toBe(true);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_INTEGRATION_SECRET: credential,
+        TELEGRAM_SIGN_IN_ENABLED: "true",
+        TELEGRAM_SIGN_IN_INTEGRATION_SECRET: credential,
+      }),
+    ).toThrow("separate");
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_ENABLED: "yes",
+      }),
+    ).toThrow("TELEGRAM_SIGN_IN_ENABLED");
   });
 
   it("requires a complete secure author authorization endpoint while defaulting to disabled", () => {

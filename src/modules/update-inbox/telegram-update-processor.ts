@@ -5,6 +5,11 @@ import { Inject, Injectable } from "@nestjs/common";
 
 import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
 import { BotContacts } from "../bot-contacts/bot-contacts.js";
+import { BotSignIn } from "../bot-sign-in/bot-sign-in.js";
+import {
+  TELEGRAM_CALLBACK_ANSWERS,
+  type TelegramCallbackAnswers,
+} from "../bot-sign-in/telegram-callback-answers.js";
 import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { MembershipEvidenceProvider } from "../membership-evidence/membership-evidence-provider.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
@@ -22,15 +27,18 @@ export class TelegramUpdateProcessor {
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
     @Inject(MembershipEvidenceProvider)
     private readonly membershipEvidence: MembershipEvidenceProvider,
+    @Inject(BotSignIn) private readonly signIn: BotSignIn,
+    @Inject(TELEGRAM_CALLBACK_ANSWERS)
+    private readonly callbackAnswers: TelegramCallbackAnswers,
     @Inject(Communications)
     private readonly communications: Communications,
     @Inject(MarketingEntry) private readonly marketing: MarketingEntry,
   ) {}
 
-  async processAvailable(limit = 50, now = new Date()): Promise<number> {
+  async processAvailable(limit = 50, now?: Date): Promise<number> {
     let processed = 0;
     for (; processed < limit; processed += 1) {
-      const update = await this.inbox.claimNext(now);
+      const update = await this.inbox.claimNext(now ?? new Date());
       if (!update) {
         break;
       }
@@ -46,12 +54,20 @@ export class TelegramUpdateProcessor {
         if (command.kind === "start") {
           await this.botContacts.observeStart(
             command.value.contact,
-            command.value.linkToken
-              ? "link-receipt"
-              : this.marketing.enabled()
-                ? "none"
-                : "welcome",
+            command.value.signInToken
+              ? "none"
+              : command.value.linkToken
+                ? "link-receipt"
+                : this.marketing.enabled()
+                  ? "none"
+                  : "welcome",
           );
+          if (command.value.signInToken?.kind === "digest") {
+            await this.signIn.acceptStart(
+              command.value.contact,
+              command.value.signInToken.digest,
+            );
+          }
           if (command.value.linkToken) {
             await this.identityLinking.acceptStart({
               botIdentity: command.value.contact.botIdentity,
@@ -60,12 +76,19 @@ export class TelegramUpdateProcessor {
               telegramUserId: command.value.contact.telegramUserId,
             });
           }
-          if (!command.value.linkToken && this.marketing.enabled()) {
+          if (
+            !command.value.linkToken &&
+            !command.value.signInToken &&
+            this.marketing.enabled()
+          ) {
             await this.marketing.enter(
               command.value.contact,
               command.value.marketingSource,
             );
           }
+        } else if (command.kind === "sign-in-decision") {
+          await this.signIn.decide(command.value);
+          await this.callbackAnswers.answer(command.callbackQueryId);
         } else if (command.kind === "contactability") {
           await this.botContacts.observeContactability(command.value);
         } else if (command.kind === "membership") {
@@ -79,12 +102,12 @@ export class TelegramUpdateProcessor {
           if (intake) await this.communications.intake(intake);
         }
 
-        await this.inbox.markProcessed(update, now);
+        await this.inbox.markProcessed(update, now ?? new Date());
         this.metrics.increment(
           command.kind === "ignored" ? "update_ignored" : "update_processed",
         );
       } catch {
-        const outcome = await this.inbox.markFailed(update, now);
+        const outcome = await this.inbox.markFailed(update, now ?? new Date());
         if (outcome === "failed") {
           this.metrics.increment("update_failed");
         }

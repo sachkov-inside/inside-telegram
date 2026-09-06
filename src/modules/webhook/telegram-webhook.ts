@@ -18,6 +18,7 @@ export const TELEGRAM_WEBHOOK_ALLOWED_UPDATES = [
   "message",
   "chat_member",
   "my_chat_member",
+  "callback_query",
 ] as const;
 
 @Injectable()

@@ -8,6 +8,7 @@ import {
   deferTelegramSlot,
 } from "./telegram-transport-slots.js";
 import { Inject, Injectable } from "@nestjs/common";
+import { sql } from "kysely";
 
 import {
   DATABASE,
@@ -25,6 +26,8 @@ export interface ClaimedStartResponseDelivery {
   readonly id: string;
   readonly messageText: string;
   readonly privateChatId: string;
+  readonly signInRequestRef?: string;
+  readonly editMessageId?: string;
 }
 
 @Injectable()
@@ -38,6 +41,7 @@ export class StartResponseDeliveryQueue {
 
   async claimNext(
     now: Date,
+    signInEnabled = false,
   ): Promise<ClaimedStartResponseDelivery | undefined> {
     return this.database.transaction().execute(async (transaction) => {
       const stale = await transaction
@@ -93,7 +97,65 @@ export class StartResponseDeliveryQueue {
           "message_text",
           "private_chat_id",
           "bot_identity",
+          "sign_in_request_ref",
+          "edit_message_id",
         ])
+        .where((eb) =>
+          eb.or([
+            eb("sign_in_request_ref", "is", null),
+            ...(signInEnabled
+              ? [
+                  eb.exists(
+                    eb
+                      .selectFrom("sign_in_requests")
+                      .select("request_ref")
+                      .whereRef(
+                        "request_ref",
+                        "=",
+                        "start_response_deliveries.sign_in_request_ref",
+                      )
+                      .where((requestEb) =>
+                        requestEb.or([
+                          requestEb.and([
+                            requestEb(
+                              "start_response_deliveries.edit_message_id",
+                              "is",
+                              null,
+                            ),
+                            requestEb("state", "=", "awaiting_approval"),
+                            requestEb("expires_at", ">", now),
+                          ]),
+                          requestEb.and([
+                            requestEb(
+                              "start_response_deliveries.edit_message_id",
+                              "is not",
+                              null,
+                            ),
+                            requestEb.or([
+                              requestEb("state", "=", "denied"),
+                              requestEb.and([
+                                requestEb("state", "=", "consumed"),
+                                requestEb.exists(
+                                  requestEb
+                                    .selectFrom("link_transactions")
+                                    .select("link_transaction_ref")
+                                    .where(
+                                      "link_transaction_ref",
+                                      "=",
+                                      sql<string>`sign_in_requests.request_ref::text`,
+                                    )
+                                    .where("state", "=", "linked"),
+                                ),
+                              ]),
+                            ]),
+                          ]),
+                        ]),
+                      ),
+                  ),
+                ]
+              : []),
+          ]),
+        )
         .where("state", "in", ["pending", "retry_scheduled"])
         .where("available_at", "<=", now)
         .orderBy("id", "asc")
@@ -133,6 +195,12 @@ export class StartResponseDeliveryQueue {
         id: delivery.id,
         messageText: delivery.message_text,
         privateChatId: delivery.private_chat_id,
+        ...(delivery.edit_message_id
+          ? { editMessageId: delivery.edit_message_id }
+          : {}),
+        ...(delivery.sign_in_request_ref
+          ? { signInRequestRef: delivery.sign_in_request_ref }
+          : {}),
       };
     });
   }

@@ -21,6 +21,11 @@ import {
   GrammyMessagesAdapter,
 } from "./adapters/telegram/grammy-messages.adapter.js";
 import { GrammyMembershipAdapter } from "./adapters/telegram/grammy-membership.adapter.js";
+import { GrammyCallbackAnswersAdapter } from "./adapters/telegram/grammy-callback-answers.adapter.js";
+import {
+  TELEGRAM_CALLBACK_ANSWERS,
+  DisabledTelegramCallbackAnswers,
+} from "./modules/bot-sign-in/telegram-callback-answers.js";
 import { HttpPlatformEvidenceAdapter } from "./adapters/platform/http-platform-evidence.adapter.js";
 import {
   APPLICATION_CONFIG,
@@ -30,6 +35,9 @@ import { createDatabase } from "./database/create-database.js";
 import { DATABASE } from "./database/database.js";
 import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
+import { SignInAccountLink } from "./modules/bot-sign-in/sign-in-account-link.js";
+import { BotSignIn } from "./modules/bot-sign-in/bot-sign-in.js";
+import { BotSignInController } from "./modules/bot-sign-in/bot-sign-in.controller.js";
 import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
 import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
 import { IdentityLinkRecovery } from "./modules/identity-linking/identity-link-recovery.js";
@@ -70,12 +78,22 @@ export class AppModule {
     return {
       module: AppModule,
       controllers: [
+        BotSignInController,
         CommunicationsController,
         IdentityLinkingController,
         OperationsController,
         TelegramWebhookController,
       ],
       providers: [
+        {
+          provide: TELEGRAM_CALLBACK_ANSWERS,
+          useFactory: () =>
+            config.signInEnabled &&
+            config.deliveryMode === "live" &&
+            config.botToken
+              ? new GrammyCallbackAnswersAdapter(config.botToken)
+              : new DisabledTelegramCallbackAnswers(),
+        },
         { provide: APPLICATION_CONFIG, useValue: config },
         { provide: CLOCK, useValue: systemClock },
         {
@@ -161,6 +179,8 @@ export class AppModule {
         },
         BackgroundWorkers,
         BotContacts,
+        BotSignIn,
+        SignInAccountLink,
         DatabaseLifecycle,
         IdentityLinking,
         IdentityLinkRecovery,

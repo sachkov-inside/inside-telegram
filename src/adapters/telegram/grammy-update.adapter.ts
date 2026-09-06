@@ -7,9 +7,15 @@ import type {
   VerifiedPrivateStart,
 } from "../../modules/bot-contacts/bot-contacts.js";
 import type { DurableMembershipEnvelope } from "../../modules/membership-evidence/membership-evidence-provider.js";
+import type { VerifiedSignInDecision } from "../../modules/bot-sign-in/bot-sign-in.js";
 import { toTelegramChatMember } from "./grammy-membership.adapter.js";
 
 export type TelegramUpdateCommand =
+  | {
+      readonly kind: "sign-in-decision";
+      readonly value: VerifiedSignInDecision;
+      readonly callbackQueryId: string;
+    }
   | {
       readonly kind: "contactability";
       readonly value: VerifiedPrivateContactability;
@@ -20,6 +26,9 @@ export type TelegramUpdateCommand =
       readonly kind: "start";
       readonly value: {
         readonly contact: VerifiedPrivateStart;
+        readonly signInToken?:
+          | { readonly digest: string; readonly kind: "digest" }
+          | { readonly kind: "malformed" };
         readonly marketingSource?: string;
         readonly linkToken?:
           | { readonly digest: string; readonly kind: "digest" }
@@ -28,6 +37,7 @@ export type TelegramUpdateCommand =
     };
 
 const LINK_TOKEN_FIELD = "_inside_link_token";
+const SIGN_IN_TOKEN_FIELD = "_inside_sign_in_token";
 
 export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
   if (!isRecord(payload) || !isRecord(payload.message)) {
@@ -36,6 +46,7 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
 
   const message = { ...payload.message };
   delete message[LINK_TOKEN_FIELD];
+  delete message[SIGN_IN_TOKEN_FIELD];
   delete message._inside_marketing_source;
   const text = message.text;
   if (typeof text !== "string") {
@@ -58,9 +69,17 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
       },
     };
   }
-  const linkToken = /^[A-Za-z0-9_-]{43,64}$/.test(start.argument)
+  // Legacy linking accepts every base64url payload of 43–64 characters, including this prefix.
+  // Reserve a shorter namespace so existing valid link tokens keep their exact meaning.
+  const signIn =
+    start.argument.startsWith("signin_") && start.argument.length < 43;
+  const argument = signIn ? start.argument.slice(7) : start.argument;
+  const valid = signIn
+    ? /^[A-Za-z0-9_-]{35}$/.test(argument)
+    : /^[A-Za-z0-9_-]{43,64}$/.test(argument);
+  const linkToken = valid
     ? {
-        digest: createHash("sha256").update(start.argument).digest("base64url"),
+        digest: createHash("sha256").update(argument).digest("base64url"),
         kind: "digest" as const,
       }
     : { kind: "malformed" as const };
@@ -69,7 +88,7 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
     ...payload,
     message: {
       ...message,
-      [LINK_TOKEN_FIELD]: linkToken,
+      [signIn ? SIGN_IN_TOKEN_FIELD : LINK_TOKEN_FIELD]: linkToken,
       text: start.command,
     },
   };
@@ -87,6 +106,17 @@ export class GrammyUpdateAdapter {
     }
 
     const update = payload as Partial<Update>;
+    const decision = privateSignInDecision(botIdentity, update.callback_query);
+    if (
+      decision &&
+      typeof update.callback_query?.id === "string" &&
+      update.callback_query.id.length <= 128
+    )
+      return {
+        kind: "sign-in-decision",
+        value: decision,
+        callbackQueryId: update.callback_query.id,
+      };
     const start = this.privateStart(botIdentity, updateId, update, observedAt);
     if (start) {
       return { kind: "start", value: start };
@@ -210,6 +240,7 @@ export class GrammyUpdateAdapter {
     }
 
     const linkToken = readLinkToken(message);
+    const signInToken = readLinkToken(message, SIGN_IN_TOKEN_FIELD);
     return {
       contact: {
         botIdentity,
@@ -219,6 +250,7 @@ export class GrammyUpdateAdapter {
         updateId,
       },
       ...(linkToken ? { linkToken } : {}),
+      ...(signInToken ? { signInToken } : {}),
       ...(typeof message._inside_marketing_source === "string"
         ? { marketingSource: message._inside_marketing_source }
         : {}),
@@ -285,8 +317,9 @@ function parseStart(
 
 function readLinkToken(
   message: Record<string, unknown>,
+  field = LINK_TOKEN_FIELD,
 ): Extract<TelegramUpdateCommand, { kind: "start" }>["value"]["linkToken"] {
-  const value = message[LINK_TOKEN_FIELD];
+  const value = message[field];
   if (!isRecord(value)) {
     return undefined;
   }
@@ -301,6 +334,45 @@ function readLinkToken(
     return { digest: value.digest, kind: "digest" };
   }
   return { kind: "malformed" };
+}
+
+function privateSignInDecision(
+  botIdentity: string,
+  value: unknown,
+): VerifiedSignInDecision | undefined {
+  if (
+    !isRecord(value) ||
+    !isRecord(value.from) ||
+    value.from.is_bot !== false ||
+    !isRecord(value.message) ||
+    !isRecord(value.message.chat) ||
+    value.message.chat.type !== "private" ||
+    typeof value.data !== "string"
+  )
+    return undefined;
+  const match =
+    /^signin:(approve|deny):([0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12})$/.exec(
+      value.data,
+    );
+  const telegramUserId = telegramId(value.from.id);
+  const privateChatId = telegramId(value.message.chat.id);
+  const messageId = telegramId(value.message.message_id);
+  if (
+    !match ||
+    !telegramUserId ||
+    !privateChatId ||
+    !messageId ||
+    telegramUserId !== privateChatId
+  )
+    return undefined;
+  return {
+    botIdentity,
+    telegramUserId,
+    privateChatId,
+    messageId,
+    requestRef: match[2]!,
+    decision: match[1] === "approve" ? "approve" : "deny",
+  };
 }
 
 function telegramId(value: unknown): string | undefined {

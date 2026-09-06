@@ -103,13 +103,14 @@ describe("communication transport", () => {
   });
   it("separates marketing from every legacy and sign-in-shaped auth payload", () => {
     const adapter = new GrammyUpdateAdapter();
-    for (const [payload, marketing] of [
-      ["m_general", true],
-      ["m_" + "x".repeat(40), true],
-      ["m_" + "x".repeat(41), false],
-      ["signin_" + "x".repeat(35), false],
-      ["signin_broken", false],
-      ["x".repeat(64), false],
+    for (const [payload, lane] of [
+      ["m_general", "marketing"],
+      ["m_" + "x".repeat(40), "marketing"],
+      ["m_" + "x".repeat(41), "link"],
+      ["signin_" + "x".repeat(35), "sign-in"],
+      ["signin_" + "x".repeat(36), "link"],
+      ["signin_broken", "sign-in"],
+      ["x".repeat(64), "link"],
     ] as const) {
       const raw = {
         message: {
@@ -128,9 +129,10 @@ describe("communication transport", () => {
       expect(result.kind).toBe("start");
       if (result.kind !== "start") throw new Error("unexpected");
       expect(result.value.marketingSource).toBe(
-        marketing ? payload : undefined,
+        lane === "marketing" ? payload : undefined,
       );
-      expect(!!result.value.linkToken).toBe(!marketing);
+      expect(!!result.value.linkToken).toBe(lane === "link");
+      expect(!!result.value.signInToken).toBe(lane === "sign-in");
     }
   });
   it("counts delay from the latest enrollment/publication/completion without catch-up acceleration", () => {
