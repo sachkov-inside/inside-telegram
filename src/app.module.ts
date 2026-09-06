@@ -1,3 +1,4 @@
+import { AuthorFunnels } from "./modules/communications/author-funnels.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
   DisabledAuthorContentValidation,
@@ -161,6 +162,7 @@ export class AppModule {
           },
         },
         AuthorAdmin,
+        AuthorFunnels,
         AuthorDelivery,
         {
           provide: AUTHOR_TRANSPORT,
