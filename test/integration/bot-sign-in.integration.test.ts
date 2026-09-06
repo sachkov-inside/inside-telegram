@@ -1,3 +1,4 @@
+import { Communications } from "../../src/modules/communications/communications.js";
 import { lockTelegramIdentity } from "../../src/modules/identity-linking/identity-link-account-lock.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
@@ -422,6 +423,7 @@ describe("bot sign-in provider", () => {
             vi.setSystemTime(later);
           },
         },
+        application.get(Communications),
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);

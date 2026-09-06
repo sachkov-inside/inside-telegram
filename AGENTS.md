@@ -4,12 +4,14 @@
 
 This repository owns the Sachkov Inside Telegram application: BotContact lifecycle, `/start`
 linking, Telegram identity invariants, canonical-chat Membership observations, reconciliation,
-normalized Membership Evidence, and later separately specified communications. Platform remains
+normalized Membership Evidence, author templates, and the versioned communications boundary. Platform remains
 the authority for Accounts, permissions, entitlements, profiles, and every content-access decision.
 
 ## Working agreements
 
 - For product scope, read `docs/product/telegram-application-brief.md`.
+- For author templates, communications API or Platform authorization, read
+  `docs/integrations/communications-v1.md`.
 - For confirmed bootstrap stack, credentialed-proof gates, and unresolved setup decisions, read
   `docs/decisions/seed-decisions.md`.
 - For canonical terms, read `CONTEXT.md` when it exists.

@@ -2,6 +2,15 @@
 
 Подтверждено владельцем 2026-08-30.
 
+## Расширение communications от 2026-09-06
+
+Исторические ограничения Membership bridge ниже относятся к первому релизу. Коммуникации теперь
+определены [принятым общим контрактом](https://github.com/sachkov-inside/workspace/blob/1553211220c44882dbacce7519dd50e35493090e/docs/specifications/telegram-communications-v1.md):
+он задаёт авторские заготовки и отдельное разрешение `communications:manage`, а для будущего
+маркетинга — общий stop/resume. Техническая поставка заготовок и versioned API описана в
+[локальном контракте интеграции](../integrations/communications-v1.md). Это первый enabling slice;
+редактор, доставка маркетинга и сквозная приёмка остаются следующими задачами.
+
 ## Repository and ownership
 
 - GitHub repository: private `sachkov-inside/inside-telegram`.

@@ -43,3 +43,14 @@ _Avoid_: Community directory, Tribute roster, audience segment
 The current ability to deliver bot messages to a BotContact through Telegram. Blocking the bot
 changes Contactability without deleting the BotContact, PlatformLink, or Membership history.
 _Avoid_: Consent, Membership, active subscription
+
+
+**CommunicationTemplate**:
+An author's saved message snapshot that can be reused in communication steps and broadcasts.
+Editing a template does not change an already published communication.
+_Avoid_: Published post, delivered message, Material
+
+**AuthorMode**:
+An explicit request by an authorized, linked Telegram person to save the next supported message
+as a CommunicationTemplate.
+_Avoid_: Marketing subscription, publication, Account permission

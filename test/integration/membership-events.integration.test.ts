@@ -1,3 +1,5 @@
+import { Communications } from "../../src/modules/communications/communications.js";
+import { DisabledAuthorAuthorization } from "../../src/modules/communications/author-authorization.js";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -366,6 +368,7 @@ describe("durable Membership events", () => {
       provider,
       new BotSignIn(database, config, clock),
       new DisabledTelegramCallbackAnswers(),
+      new Communications(database, config, new DisabledAuthorAuthorization()),
     );
     const webhook = new TelegramWebhook(config, inbox, metrics);
     const update = canonicalMembershipUpdate(

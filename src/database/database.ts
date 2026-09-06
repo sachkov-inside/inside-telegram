@@ -279,6 +279,36 @@ export interface SignInSubjectsTable {
 export interface DatabaseSchema {
   sign_in_requests: SignInRequestsTable;
   sign_in_subjects: SignInSubjectsTable;
+  communication_author_modes: {
+    bot_identity: string;
+    telegram_user_id: BigIntColumn;
+    account_ref: string;
+    enabled: boolean;
+    last_update_id: BigIntColumn;
+  };
+  communication_templates: {
+    template_id: string;
+    bot_identity: string;
+    owner_account_ref: string;
+    revision: number;
+    content: unknown;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+  };
+  communication_operations: {
+    bot_identity: string;
+    operation_id: string;
+    actor_account_ref: string;
+    request: unknown;
+    result: unknown;
+    created_at: Timestamp;
+  };
+  communication_intake_receipts: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+    outcome: string;
+    template_id: string | null;
+  };
   bot_contact_events: BotContactEventsTable;
   bot_contacts: BotContactsTable;
   identity_link_events: IdentityLinkEventsTable;

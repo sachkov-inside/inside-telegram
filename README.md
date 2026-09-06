@@ -18,6 +18,15 @@ The permanent deployment kit and its verification/recovery procedure are documen
 [`docs/operations/production.md`](docs/operations/production.md). Its presence does not mean the
 production bot has been enabled.
 
+## Author templates and communications contract
+
+The author-template slice adds explicit `/template` intake and authenticated template read/save.
+It also provides versioned contracts for the later communications operations. Platform remains the
+permission authority; author checks fail closed until its authorization endpoint is configured.
+See [`docs/integrations/communications-v1.md`](docs/integrations/communications-v1.md) for the
+wire contract, fixtures, media validation and the limits of this enabling delivery. The editor,
+marketing scheduler, broadcasts and production activation belong to subsequent tickets.
+
 ## Ordinary `/start` runtime
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
@@ -185,6 +194,13 @@ pnpm infra:up
 DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm check:full
 ```
 
+Migration keys are retained across the independently deployed communications and sign-in branches.
+Only `010-communications-templates` may appear outside the numeric sequence; all other applied
+migrations must remain an ordered prefix. The shared migrator enforces this under Kysely's migration
+lock for up, down and targeted commands. Rollback follows actual application order. PostgreSQL
+regressions cover both historical deployment orders, preserve existing data during backfill and
+reject a missing dependent sign-in migration. Do not rename applied keys or edit the ledger.
+
 The application CI runs the same command on Node 24 with PostgreSQL 18. The repository harness is
 verified with:
 
@@ -206,6 +222,6 @@ These Workspace-only harness checks do not create an application build/runtime d
 
 ## Repository boundary
 
-This repository will own Telegram bot identity handling, bot contacts, linking, member-status
-updates, reconciliation, and normalized Membership Evidence. Platform remains the authority for
+This repository owns Telegram bot identity handling, bot contacts, linking, member-status
+updates, reconciliation, normalized Membership Evidence and author communication templates. Platform remains the authority for
 Platform Accounts, permissions, entitlements, profiles, and every content-access decision.

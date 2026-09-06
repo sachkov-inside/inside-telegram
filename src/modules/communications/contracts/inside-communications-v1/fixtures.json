@@ -1,0 +1,1428 @@
+[
+  {
+    "name": "save-text",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "save-photo",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "photo",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-video",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "video",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-video_note",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "video_note",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-voice",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "voice",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-document",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "document",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "forged-actor",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author",
+        "permissions": ["communications:manage"]
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "missing-actor",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "negative-revision",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": -1,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown-version",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v2",
+      "operation": "templates.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "unknown-operation",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.delete",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "unauthorized",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "unauthorized"
+    }
+  },
+  {
+    "name": "forbidden",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "forbidden"
+    }
+  },
+  {
+    "name": "not_found",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "not_found"
+    }
+  },
+  {
+    "name": "malformed",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "malformed"
+    }
+  },
+  {
+    "name": "unsupported_content",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "unsupported_content"
+    }
+  },
+  {
+    "name": "revision_conflict",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "revision_conflict"
+    }
+  },
+  {
+    "name": "operation_conflict",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "operation_conflict"
+    }
+  },
+  {
+    "name": "authorization_unavailable",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "authorization_unavailable"
+    }
+  },
+  {
+    "name": "not_implemented",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "not_implemented"
+    }
+  },
+  {
+    "name": "authorize-linked-author",
+    "definition": "authorizationRequest",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "requestId": "11111111-1111-4111-8111-111111111111",
+      "permission": "communications:manage",
+      "subject": {
+        "kind": "telegram",
+        "accountRef": "synthetic-author",
+        "telegramIdentityRef": "synthetic-identity",
+        "botIdentity": "inside"
+      }
+    }
+  },
+  {
+    "name": "authorization-allowed",
+    "definition": "authorizationResponse",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "requestId": "11111111-1111-4111-8111-111111111111",
+      "status": "allowed",
+      "accountRef": "synthetic-author"
+    }
+  },
+  {
+    "name": "authorization-denied",
+    "definition": "authorizationResponse",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "requestId": "11111111-1111-4111-8111-111111111111",
+      "status": "denied"
+    }
+  },
+  {
+    "name": "templates.read",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.read",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.read",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.read",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.list",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.list",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "funnels.save",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222",
+        "name": "Synthetic scenario",
+        "steps": [
+          {
+            "stepId": "11111111-1111-4111-8111-111111111111",
+            "delaySeconds": 0,
+            "parts": [
+              {
+                "partId": "11111111-1111-4111-8111-111111111111",
+                "content": {
+                  "type": "text",
+                  "text": "Synthetic example",
+                  "entities": [],
+                  "buttons": []
+                }
+              }
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "sourceId": "11111111-1111-4111-8111-111111111111",
+            "code": "m_synthetic",
+            "name": "Synthetic source"
+          }
+        ],
+        "isDefault": false,
+        "entryResponse": {
+          "stepId": "22222222-2222-4222-8222-222222222222",
+          "parts": [
+            {
+              "partId": "11111111-1111-4111-8111-111111111111",
+              "content": {
+                "type": "text",
+                "text": "Synthetic example",
+                "entities": [],
+                "buttons": []
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "funnels.publish",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.publish",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.preview",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.preview",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.lifecycle",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.lifecycle",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222",
+        "action": "pause"
+      }
+    }
+  },
+  {
+    "name": "funnels.rollback",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.rollback",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222",
+        "publishedRevision": 1
+      }
+    }
+  },
+  {
+    "name": "broadcasts.read",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.read",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "broadcasts.save",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222",
+        "parts": [
+          {
+            "partId": "11111111-1111-4111-8111-111111111111",
+            "content": {
+              "type": "text",
+              "text": "Synthetic example",
+              "entities": [],
+              "buttons": []
+            }
+          }
+        ],
+        "audience": {
+          "kind": "all"
+        },
+        "scheduledAt": null
+      }
+    }
+  },
+  {
+    "name": "broadcasts.launch",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.launch",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "broadcasts.lifecycle",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.lifecycle",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222",
+        "action": "pause"
+      }
+    }
+  },
+  {
+    "name": "delivery.resolve",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "delivery.resolve",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "deliveryId": "22222222-2222-4222-8222-222222222222",
+        "partId": "11111111-1111-4111-8111-111111111111",
+        "duplicateRiskAccepted": true,
+        "action": "skip"
+      }
+    }
+  },
+  {
+    "name": "templates.testSend",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.testSend",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "eligibility.check",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "eligibility.check",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "targets": [
+          {
+            "kind": "material",
+            "targetId": "22222222-2222-4222-8222-222222222222"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "tracking.resolve",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "tracking.resolve",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "serviceRef": "platform-tracking"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  },
+  {
+    "name": "tracking.recordHit",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "tracking.recordHit",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "serviceRef": "platform-tracking"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "eventId": "11111111-1111-4111-8111-111111111111",
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "occurredAt": "2026-09-06T12:00:00Z",
+        "traffic": "unknown"
+      }
+    }
+  },
+  {
+    "name": "statistics.read",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "statistics.read",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "intro.read",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "intro.read",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "intro.save",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "intro.save",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "introId": "11111111-1111-4111-8111-111111111111",
+        "parts": [
+          {
+            "partId": "11111111-1111-4111-8111-111111111111",
+            "content": {
+              "type": "text",
+              "text": "Synthetic example",
+              "entities": [],
+              "buttons": []
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "deliveries.read",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "deliveries.read",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "deliveryId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "intro-result",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "ok",
+      "intro": {
+        "introId": "11111111-1111-4111-8111-111111111111",
+        "revision": 1,
+        "parts": [
+          {
+            "partId": "11111111-1111-4111-8111-111111111111",
+            "content": {
+              "type": "text",
+              "text": "Synthetic example",
+              "entities": [],
+              "buttons": []
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "delivery-history",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "ok",
+      "deliveries": [
+        {
+          "deliveryId": "22222222-2222-4222-8222-222222222222",
+          "revision": 2,
+          "contactId": "11111111-1111-4111-8111-111111111111",
+          "funnelId": "11111111-1111-4111-8111-111111111111",
+          "broadcastId": null,
+          "stepId": "11111111-1111-4111-8111-111111111111",
+          "publishedRevision": 1,
+          "snapshot": [
+            {
+              "partId": "11111111-1111-4111-8111-111111111111",
+              "content": {
+                "type": "text",
+                "text": "Synthetic example",
+                "entities": [],
+                "buttons": []
+              }
+            }
+          ],
+          "parts": [
+            {
+              "partId": "11111111-1111-4111-8111-111111111111",
+              "state": "unknown",
+              "diagnosticCode": "transport_unknown",
+              "attempts": [
+                {
+                  "attemptId": "11111111-1111-4111-8111-111111111111",
+                  "attemptedAt": "2026-09-06T12:00:00Z",
+                  "outcome": "unknown",
+                  "diagnosticCode": "transport_unknown",
+                  "duplicateRiskAccepted": false
+                }
+              ]
+            }
+          ],
+          "cancelRequested": false,
+          "completedAt": null
+        }
+      ],
+      "nextCursor": null
+    }
+  },
+  {
+    "name": "save-text-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "text",
+          "text": "Synthetic example",
+          "entities": [],
+          "buttons": []
+        }
+      }
+    }
+  },
+  {
+    "name": "save-photo-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "photo",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-video-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "video",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-video_note-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "video_note",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-voice-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "voice",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "save-document-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222",
+        "content": {
+          "type": "document",
+          "text": "",
+          "entities": [],
+          "buttons": [],
+          "fileId": "synthetic_file_id"
+        }
+      }
+    }
+  },
+  {
+    "name": "templates.read-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.read",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.read-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.read",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.list-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.list",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "funnels.save-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222",
+        "name": "Synthetic scenario",
+        "steps": [
+          {
+            "stepId": "11111111-1111-4111-8111-111111111111",
+            "delaySeconds": 0,
+            "parts": [
+              {
+                "partId": "11111111-1111-4111-8111-111111111111",
+                "content": {
+                  "type": "text",
+                  "text": "Synthetic example",
+                  "entities": [],
+                  "buttons": []
+                }
+              }
+            ]
+          }
+        ],
+        "sources": [
+          {
+            "sourceId": "11111111-1111-4111-8111-111111111111",
+            "code": "m_synthetic",
+            "name": "Synthetic source"
+          }
+        ],
+        "isDefault": false,
+        "entryResponse": {
+          "stepId": "22222222-2222-4222-8222-222222222222",
+          "parts": [
+            {
+              "partId": "11111111-1111-4111-8111-111111111111",
+              "content": {
+                "type": "text",
+                "text": "Synthetic example",
+                "entities": [],
+                "buttons": []
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  {
+    "name": "funnels.publish-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.publish",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.preview-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.preview",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "funnels.lifecycle-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.lifecycle",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222",
+        "action": "pause"
+      }
+    }
+  },
+  {
+    "name": "funnels.rollback-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "funnels.rollback",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "funnelId": "22222222-2222-4222-8222-222222222222",
+        "publishedRevision": 1
+      }
+    }
+  },
+  {
+    "name": "broadcasts.read-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.read",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "broadcasts.save-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222",
+        "parts": [
+          {
+            "partId": "11111111-1111-4111-8111-111111111111",
+            "content": {
+              "type": "text",
+              "text": "Synthetic example",
+              "entities": [],
+              "buttons": []
+            }
+          }
+        ],
+        "audience": {
+          "kind": "all"
+        },
+        "scheduledAt": null
+      }
+    }
+  },
+  {
+    "name": "broadcasts.launch-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.launch",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "broadcasts.lifecycle-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "broadcasts.lifecycle",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "broadcastId": "22222222-2222-4222-8222-222222222222",
+        "action": "pause"
+      }
+    }
+  },
+  {
+    "name": "delivery.resolve-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "delivery.resolve",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "deliveryId": "22222222-2222-4222-8222-222222222222",
+        "partId": "11111111-1111-4111-8111-111111111111",
+        "duplicateRiskAccepted": true,
+        "action": "skip"
+      }
+    }
+  },
+  {
+    "name": "templates.testSend-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "templates.testSend",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "templateId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  },
+  {
+    "name": "eligibility.check-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "eligibility.check",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "targets": [
+          {
+            "kind": "material",
+            "targetId": "22222222-2222-4222-8222-222222222222"
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "tracking.resolve-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "tracking.resolve",
+      "actor": {
+        "serviceRef": "platform-tracking"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+      }
+    }
+  },
+  {
+    "name": "tracking.recordHit-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "tracking.recordHit",
+      "actor": {
+        "serviceRef": "platform-tracking"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "eventId": "11111111-1111-4111-8111-111111111111",
+        "token": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+        "occurredAt": "2026-09-06T12:00:00Z",
+        "traffic": "unknown"
+      }
+    }
+  },
+  {
+    "name": "statistics.read-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "statistics.read",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "intro.read-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "intro.read",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {}
+    }
+  },
+  {
+    "name": "intro.save-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "intro.save",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "introId": "11111111-1111-4111-8111-111111111111",
+        "parts": [
+          {
+            "partId": "11111111-1111-4111-8111-111111111111",
+            "content": {
+              "type": "text",
+              "text": "Synthetic example",
+              "entities": [],
+              "buttons": []
+            }
+          }
+        ]
+      }
+    }
+  },
+  {
+    "name": "deliveries.read-missing-operation-id",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "deliveries.read",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 0,
+      "payload": {
+        "deliveryId": "22222222-2222-4222-8222-222222222222"
+      }
+    }
+  }
+]
