@@ -1,3 +1,10 @@
+import { Communications } from "./modules/communications/communications.js";
+import { CommunicationsController } from "./modules/communications/communications.controller.js";
+import {
+  AUTHOR_AUTHORIZATION,
+  DisabledAuthorAuthorization,
+} from "./modules/communications/author-authorization.js";
+import { HttpAuthorAuthorizationAdapter } from "./adapters/platform/http-author-authorization.adapter.js";
 import { Module, type DynamicModule } from "@nestjs/common";
 
 import {
@@ -54,6 +61,7 @@ export class AppModule {
     return {
       module: AppModule,
       controllers: [
+        CommunicationsController,
         IdentityLinkingController,
         OperationsController,
         TelegramWebhookController,
@@ -115,6 +123,18 @@ export class AppModule {
             }
             return new DisabledPlatformEvidenceDelivery();
           },
+        },
+        Communications,
+        {
+          provide: AUTHOR_AUTHORIZATION,
+          useFactory: () =>
+            config.platformAuthorAuthorizationUrl &&
+            config.platformAuthorAuthorizationSecret
+              ? new HttpAuthorAuthorizationAdapter(
+                  config.platformAuthorAuthorizationUrl,
+                  config.platformAuthorAuthorizationSecret,
+                )
+              : new DisabledAuthorAuthorization(),
         },
         BackgroundWorkers,
         BotContacts,

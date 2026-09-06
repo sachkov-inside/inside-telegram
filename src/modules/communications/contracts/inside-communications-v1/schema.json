@@ -1,0 +1,2353 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://inside.example/contracts/inside-communications-v1/schema.json",
+  "definitions": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "actor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "accountRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["accountRef"]
+    },
+    "entity": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "mention",
+            "hashtag",
+            "cashtag",
+            "bot_command",
+            "url",
+            "email",
+            "phone_number",
+            "bold",
+            "italic",
+            "underline",
+            "strikethrough",
+            "spoiler",
+            "code",
+            "pre",
+            "text_link",
+            "blockquote",
+            "expandable_blockquote"
+          ]
+        },
+        "offset": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "length": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "pattern": "^https://"
+        },
+        "language": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": ["type", "offset", "length"]
+    },
+    "button": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "url": {
+          "type": "string",
+          "format": "uri",
+          "maxLength": 2048,
+          "pattern": "^https://"
+        }
+      },
+      "required": ["text", "url"]
+    },
+    "content": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": ["text", "photo", "video", "video_note", "voice", "document"]
+        },
+        "text": {
+          "type": "string",
+          "maxLength": 4096
+        },
+        "entities": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/entity"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "buttons": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/button"
+          },
+          "minItems": 0,
+          "maxItems": 20
+        },
+        "fileId": {
+          "type": "string",
+          "pattern": "^[A-Za-z0-9_-]{1,1024}$"
+        }
+      },
+      "required": ["type", "text", "entities", "buttons"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "fileId": false
+            }
+          },
+          "else": {
+            "required": ["fileId"],
+            "properties": {
+              "text": {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "fileId": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "video_note"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "maxLength": 0,
+                "type": "string"
+              },
+              "entities": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ]
+    },
+    "part": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "content": {
+          "$ref": "#/definitions/content"
+        }
+      },
+      "required": ["partId", "content"]
+    },
+    "step": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stepId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "delaySeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        }
+      },
+      "required": ["stepId", "delaySeconds", "parts"]
+    },
+    "source": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "code": {
+          "type": "string",
+          "pattern": "^m_[A-Za-z0-9_-]{1,48}$"
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": ["sourceId", "code", "name"]
+    },
+    "audience": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["all"]
+            }
+          },
+          "required": ["kind"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {
+              "enum": ["funnels"]
+            },
+            "funnelIds": {
+              "type": "array",
+              "items": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "minItems": 1,
+              "maxItems": 100
+            }
+          },
+          "required": ["kind", "funnelIds"]
+        }
+      ]
+    },
+    "target": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "enum": ["material", "series"]
+        },
+        "targetId": {
+          "type": "string",
+          "format": "uuid"
+        }
+      },
+      "required": ["kind", "targetId"]
+    },
+    "template": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "templateId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "botIdentity": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "content": {
+          "$ref": "#/definitions/content"
+        }
+      },
+      "required": ["templateId", "revision", "botIdentity", "content"]
+    },
+    "request": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["templates.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "templateId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["templateId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["templates.save"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "templateId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "content": {
+                  "$ref": "#/definitions/content"
+                }
+              },
+              "required": ["templateId", "content"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["funnelId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.list"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cursor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.save"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "name": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "steps": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/step"
+                  },
+                  "minItems": 0,
+                  "maxItems": 100
+                },
+                "sources": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/source"
+                  },
+                  "minItems": 0,
+                  "maxItems": 100
+                },
+                "isDefault": {
+                  "type": "boolean"
+                },
+                "entryResponse": {
+                  "$ref": "#/definitions/entryResponse"
+                }
+              },
+              "required": [
+                "funnelId",
+                "name",
+                "steps",
+                "sources",
+                "isDefault",
+                "entryResponse"
+              ]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.publish"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["funnelId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.preview"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["funnelId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.lifecycle"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "action": {
+                  "enum": ["pause", "resume", "archive", "restore"]
+                }
+              },
+              "required": ["funnelId", "action"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["funnels.rollback"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "publishedRevision": {
+                  "type": "integer",
+                  "minimum": 0,
+                  "maximum": 2147483647
+                }
+              },
+              "required": ["funnelId", "publishedRevision"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["broadcasts.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["broadcastId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["broadcasts.save"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/part"
+                  },
+                  "minItems": 1,
+                  "maxItems": 20
+                },
+                "audience": {
+                  "$ref": "#/definitions/audience"
+                },
+                "scheduledAt": {
+                  "type": ["string", "null"],
+                  "format": "date-time"
+                }
+              },
+              "required": ["broadcastId", "parts", "audience", "scheduledAt"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["broadcasts.launch"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["broadcastId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["broadcasts.lifecycle"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "action": {
+                  "enum": ["pause", "resume", "cancel"]
+                }
+              },
+              "required": ["broadcastId", "action"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["delivery.resolve"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "deliveryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "partId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "action": {
+                  "enum": ["skip", "retry"]
+                },
+                "duplicateRiskAccepted": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "deliveryId",
+                "partId",
+                "action",
+                "duplicateRiskAccepted"
+              ]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["templates.testSend"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "templateId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["templateId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["eligibility.check"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "targets": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/target"
+                  },
+                  "minItems": 1,
+                  "maxItems": 100
+                }
+              },
+              "required": ["targets"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["tracking.resolve"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/trackingActor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "token": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{32,128}$"
+                }
+              },
+              "required": ["token"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["tracking.recordHit"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/trackingActor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "eventId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "token": {
+                  "type": "string",
+                  "pattern": "^[A-Za-z0-9_-]{32,128}$"
+                },
+                "occurredAt": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "traffic": {
+                  "enum": ["unknown", "known_automation"]
+                }
+              },
+              "required": ["eventId", "token", "occurredAt", "traffic"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["statistics.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "cursor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["intro.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["intro.save"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "introId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/part"
+                  },
+                  "maxItems": 100,
+                  "minItems": 1
+                }
+              },
+              "required": ["introId", "parts"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["deliveries.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "deliveryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "cursor": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        }
+      ]
+    },
+    "authorizationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "enum": ["inside-communications-v1"]
+        },
+        "requestId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "permission": {
+          "enum": ["communications:manage"]
+        },
+        "subject": {
+          "oneOf": [
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": ["account"]
+                },
+                "accountRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": ["kind", "accountRef"]
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "kind": {
+                  "enum": ["telegram"]
+                },
+                "accountRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "telegramIdentityRef": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "botIdentity": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": [
+                "kind",
+                "accountRef",
+                "telegramIdentityRef",
+                "botIdentity"
+              ]
+            }
+          ]
+        }
+      },
+      "required": ["contractVersion", "requestId", "permission", "subject"]
+    },
+    "authorizationResponse": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "requestId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": ["allowed"]
+            },
+            "accountRef": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": ["contractVersion", "requestId", "status", "accountRef"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "requestId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "status": {
+              "enum": ["denied"]
+            }
+          },
+          "required": ["contractVersion", "requestId", "status"]
+        }
+      ]
+    },
+    "error": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "enum": ["inside-communications-v1"]
+        },
+        "status": {
+          "enum": [
+            "unauthorized",
+            "forbidden",
+            "not_found",
+            "malformed",
+            "unsupported_content",
+            "revision_conflict",
+            "operation_conflict",
+            "authorization_unavailable",
+            "not_implemented"
+          ]
+        }
+      },
+      "required": ["contractVersion", "status"]
+    },
+    "trackingActor": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "serviceRef": {
+          "enum": ["platform-tracking"]
+        }
+      },
+      "required": ["serviceRef"]
+    },
+    "templateResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "contractVersion": {
+          "enum": ["inside-communications-v1"]
+        },
+        "status": {
+          "enum": ["ok"]
+        },
+        "template": {
+          "$ref": "#/definitions/template"
+        }
+      },
+      "required": ["contractVersion", "status", "template"]
+    },
+    "funnel": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "funnelId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "publishedRevision": {
+          "type": ["integer", "null"],
+          "minimum": 1
+        },
+        "lifecycle": {
+          "enum": ["draft", "published", "paused", "archived"]
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "steps": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/step"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/source"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "isDefault": {
+          "type": "boolean"
+        },
+        "entryResponse": {
+          "$ref": "#/definitions/entryResponse"
+        }
+      },
+      "required": [
+        "funnelId",
+        "revision",
+        "publishedRevision",
+        "lifecycle",
+        "name",
+        "steps",
+        "sources",
+        "isDefault",
+        "entryResponse"
+      ]
+    },
+    "publishPreview": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "funnelId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "addedStepIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "editedStepIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "deletedStepIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "reorderedStepIds": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "eligibleContacts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "completedParticipantsReceivingNewSteps": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "validationErrors": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "target": {
+                "$ref": "#/definitions/target"
+              },
+              "reason": {
+                "enum": ["not_found", "not_published", "not_free", "incomplete"]
+              }
+            },
+            "required": ["target", "reason"]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        }
+      },
+      "required": [
+        "funnelId",
+        "revision",
+        "addedStepIds",
+        "editedStepIds",
+        "deletedStepIds",
+        "reorderedStepIds",
+        "eligibleContacts",
+        "completedParticipantsReceivingNewSteps",
+        "validationErrors"
+      ]
+    },
+    "broadcast": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "broadcastId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "state": {
+          "enum": [
+            "draft",
+            "scheduled",
+            "running",
+            "paused",
+            "cancelled",
+            "completed"
+          ]
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "minItems": 1,
+          "maxItems": 20
+        },
+        "audience": {
+          "$ref": "#/definitions/audience"
+        },
+        "scheduledAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        },
+        "audienceSnapshotId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "snapshotSize": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "required": [
+        "broadcastId",
+        "revision",
+        "state",
+        "parts",
+        "audience",
+        "scheduledAt",
+        "audienceSnapshotId",
+        "snapshotSize"
+      ]
+    },
+    "counts": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sent": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "suppressed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "failed": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "unknown": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "partialCancelled": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "pending": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "required": [
+        "sent",
+        "suppressed",
+        "failed",
+        "unknown",
+        "partialCancelled",
+        "pending"
+      ]
+    },
+    "statistics": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "totalBotContacts": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "reachable": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "blocked": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "marketingOff": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "uniqueParticipants": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "deliveries": {
+          "$ref": "#/definitions/counts"
+        },
+        "trackingHits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "uniqueTokensWithHits": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "analyticsLagSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        },
+        "contacts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "contactId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "firstSourceId": {
+                "type": ["string", "null"],
+                "format": "uuid"
+              },
+              "latestSourceId": {
+                "type": ["string", "null"],
+                "format": "uuid"
+              },
+              "entries": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "additionalProperties": false,
+                  "properties": {
+                    "sourceId": {
+                      "type": "string",
+                      "format": "uuid"
+                    },
+                    "enteredAt": {
+                      "type": "string",
+                      "format": "date-time"
+                    }
+                  },
+                  "required": ["sourceId", "enteredAt"]
+                },
+                "minItems": 0,
+                "maxItems": 100
+              }
+            },
+            "required": [
+              "contactId",
+              "firstSourceId",
+              "latestSourceId",
+              "entries"
+            ]
+          },
+          "minItems": 0,
+          "maxItems": 100
+        },
+        "nextCursor": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "totalBotContacts",
+        "reachable",
+        "blocked",
+        "marketingOff",
+        "uniqueParticipants",
+        "deliveries",
+        "trackingHits",
+        "uniqueTokensWithHits",
+        "analyticsLagSeconds",
+        "contacts",
+        "nextCursor"
+      ]
+    },
+    "response": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/error"
+        },
+        {
+          "$ref": "#/definitions/templateResponse"
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "funnel": {
+              "$ref": "#/definitions/funnel"
+            }
+          },
+          "required": ["contractVersion", "status", "funnel"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "funnels": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/funnel"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 128
+            }
+          },
+          "required": ["contractVersion", "status", "funnels", "nextCursor"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "preview": {
+              "$ref": "#/definitions/publishPreview"
+            }
+          },
+          "required": ["contractVersion", "status", "preview"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "broadcast": {
+              "$ref": "#/definitions/broadcast"
+            }
+          },
+          "required": ["contractVersion", "status", "broadcast"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "deliveryId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "partId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "outcome": {
+              "enum": ["skipped", "retry_requested"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "status",
+            "deliveryId",
+            "partId",
+            "outcome"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "testDeliveryId": {
+              "type": "string",
+              "format": "uuid"
+            }
+          },
+          "required": ["contractVersion", "status", "testDeliveryId"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "targets": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "target": {
+                    "$ref": "#/definitions/target"
+                  },
+                  "eligible": {
+                    "type": "boolean"
+                  },
+                  "safeUrl": {
+                    "type": ["string", "null"],
+                    "maxLength": 2048
+                  },
+                  "reason": {
+                    "enum": [
+                      "eligible",
+                      "not_found",
+                      "not_published",
+                      "not_free",
+                      "incomplete"
+                    ]
+                  }
+                },
+                "required": ["target", "eligible", "safeUrl", "reason"]
+              },
+              "minItems": 0,
+              "maxItems": 100
+            }
+          },
+          "required": ["contractVersion", "status", "targets"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "safeUrl": {
+              "type": "string",
+              "format": "uri",
+              "maxLength": 2048,
+              "pattern": "^https://"
+            }
+          },
+          "required": ["contractVersion", "status", "safeUrl"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "eventId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "outcome": {
+              "enum": ["recorded", "duplicate"]
+            }
+          },
+          "required": ["contractVersion", "status", "eventId", "outcome"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "statistics": {
+              "$ref": "#/definitions/statistics"
+            }
+          },
+          "required": ["contractVersion", "status", "statistics"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "intro": {
+              "$ref": "#/definitions/intro"
+            }
+          },
+          "required": ["contractVersion", "status", "intro"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "deliveries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/delivery"
+              },
+              "maxItems": 100
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 128
+            }
+          },
+          "required": ["contractVersion", "status", "deliveries", "nextCursor"]
+        }
+      ]
+    },
+    "entryResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stepId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "maxItems": 100,
+          "minItems": 1
+        }
+      },
+      "required": ["stepId", "parts"]
+    },
+    "intro": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "introId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "maxItems": 100,
+          "minItems": 1
+        }
+      },
+      "required": ["introId", "revision", "parts"]
+    },
+    "deliveryPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "in_flight",
+            "sent",
+            "failed",
+            "unknown",
+            "suppressed",
+            "skipped",
+            "cancelled"
+          ]
+        },
+        "diagnosticCode": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "attemptId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "attemptedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "outcome": {
+                "enum": ["sent", "api_rejected", "retryable", "unknown"]
+              },
+              "diagnosticCode": {
+                "type": ["string", "null"],
+                "maxLength": 128
+              },
+              "duplicateRiskAccepted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "attemptId",
+              "attemptedAt",
+              "outcome",
+              "diagnosticCode",
+              "duplicateRiskAccepted"
+            ]
+          },
+          "maxItems": 100
+        }
+      },
+      "required": ["partId", "state", "diagnosticCode", "attempts"]
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deliveryId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contactId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "funnelId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "broadcastId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "stepId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "publishedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshot": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "maxItems": 100,
+          "minItems": 1
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/deliveryPart"
+          },
+          "maxItems": 100
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "deliveryId",
+        "revision",
+        "contactId",
+        "funnelId",
+        "broadcastId",
+        "stepId",
+        "publishedRevision",
+        "snapshot",
+        "parts",
+        "cancelRequested",
+        "completedAt"
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "$ref": "#/definitions/request"
+    },
+    {
+      "$ref": "#/definitions/authorizationRequest"
+    },
+    {
+      "$ref": "#/definitions/authorizationResponse"
+    },
+    {
+      "$ref": "#/definitions/response"
+    }
+  ]
+}

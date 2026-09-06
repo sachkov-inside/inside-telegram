@@ -18,6 +18,8 @@ export interface ApplicationConfig {
   readonly membershipReconciliationCadenceMilliseconds: number;
   readonly platformEvidenceDeliverySecret?: string;
   readonly platformEvidenceDeliveryUrl?: string;
+  readonly platformAuthorAuthorizationUrl?: string;
+  readonly platformAuthorAuthorizationSecret?: string;
   readonly platformIntegrationSecret: string;
   readonly port: number;
   readonly webhookSecret: string;
@@ -108,7 +110,41 @@ export function loadApplicationConfig(
     }
   }
 
+  const platformAuthorAuthorizationUrl =
+    environment.PLATFORM_AUTHOR_AUTHORIZATION_URL;
+  const platformAuthorAuthorizationSecret =
+    environment.PLATFORM_AUTHOR_AUTHORIZATION_SECRET;
+  if (platformAuthorAuthorizationUrl || platformAuthorAuthorizationSecret) {
+    if (
+      !platformAuthorAuthorizationUrl ||
+      !platformAuthorAuthorizationSecret ||
+      !/^[A-Za-z0-9_-]{16,256}$/.test(platformAuthorAuthorizationSecret)
+    )
+      throw new Error(
+        "Both PLATFORM_AUTHOR_AUTHORIZATION_URL and a valid PLATFORM_AUTHOR_AUTHORIZATION_SECRET are required",
+      );
+    assertHttpUrl(
+      platformAuthorAuthorizationUrl,
+      "PLATFORM_AUTHOR_AUTHORIZATION_URL",
+    );
+    const url = new URL(platformAuthorAuthorizationUrl);
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    )
+      throw new Error(
+        "PLATFORM_AUTHOR_AUTHORIZATION_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
+      );
+  }
+
   return Object.freeze({
+    ...(platformAuthorAuthorizationUrl
+      ? { platformAuthorAuthorizationUrl, platformAuthorAuthorizationSecret }
+      : {}),
     botIdentity,
     ...(botToken ? { botToken } : {}),
     canonicalChatId,

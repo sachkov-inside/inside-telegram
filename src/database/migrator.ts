@@ -9,6 +9,8 @@ import { membershipReconciliationMigration } from "./migrations/005-membership-r
 import { platformEvidenceConformanceMigration } from "./migrations/006-platform-evidence-conformance.js";
 import { ownerIdentityRecoveryMigration } from "./migrations/007-owner-identity-recovery.js";
 
+import { communicationsTemplatesMigration } from "./migrations/010-communications-templates.js";
+
 const migrationProvider: MigrationProvider = {
   async getMigrations() {
     return {
@@ -19,6 +21,7 @@ const migrationProvider: MigrationProvider = {
       "005-membership-reconciliation": membershipReconciliationMigration,
       "006-platform-evidence-conformance": platformEvidenceConformanceMigration,
       "007-owner-identity-recovery": ownerIdentityRecoveryMigration,
+      "010-communications-templates": communicationsTemplatesMigration,
     };
   },
 };
