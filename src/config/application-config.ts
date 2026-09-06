@@ -164,8 +164,7 @@ export function loadApplicationConfig(
       );
   }
 
-  const platformTrackingRedirectUrl =
-    environment.PLATFORM_TRACKING_REDIRECT_URL;
+  let platformTrackingRedirectUrl = environment.PLATFORM_TRACKING_REDIRECT_URL;
   let platformTrackingTargetPrefixes: string[] | undefined;
   if (
     platformTrackingRedirectUrl ||
@@ -217,9 +216,12 @@ export function loadApplicationConfig(
       throw new Error(
         "Tracking target prefixes require normalized non-root paths ending in slash",
       );
+    platformTrackingRedirectUrl = new URL(
+      platformTrackingRedirectUrl,
+    ).toString();
     if (
       platformTrackingTargetPrefixes.some((p) =>
-        platformTrackingRedirectUrl.startsWith(p),
+        platformTrackingRedirectUrl!.startsWith(p),
       )
     )
       throw new Error("Tracking redirect cannot be a tracking destination");

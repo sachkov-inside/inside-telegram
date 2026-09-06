@@ -217,7 +217,8 @@ and grants no content authorization.
 
 `recordHit` accepts an event UUID, token, occurrence time and `unknown|known_automation` classification.
 The persisted bot/event key makes concurrent/repeated ingestion idempotent; a changed payload under
-that event returns conflict. Future events beyond one minute and events predating token creation by
+that event or operation ID returns conflict. The service actor and operation are audited atomically
+with ingestion. Future events beyond one minute and events predating token creation by
 more than one minute are rejected. Repeated visits with different event IDs remain separate.
 `trackingHits`/`uniqueTokensWithHits` exclude `known_automation`; `knownAutomationHits` is reported
 separately. The consumer classifies known automation using its versioned rule; the provider does not

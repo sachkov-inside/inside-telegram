@@ -42,6 +42,13 @@ describe("tracking destination seam", () => {
   });
   it("rejects partially configured and unrestricted target prefixes at startup", () => {
     for (const override of [
+      {
+        PLATFORM_TRACKING_REDIRECT_URL: "https://PLATFORM.example/materials/go",
+      },
+      {
+        PLATFORM_TRACKING_REDIRECT_URL:
+          "https://platform.example/other/../materials/go",
+      },
       { PLATFORM_TRACKING_TARGET_PREFIXES: "" },
       { PLATFORM_TRACKING_REDIRECT_URL: "" },
       { PLATFORM_TRACKING_TARGET_PREFIXES: '["https://platform.example/"]' },

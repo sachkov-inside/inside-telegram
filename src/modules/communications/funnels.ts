@@ -1,3 +1,4 @@
+import { deliveryOwnerPredicate } from "./communication-queries.js";
 import { applyBroadcast, type BroadcastResult } from "./broadcasts.js";
 import {
   readStatistics,
@@ -209,17 +210,7 @@ export class Funnels {
         )
         .selectAll("d")
         .where("d.bot_identity", "=", bot)
-        .where((eb) =>
-          eb.or([
-            eb("f.owner_account_ref", "=", actor),
-            eb("b.owner_account_ref", "=", actor),
-            eb.and([
-              eb("d.funnel_id", "is", null),
-              eb("d.broadcast_id", "is", null),
-              eb("i.owner_account_ref", "=", actor),
-            ]),
-          ]),
-        );
+        .where(deliveryOwnerPredicate(actor));
       if (payload.funnelId)
         query = query.where("d.funnel_id", "=", payload.funnelId);
       if (payload.deliveryId)
@@ -255,17 +246,7 @@ export class Funnels {
         .selectAll("d")
         .where("d.delivery_id", "=", payload.deliveryId!)
         .where("d.bot_identity", "=", bot)
-        .where((eb) =>
-          eb.or([
-            eb("f.owner_account_ref", "=", actor),
-            eb("b.owner_account_ref", "=", actor),
-            eb.and([
-              eb("d.funnel_id", "is", null),
-              eb("d.broadcast_id", "is", null),
-              eb("i.owner_account_ref", "=", actor),
-            ]),
-          ]),
-        )
+        .where(deliveryOwnerPredicate(actor))
         .executeTakeFirst();
       if (!row) throw new CommunicationsError("not_found");
       if (row.revision !== expectedRevision || row.completed_at)

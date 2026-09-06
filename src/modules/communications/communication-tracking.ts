@@ -1,3 +1,4 @@
+import { isDeepStrictEqual } from "node:util";
 import { randomBytes } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
 import type { Transaction } from "kysely";
@@ -120,6 +121,36 @@ export class CommunicationTracking {
     if (!["tracking.resolve", "tracking.recordHit"].includes(request.operation))
       throw new CommunicationsError("forbidden");
     return this.database.transaction().execute(async (tx) => {
+      if (request.operation === "tracking.recordHit") {
+        await communicationLock(
+          tx,
+          `communications-operation:${this.config.botIdentity}:${request.operationId}`,
+        );
+        const operation = await tx
+          .selectFrom("communication_operations")
+          .selectAll()
+          .where("bot_identity", "=", this.config.botIdentity)
+          .where("operation_id", "=", request.operationId)
+          .executeTakeFirst();
+        if (
+          operation &&
+          (operation.actor_account_ref !== "service:platform-tracking" ||
+            !isDeepStrictEqual(operation.request, request))
+        )
+          throw new CommunicationsError("operation_conflict");
+        if (!operation)
+          await tx
+            .insertInto("communication_operations")
+            .values({
+              bot_identity: this.config.botIdentity,
+              operation_id: request.operationId,
+              actor_account_ref: "service:platform-tracking",
+              request: JSON.stringify(request),
+              result: JSON.stringify({ eventId: request.payload.eventId }),
+              created_at: this.clock.now(),
+            })
+            .execute();
+      }
       const token = await tx
         .selectFrom("communication_tracking_tokens")
         .selectAll()

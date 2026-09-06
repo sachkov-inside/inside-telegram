@@ -615,6 +615,14 @@ describe("communication analytics and tracking", () => {
         })
       ).statusCode,
     ).toBe(409);
+    expect(
+      (
+        await http({
+          ...event,
+          payload: { ...event.payload, eventId: randomUUID() },
+        })
+      ).statusCode,
+    ).toBe(409);
     await http(
       tracking("tracking.recordHit", {
         ...event.payload,
@@ -662,8 +670,7 @@ describe("communication analytics and tracking", () => {
     expect(stats.contacts[0].entries).toHaveLength(3);
     expect(stats.contacts[0].firstSourceId).toBe(value.sources[0]!.sourceId);
     expect(stats.contacts[0].latestSourceId).toBeNull();
-    for (let i = 4; i <= 104; i++)
-      await start(String(i), value.sources[0]!.code);
+    await seedEntryPage(4, 104, value);
     const response = await http(command("statistics.read", {}));
     expect(responseValidator(response.json())).toBe(true);
     stats = response.json().statistics;
@@ -831,3 +838,50 @@ describe("broadcast crash boundaries", () => {
     );
   });
 });
+
+it("orders first/latest and continuation by entry time when a later Telegram update ID is lower", async () => {
+  const value = await setup();
+  await start("100", value.sources[0]!.code);
+  await seedEntryPage(101, 200, value);
+  const initial = (await http(command("statistics.read", {}))).json().statistics
+    .contacts[0];
+  now = new Date(+now + 8 * 24 * 60 * 60 * 1000);
+  await start("1");
+  const current = (await http(command("statistics.read", {}))).json().statistics
+    .contacts[0];
+  expect(current.firstSourceId).toBe(value.sources[0]!.sourceId);
+  expect(current.latestSourceId).toBeNull();
+  const page = (
+    await http(
+      command("entries.read", {
+        contactId: initial.contactId,
+        cursor: initial.nextEntryCursor,
+      }),
+    )
+  ).json();
+  expect(page.entries).toHaveLength(2);
+  expect(page.entries[1].sourceId).toBeNull();
+});
+
+async function seedEntryPage(first: number, last: number, funnel: FunnelDraft) {
+  const contact = await database
+    .selectFrom("communication_contacts")
+    .select("contact_id")
+    .where("telegram_user_id", "=", "42")
+    .executeTakeFirstOrThrow();
+  await database
+    .insertInto("communication_entries")
+    .values(
+      Array.from({ length: last - first + 1 }, (_, offset) => ({
+        bot_identity: "inside",
+        update_id: String(first + offset),
+        contact_id: contact.contact_id,
+        funnel_id: funnel.funnelId,
+        source_id: funnel.sources[0]!.sourceId,
+        source_code: funnel.sources[0]!.code,
+        entered_at: clock.now(),
+        outcome: "entered",
+      })),
+    )
+    .execute();
+}

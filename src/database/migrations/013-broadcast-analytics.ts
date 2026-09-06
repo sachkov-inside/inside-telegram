@@ -37,7 +37,12 @@ export const broadcastAnalyticsMigration = {
   },
   async down(db: Kysely<unknown>): Promise<void> {
     // Refuse rollback if it would destroy broadcast history.
-    await sql`alter table communication_deliveries drop constraint communication_broadcast_owner_check;
+    await sql`do $$ begin
+      if exists(select 1 from communication_broadcasts) or exists(select 1 from communication_tracking_tokens) then
+        raise exception 'Broadcast analytics rollback requires an empty history';
+      end if;
+      end $$;
+      alter table communication_deliveries drop constraint communication_broadcast_owner_check;
       alter table communication_deliveries drop constraint communication_deliveries_kind_check;
       alter table communication_deliveries add constraint communication_deliveries_kind_check check(kind in ('intro','entry','step','fallback'));
       drop table communication_tracking_hits, communication_tracking_tokens;

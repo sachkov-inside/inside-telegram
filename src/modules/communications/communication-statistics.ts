@@ -1,3 +1,4 @@
+import { deliveryOwnerPredicate } from "./communication-queries.js";
 import { sql, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 import {
@@ -110,23 +111,53 @@ export async function readEntries(
 ): Promise<EntriesResult> {
   let query = entryQuery(tx, bot, actor, request.payload.contactId!);
   if (request.payload.cursor) {
-    const decoded = Buffer.from(request.payload.cursor, "base64url").toString();
+    let value: unknown;
+    try {
+      value = JSON.parse(
+        Buffer.from(request.payload.cursor, "base64url").toString(),
+      );
+    } catch {
+      throw new CommunicationsError("malformed");
+    }
     if (
-      !/^[0-9]{1,19}$/.test(decoded) ||
-      BigInt(decoded) > 9223372036854775807n
+      !Array.isArray(value) ||
+      value.length !== 2 ||
+      typeof value[0] !== "string" ||
+      typeof value[1] !== "string" ||
+      !/^[0-9]{1,19}$/.test(value[1]) ||
+      BigInt(value[1]) > 9223372036854775807n ||
+      !Number.isFinite(Date.parse(value[0]))
     )
       throw new CommunicationsError("malformed");
-    query = query.where("e.update_id", ">", decoded);
+    const timestamp = new Date(value[0]);
+    const updateId = value[1];
+    query = query.where((eb) =>
+      eb.or([
+        eb("e.entered_at", ">", timestamp),
+        eb.and([
+          eb("e.entered_at", "=", timestamp),
+          eb("e.update_id", ">", updateId),
+        ]),
+      ]),
+    );
   }
-  const rows = await query.orderBy("e.update_id").limit(101).execute();
+  const rows = await query
+    .orderBy("e.entered_at")
+    .orderBy("e.update_id")
+    .limit(101)
+    .execute();
+  const last = rows[99];
   return {
     entries: rows.slice(0, 100).map(entryView),
     nextCursor:
-      rows.length > 100
-        ? Buffer.from(rows[99]!.update_id).toString("base64url")
+      rows.length > 100 && last
+        ? Buffer.from(
+            JSON.stringify([last.entered_at.toISOString(), last.update_id]),
+          ).toString("base64url")
         : null,
   };
 }
+
 export async function readStatistics(
   tx: Tx,
   request: CommunicationsRequest,
@@ -154,7 +185,7 @@ export async function readStatistics(
     join communication_funnels f using(funnel_id) where f.bot_identity=${bot} and f.owner_account_ref=${actor}
     and (${funnel}::uuid is null or e.funnel_id=${funnel}::uuid)`.execute(tx);
   const deliveryScope = sql`d.bot_identity=${bot}
-    and (f.owner_account_ref=${actor} or b.owner_account_ref=${actor} or (d.funnel_id is null and d.broadcast_id is null and i.owner_account_ref=${actor}))
+    and ${deliveryOwnerPredicate(actor)}
     and (${funnel}::uuid is null or d.funnel_id=${funnel}::uuid)
     and (${broadcast}::uuid is null or d.broadcast_id=${broadcast}::uuid)`;
   const counts = await sql<Counts>`with deliveries as (
@@ -228,10 +259,12 @@ export async function readStatistics(
       actor,
     );
     const first = await entryQuery(tx, bot, actor, row.contact_id)
+      .orderBy("e.entered_at")
       .orderBy("e.update_id")
       .limit(1)
       .executeTakeFirst();
     const latest = await entryQuery(tx, bot, actor, row.contact_id)
+      .orderBy("e.entered_at", "desc")
       .orderBy("e.update_id", "desc")
       .limit(1)
       .executeTakeFirst();
