@@ -22,6 +22,8 @@ export interface ApplicationConfig {
   readonly platformAuthorAuthorizationUrl?: string;
   readonly platformAuthorAuthorizationSecret?: string;
   readonly platformIntegrationSecret: string;
+  readonly platformTrackingRedirectUrl?: string;
+  readonly platformTrackingTargetPrefixes?: readonly string[];
   readonly port: number;
   readonly signInEnabled?: boolean;
   readonly signInIntegrationSecret?: string;
@@ -162,7 +164,70 @@ export function loadApplicationConfig(
       );
   }
 
+  const platformTrackingRedirectUrl =
+    environment.PLATFORM_TRACKING_REDIRECT_URL;
+  let platformTrackingTargetPrefixes: string[] | undefined;
+  if (
+    platformTrackingRedirectUrl ||
+    environment.PLATFORM_TRACKING_TARGET_PREFIXES
+  ) {
+    if (
+      !platformTrackingRedirectUrl ||
+      !environment.PLATFORM_TRACKING_TARGET_PREFIXES
+    )
+      throw new Error(
+        "Both tracking redirect URL and target prefixes are required",
+      );
+    const prefixes: unknown = JSON.parse(
+      environment.PLATFORM_TRACKING_TARGET_PREFIXES,
+    );
+    if (
+      !Array.isArray(prefixes) ||
+      !prefixes.length ||
+      prefixes.length > 20 ||
+      prefixes.some((p) => typeof p !== "string")
+    )
+      throw new Error("Invalid tracking target prefixes");
+    platformTrackingTargetPrefixes = prefixes as string[];
+    for (const value of [
+      platformTrackingRedirectUrl,
+      ...platformTrackingTargetPrefixes,
+    ]) {
+      const url = new URL(value);
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash ||
+        url.hostname.replace(/\.$/, "") === "api.telegram.org"
+      )
+        throw new Error(
+          "Tracking URLs require HTTPS without credentials, query or fragment",
+        );
+    }
+    if (
+      platformTrackingTargetPrefixes.some((p) => {
+        const u = new URL(p);
+        return (
+          u.pathname === "/" || !u.pathname.endsWith("/") || p !== u.toString()
+        );
+      })
+    )
+      throw new Error(
+        "Tracking target prefixes require normalized non-root paths ending in slash",
+      );
+    if (
+      platformTrackingTargetPrefixes.some((p) =>
+        platformTrackingRedirectUrl.startsWith(p),
+      )
+    )
+      throw new Error("Tracking redirect cannot be a tracking destination");
+  }
   return Object.freeze({
+    ...(platformTrackingRedirectUrl
+      ? { platformTrackingRedirectUrl, platformTrackingTargetPrefixes }
+      : {}),
     ...(platformAuthorAuthorizationUrl
       ? { platformAuthorAuthorizationUrl, platformAuthorAuthorizationSecret }
       : {}),

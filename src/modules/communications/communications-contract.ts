@@ -46,6 +46,16 @@ export interface CommunicationsRequest {
     readonly publishedRevision?: number;
     readonly duplicateRiskAccepted?: boolean;
     readonly broadcastId?: string;
+    readonly audience?:
+      | { readonly kind: "all" }
+      | { readonly kind: "funnels"; readonly funnelIds: readonly string[] };
+    readonly scheduledAt?: string | null;
+    readonly token?: string;
+    readonly eventId?: string;
+    readonly occurredAt?: string;
+    readonly traffic?: "unknown" | "known_automation";
+    readonly contactId?: string;
+    readonly entryCursor?: string;
     readonly cursor?: string;
     readonly name?: string;
     readonly isDefault?: boolean;
@@ -55,7 +65,7 @@ export interface CommunicationsRequest {
     readonly introId?: string;
     readonly parts?: readonly MessagePart[];
     readonly action?:
-      "pause" | "resume" | "archive" | "restore" | "skip" | "retry";
+      "pause" | "resume" | "archive" | "restore" | "skip" | "retry" | "cancel";
     readonly templateId?: string;
     readonly content?: TemplateContent;
   };

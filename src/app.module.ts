@@ -1,3 +1,4 @@
+import { CommunicationTracking } from "./modules/communications/communication-tracking.js";
 import { Api } from "grammy";
 import { Funnels } from "./modules/communications/funnels.js";
 import { MarketingEntry } from "./modules/communications/marketing-entry.js";
@@ -151,6 +152,7 @@ export class AppModule {
             return new DisabledPlatformEvidenceDelivery();
           },
         },
+        CommunicationTracking,
         Communications,
         Funnels,
         MarketingEntry,

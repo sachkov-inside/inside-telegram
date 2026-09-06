@@ -1,3 +1,10 @@
+import { applyBroadcast, type BroadcastResult } from "./broadcasts.js";
+import {
+  readStatistics,
+  readEntries,
+  type StatisticsResult,
+  type EntriesResult,
+} from "./communication-statistics.js";
 import { reconcileFunnels, terminal, deliveryView } from "./funnel-timeline.js";
 import { communicationLock } from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
@@ -32,6 +39,9 @@ import type {
 } from "./funnel-types.js";
 
 export type FunnelResult =
+  | BroadcastResult
+  | StatisticsResult
+  | EntriesResult
   | { funnel: FunnelSnapshot }
   | { funnels: FunnelSnapshot[]; nextCursor: string | null }
   | { intro: IntroSnapshot }
@@ -97,6 +107,10 @@ export class Funnels {
           "funnels.list",
           "intro.read",
           "deliveries.read",
+          "broadcasts.read",
+          "broadcasts.list",
+          "statistics.read",
+          "entries.read",
         ].includes(request.operation)
       ) {
         await tx
@@ -121,6 +135,12 @@ export class Funnels {
   ): Promise<FunnelResult> {
     const { operation, payload, expectedRevision } = request;
     const bot = this.config.botIdentity;
+    if (operation.startsWith("broadcasts."))
+      return applyBroadcast(tx, request, bot, actor, this.clock.now());
+    if (operation === "statistics.read")
+      return readStatistics(tx, request, bot, actor);
+    if (operation === "entries.read")
+      return readEntries(tx, request, bot, actor);
     if (operation === "intro.read" || operation === "intro.save") {
       const row = await tx
         .selectFrom("communication_intro")
@@ -178,6 +198,11 @@ export class Funnels {
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
         .leftJoin(
+          "communication_broadcasts as b",
+          "b.broadcast_id",
+          "d.broadcast_id",
+        )
+        .leftJoin(
           "communication_intro as i",
           "i.bot_identity",
           "d.bot_identity",
@@ -187,8 +212,10 @@ export class Funnels {
         .where((eb) =>
           eb.or([
             eb("f.owner_account_ref", "=", actor),
+            eb("b.owner_account_ref", "=", actor),
             eb.and([
               eb("d.funnel_id", "is", null),
+              eb("d.broadcast_id", "is", null),
               eb("i.owner_account_ref", "=", actor),
             ]),
           ]),
@@ -197,7 +224,8 @@ export class Funnels {
         query = query.where("d.funnel_id", "=", payload.funnelId);
       if (payload.deliveryId)
         query = query.where("d.delivery_id", "=", payload.deliveryId);
-      if (payload.broadcastId) return { deliveries: [], nextCursor: null };
+      if (payload.broadcastId)
+        query = query.where("d.broadcast_id", "=", payload.broadcastId);
       if (payload.cursor)
         query = query.where(
           "d.delivery_id",
@@ -215,6 +243,11 @@ export class Funnels {
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
         .leftJoin(
+          "communication_broadcasts as b",
+          "b.broadcast_id",
+          "d.broadcast_id",
+        )
+        .leftJoin(
           "communication_intro as i",
           "i.bot_identity",
           "d.bot_identity",
@@ -225,8 +258,10 @@ export class Funnels {
         .where((eb) =>
           eb.or([
             eb("f.owner_account_ref", "=", actor),
+            eb("b.owner_account_ref", "=", actor),
             eb.and([
               eb("d.funnel_id", "is", null),
+              eb("d.broadcast_id", "is", null),
               eb("i.owner_account_ref", "=", actor),
             ]),
           ]),

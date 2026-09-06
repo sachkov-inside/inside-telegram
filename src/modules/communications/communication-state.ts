@@ -17,7 +17,8 @@ export async function planDelivery(
     contactId: string;
     funnelId?: string;
     stepId?: string;
-    kind: "intro" | "entry" | "step" | "fallback";
+    kind: "intro" | "entry" | "step" | "fallback" | "broadcast";
+    broadcastId?: string;
     key: string;
     parts: readonly MessagePart[];
     revision: number;
@@ -35,6 +36,7 @@ export async function planDelivery(
       funnel_id: input.funnelId ?? null,
       step_id: input.stepId ?? null,
       kind: input.kind,
+      broadcast_id: input.broadcastId ?? null,
       published_revision: input.revision,
       snapshot: JSON.stringify(input.parts),
       parts: JSON.stringify(

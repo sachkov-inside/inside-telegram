@@ -1,3 +1,4 @@
+import { broadcastAnalyticsMigration } from "./migrations/013-broadcast-analytics.js";
 import { marketingPreferencesMigration } from "./migrations/012-marketing-preferences.js";
 import { communicationFunnelsMigration } from "./migrations/011-communication-funnels.js";
 import { sql } from "kysely";
@@ -33,6 +34,7 @@ const migrations = {
   "010-sign-in-message-result": signInMessageResultMigration,
   "011-communication-funnels": communicationFunnelsMigration,
   "012-marketing-preferences": marketingPreferencesMigration,
+  "013-broadcast-analytics": broadcastAnalyticsMigration,
 };
 
 function createMigrator(db: Database): Migrator {
