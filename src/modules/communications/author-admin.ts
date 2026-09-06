@@ -42,7 +42,7 @@ type State = {
     | "button-url"
     | "button-row"
     | "schedule";
-  replacePartIndex?: number;
+  replacePart?: { broadcastId: string; partId: string };
   buttonTitle?: string;
   buttonUrl?: string;
 };
@@ -188,13 +188,14 @@ export class AuthorAdmin {
             token === context.state.token && /^\d+$/.test(index ?? "")
               ? context.state.actions[Number(index)]
               : undefined;
-          if (!action)
+          if (!action) {
+            context.state = empty();
             await this.reply(
               context,
               "Это меню уже устарело. Откройте пост или рассылку заново.",
               home,
             );
-          else await this.act(context, action);
+          } else await this.act(context, action);
         } else {
           try {
             await this.answer(context);
@@ -305,6 +306,7 @@ export class AuthorAdmin {
     );
   }
   private async broadcast(c: Context) {
+    c.state.replacePart = undefined;
     const b = c.state.broadcast!;
     c.state.prompt = undefined;
     const editable =
@@ -413,6 +415,7 @@ export class AuthorAdmin {
     if (["posts", "pick-part"].includes(a.kind)) {
       const list = await this.posts.list(
         this.request(c, "templates.list", a.id ? { cursor: a.id } : {}),
+        c.tx,
       );
       const posts = list.templates.slice(0, 20);
       c.state.prompt = undefined;
@@ -448,21 +451,26 @@ export class AuthorAdmin {
         return this.post(c);
       }
       if (
-        !b ||
-        (c.state.replacePartIndex === undefined && b.parts.length >= 20)
+        c.state.replacePart &&
+        (!b ||
+          c.state.replacePart.broadcastId !== b.broadcastId ||
+          !b.parts.some((part) => part.partId === c.state.replacePart?.partId))
       )
+        throw new CommunicationsError("revision_conflict");
+      if (!b || (c.state.replacePart === undefined && b.parts.length >= 20))
         return this.reply(c, "Можно добавить до 20 сообщений.", [
           ["Вернуться", { kind: "read-broadcast", id: b?.broadcastId }],
         ]);
-      if (c.state.replacePartIndex === undefined)
+      if (c.state.replacePart === undefined)
         b.parts.push({ partId: randomUUID(), content: post.content });
       else
-        b.parts = b.parts.map((part, index) =>
-          index === c.state.replacePartIndex
+        b.parts = b.parts.map((part) =>
+          part.partId === c.state.replacePart?.partId &&
+          b.broadcastId === c.state.replacePart.broadcastId
             ? { ...part, content: post.content }
             : part,
         );
-      c.state.replacePartIndex = undefined;
+      c.state.replacePart = undefined;
       return this.saveBroadcast(c);
     }
     if (a.kind === "sample" && t) {
@@ -597,7 +605,9 @@ export class AuthorAdmin {
         ],
       );
     if (a.kind === "replace-part") {
-      c.state.replacePartIndex = Number(a.value);
+      const part = b.parts[Number(a.value)];
+      if (!part) throw new CommunicationsError("revision_conflict");
+      c.state.replacePart = { broadcastId: b.broadcastId, partId: part.partId };
       return this.perform(c, { kind: "pick-part" });
     }
     if (a.kind === "move-part") {
@@ -829,6 +839,7 @@ export class AuthorAdmin {
       state.broadcast.scheduledAt = date;
       return this.saveBroadcast(c);
     }
+    c.state = empty();
     return this.reply(
       c,
       "Выберите действие. Для нового поста нажмите «Создать пост».",
