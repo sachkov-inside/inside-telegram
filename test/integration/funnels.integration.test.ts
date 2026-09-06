@@ -1336,18 +1336,16 @@ describe("preference and publication crash/race boundaries #29", () => {
 
 it("keeps first-entry intro suppressed when the subscriber stopped before enrollment", async () => {
   const value = await setup();
-  await app
-    .get(BotContacts)
-    .observeStart(
-      {
-        botIdentity: "inside",
-        telegramUserId: "42",
-        privateChatId: "42",
-        updateId: "9",
-        observedAt: now,
-      },
-      "none",
-    );
+  await app.get(BotContacts).observeStart(
+    {
+      botIdentity: "inside",
+      telegramUserId: "42",
+      privateChatId: "42",
+      updateId: "9",
+      observedAt: now,
+    },
+    "none",
+  );
   await preference(false, "10");
   await start("11");
   await tick();
