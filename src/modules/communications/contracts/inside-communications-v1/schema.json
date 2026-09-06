@@ -79,6 +79,11 @@
           "format": "uri",
           "maxLength": 2048,
           "pattern": "^https://"
+        },
+        "row": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 19
         }
       },
       "required": ["text", "url"]
@@ -1456,6 +1461,50 @@
             "expectedRevision",
             "payload"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["templates.list"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cursor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
         }
       ]
     },
@@ -2307,6 +2356,31 @@
             }
           },
           "required": ["contractVersion", "status", "entries", "nextCursor"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 128
+            },
+            "templates": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/template"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            }
+          },
+          "required": ["contractVersion", "status", "templates", "nextCursor"]
         }
       ]
     },

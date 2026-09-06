@@ -4,6 +4,7 @@ export interface CommunicationMessage {
   readonly chatId: string;
   readonly content: TemplateContent;
   readonly offerStart?: boolean;
+  readonly authorButtons?: readonly { text: string; callbackData: string }[];
 }
 export interface CommunicationTransport {
   send(message: CommunicationMessage): Promise<TelegramDeliveryResult>;

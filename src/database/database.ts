@@ -277,6 +277,32 @@ export interface SignInSubjectsTable {
 }
 
 export interface DatabaseSchema {
+  communication_author_sessions: {
+    bot_identity: string;
+    telegram_user_id: BigIntColumn;
+    account_ref: string;
+    state: unknown;
+  };
+  communication_author_receipts: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+  };
+  communication_author_outbox: {
+    sequence_id: Generated<string>;
+    available_at: Timestamp;
+    attempt_count: Generated<number>;
+    diagnostic_code: Generated<string | null>;
+    delivery_id: string;
+    bot_identity: string;
+    account_ref: string;
+    telegram_user_id: BigIntColumn;
+    telegram_identity_ref: string;
+    message: unknown;
+    state: "pending" | "sending" | "delivered" | "rejected" | "unknown";
+    created_at: Timestamp;
+    attempted_at: Timestamp | null;
+    provider_message_id: string | null;
+  };
   sign_in_requests: SignInRequestsTable;
   sign_in_subjects: SignInSubjectsTable;
   communication_broadcasts: {

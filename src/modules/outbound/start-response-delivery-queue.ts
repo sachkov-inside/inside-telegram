@@ -168,7 +168,8 @@ export class StartResponseDeliveryQueue {
       }
 
       if (
-        this.config?.marketingEnabled &&
+        (this.config?.marketingEnabled ||
+          this.config?.deliveryMode === "live") &&
         !(await reserveTelegramSlot(
           transaction,
           delivery.bot_identity,
@@ -217,7 +218,8 @@ export class StartResponseDeliveryQueue {
     );
     await this.database.transaction().execute(async (transaction) => {
       if (
-        this.config?.marketingEnabled &&
+        (this.config?.marketingEnabled ||
+          this.config?.deliveryMode === "live") &&
         result.kind === "api_retryable" &&
         result.providerErrorCode === 429
       ) {

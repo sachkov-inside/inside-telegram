@@ -1,3 +1,4 @@
+import { AuthorDelivery } from "./author-delivery.js";
 import { CommunicationTracking } from "./communication-tracking.js";
 import { Funnels } from "./funnels.js";
 import {
@@ -28,6 +29,7 @@ export class CommunicationsController {
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
     @Inject(Communications) private readonly communications: Communications,
     @Inject(Funnels) private readonly funnels: Funnels,
+    @Inject(AuthorDelivery) private readonly authorDelivery: AuthorDelivery,
     @Inject(CommunicationTracking)
     private readonly tracking: CommunicationTracking,
   ) {}
@@ -51,11 +53,17 @@ export class CommunicationsController {
         contractVersion: COMMUNICATIONS_VERSION,
         status: "ok",
         ...((body as CommunicationsRequest).operation.startsWith("templates.")
-          ? {
-              template: await this.communications.execute(
-                body as CommunicationsRequest,
-              ),
-            }
+          ? (body as CommunicationsRequest).operation === "templates.list"
+            ? await this.communications.list(body as CommunicationsRequest)
+            : (body as CommunicationsRequest).operation === "templates.testSend"
+              ? await this.authorDelivery.testSend(
+                  body as CommunicationsRequest,
+                )
+              : {
+                  template: await this.communications.execute(
+                    body as CommunicationsRequest,
+                  ),
+                }
           : (body as CommunicationsRequest).operation.startsWith("tracking.")
             ? await this.tracking.execute(body as CommunicationsRequest)
             : await this.funnels.execute(body as CommunicationsRequest)),
