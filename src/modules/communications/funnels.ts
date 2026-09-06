@@ -1,3 +1,4 @@
+import { previewFunnel, type FunnelPreview } from "./funnel-preview.js";
 import { deliveryOwnerPredicate } from "./communication-queries.js";
 import { applyBroadcast, type BroadcastResult } from "./broadcasts.js";
 import {
@@ -40,6 +41,7 @@ import type {
 } from "./funnel-types.js";
 
 export type FunnelResult =
+  | { preview: FunnelPreview }
   | BroadcastResult
   | StatisticsResult
   | EntriesResult
@@ -106,6 +108,7 @@ export class Funnels {
         ![
           "funnels.read",
           "funnels.list",
+          "funnels.preview",
           "intro.read",
           "deliveries.read",
           "broadcasts.read",
@@ -292,6 +295,7 @@ export class Funnels {
     if (
       ![
         "funnels.rollback",
+        "funnels.preview",
         "funnels.save",
         "funnels.read",
         "funnels.publish",
@@ -396,6 +400,17 @@ export class Funnels {
       };
     }
     if (!existing) throw new CommunicationsError("not_found");
+    if (operation === "funnels.preview") {
+      return {
+        preview: await previewFunnel(
+          tx,
+          bot,
+          existing.draft as FunnelDraft,
+          existing.published as FunnelDraft | null,
+          existing.revision,
+        ),
+      };
+    }
     if (operation === "funnels.lifecycle") {
       const lifecycle = (
         {

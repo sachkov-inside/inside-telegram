@@ -138,7 +138,13 @@ due time no later than the return time becomes a durable suppression; the first 
 unchanged. Operator pause/archive do not suppress overdue work. Unfinished immediate/started work
 receives cancel-request when availability is lost; no already claimed external effect is undone.
 
-`funnels.preview`, explicit test send and eligibility remain
+`funnels.preview` reads draft/published step differences and the current eligible enrolled audience
+under the definition/scheduler locks. It includes completed participants receiving added steps,
+excludes stopped/unavailable contacts, and preserves all definitions and delivery history. It does
+not send, reserve an operation receipt or calculate Platform content eligibility. Platform #308
+adds the owning content validation to this preview.
+
+Explicit test send and eligibility remain
 contract-only and return `501 not_implemented`. Platform #308 owns the editor and target validation;
 #310 owns complete user acceptance. Eligibility remains Platform-owned; tracking's bounded service
 actor cannot manage communications. These changes do not enable a marketing release.

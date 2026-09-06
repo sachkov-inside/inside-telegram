@@ -1358,3 +1358,133 @@ it("keeps first-entry intro suppressed when the subscriber stopped before enroll
     (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId),
   ).toBeDefined();
 });
+
+describe("publication preview #34", () => {
+  it("counts completed backfill without writes, send, or sent-step replay", async () => {
+    const value = await setup();
+    await start();
+    for (let i = 0; i < 30; i++) await tick(1);
+    const oldHistory = await deliveries();
+    expect(
+      oldHistory.filter((d) => d.kind === "step" && d.completed_at),
+    ).toHaveLength(2);
+    const added = {
+      stepId: randomUUID(),
+      delaySeconds: 86400,
+      parts: [part("C")],
+    };
+    const edited = {
+      ...value,
+      steps: [
+        value.steps[1]!,
+        { ...value.steps[0]!, parts: [part("edited A")] },
+        added,
+      ],
+    };
+    await funnels.execute(command("funnels.save", edited, 2));
+    const before = await database
+      .selectFrom("communication_funnels")
+      .selectAll()
+      .execute();
+    const operations = await database
+      .selectFrom("communication_operations")
+      .selectAll()
+      .execute();
+    const sendCount = sent.length;
+    const response = await http(
+      command("funnels.preview", { funnelId: value.funnelId }, 3),
+    );
+    expect(response.statusCode).toBe(200);
+    expect(responseValidator(response.json())).toBe(true);
+    expect(response.json().preview).toMatchObject({
+      revision: 3,
+      addedStepIds: [added.stepId],
+      editedStepIds: [value.steps[0]!.stepId],
+      reorderedStepIds: [value.steps[1]!.stepId, value.steps[0]!.stepId],
+      deletedStepIds: [],
+      eligibleContacts: 1,
+      completedParticipantsReceivingNewSteps: 1,
+    });
+    expect(await deliveries()).toEqual(oldHistory);
+    expect(
+      await database.selectFrom("communication_funnels").selectAll().execute(),
+    ).toEqual(before);
+    expect(
+      await database
+        .selectFrom("communication_operations")
+        .selectAll()
+        .execute(),
+    ).toEqual(operations);
+    expect(sent).toHaveLength(sendCount);
+    await database
+      .updateTable("communication_contacts")
+      .set({ marketing_enabled: false })
+      .execute();
+    const stopped = await http(
+      command("funnels.preview", { funnelId: value.funnelId }, 3),
+    );
+    expect(stopped.json().preview).toMatchObject({
+      eligibleContacts: 0,
+      completedParticipantsReceivingNewSteps: 0,
+    });
+  });
+
+  it("rejects stale and foreign reads and never counts edits of sent steps as a resend", async () => {
+    const value = await setup();
+    await start();
+    for (let i = 0; i < 30; i++) await tick(1);
+    const edited = {
+      ...value,
+      steps: [{ ...value.steps[0]!, parts: [part("edit")] }],
+    };
+    await funnels.execute(command("funnels.save", edited, 2));
+    expect(
+      (await http(command("funnels.preview", { funnelId: value.funnelId }, 2)))
+        .statusCode,
+    ).toBe(409);
+    const foreign = {
+      ...command("funnels.preview", { funnelId: value.funnelId }, 3),
+      actor: { accountRef: "synthetic-other" },
+    };
+    expect((await http(foreign)).statusCode).toBe(404);
+    authorization.authorize.mockResolvedValueOnce("denied");
+    expect(
+      (await http(command("funnels.preview", { funnelId: value.funnelId }, 3)))
+        .statusCode,
+    ).toBe(403);
+    const result = await http(
+      command("funnels.preview", { funnelId: value.funnelId }, 3),
+    );
+    expect(result.json().preview).toMatchObject({
+      eligibleContacts: 0,
+      completedParticipantsReceivingNewSteps: 0,
+      addedStepIds: [],
+      deletedStepIds: [value.steps[1]!.stepId],
+    });
+  });
+});
+
+it("preview does not call a removed unknown lane completed", async () => {
+  const value = await initialComplete();
+  await tick(10);
+  transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
+  await tick(10);
+  const withoutUnknown = { ...value, steps: [value.steps[0]!] };
+  await publish(withoutUnknown);
+  const added = { stepId: randomUUID(), delaySeconds: 10, parts: [part("C")] };
+  await funnels.execute(
+    command(
+      "funnels.save",
+      { ...withoutUnknown, steps: [...withoutUnknown.steps, added] },
+      4,
+    ),
+  );
+  const response = await http(
+    command("funnels.preview", { funnelId: value.funnelId }, 5),
+  );
+  expect(response.statusCode).toBe(200);
+  expect(response.json().preview).toMatchObject({
+    eligibleContacts: 1,
+    completedParticipantsReceivingNewSteps: 0,
+  });
+});
