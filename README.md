@@ -25,7 +25,11 @@ It also provides versioned contracts for the later communications operations. Pl
 permission authority; author checks fail closed until its authorization endpoint is configured.
 See [`docs/integrations/communications-v1.md`](docs/integrations/communications-v1.md) for the
 wire contract, fixtures, media validation and the limits of this enabling delivery. The editor,
-marketing scheduler, broadcasts and production activation belong to subsequent tickets.
+broadcasts and production activation belong to subsequent tickets. The funnel slice now supplies
+draft/publish, source routing, one common intro and durable multipart scheduling.
+`TELEGRAM_MARKETING_ENABLED=false` remains the default. No real funnels or authored copy are
+seeded: the current product direction is one owner-authored common funnel; multiple scenarios
+exist only in synthetic tests.
 
 ## Ordinary `/start` runtime
 
@@ -195,8 +199,9 @@ DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm chec
 ```
 
 Migration keys are retained across the independently deployed communications and sign-in branches.
-Only `010-communications-templates` may appear outside the numeric sequence; all other applied
-migrations must remain an ordered prefix. The shared migrator enforces this under Kysely's migration
+Only the independently deployed `010-communications-templates` → `011-communication-funnels`
+sequence may cross the sign-in sequence. Both sequences must retain their dependency order;
+all other applied migrations must remain an ordered prefix. The shared migrator enforces this under Kysely's migration
 lock for up, down and targeted commands. Rollback follows actual application order. PostgreSQL
 regressions cover both historical deployment orders, preserve existing data during backfill and
 reject a missing dependent sign-in migration. Do not rename applied keys or edit the ledger.

@@ -29,6 +29,7 @@ export type TelegramUpdateCommand =
         readonly signInToken?:
           | { readonly digest: string; readonly kind: "digest" }
           | { readonly kind: "malformed" };
+        readonly marketingSource?: string;
         readonly linkToken?:
           | { readonly digest: string; readonly kind: "digest" }
           | { readonly kind: "malformed" };
@@ -46,6 +47,7 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
   const message = { ...payload.message };
   delete message[LINK_TOKEN_FIELD];
   delete message[SIGN_IN_TOKEN_FIELD];
+  delete message._inside_marketing_source;
   const text = message.text;
   if (typeof text !== "string") {
     return { ...payload, message };
@@ -56,6 +58,17 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
     return { ...payload, message };
   }
 
+  // Never reinterpret any legacy auth token, including ones starting with m_.
+  if (start.argument.startsWith("m_") && start.argument.length < 43) {
+    return {
+      ...payload,
+      message: {
+        ...message,
+        text: start.command,
+        _inside_marketing_source: start.argument,
+      },
+    };
+  }
   // Legacy linking accepts every base64url payload of 43–64 characters, including this prefix.
   // Reserve a shorter namespace so existing valid link tokens keep their exact meaning.
   const signIn =
@@ -238,6 +251,9 @@ export class GrammyUpdateAdapter {
       },
       ...(linkToken ? { linkToken } : {}),
       ...(signInToken ? { signInToken } : {}),
+      ...(typeof message._inside_marketing_source === "string"
+        ? { marketingSource: message._inside_marketing_source }
+        : {}),
     };
   }
 

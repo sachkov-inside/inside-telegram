@@ -19,6 +19,7 @@ if (!databaseUrl) {
 }
 
 const config: ApplicationConfig = {
+  marketingEnabled: false,
   botIdentity: "inside",
   canonicalChatId: "-1000000000000",
   databaseUrl,

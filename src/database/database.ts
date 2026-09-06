@@ -279,6 +279,88 @@ export interface SignInSubjectsTable {
 export interface DatabaseSchema {
   sign_in_requests: SignInRequestsTable;
   sign_in_subjects: SignInSubjectsTable;
+  communication_funnels: {
+    funnel_id: string;
+    bot_identity: string;
+    owner_account_ref: string;
+    revision: number;
+    published_revision: number | null;
+    lifecycle: "draft" | "published" | "paused" | "archived";
+    draft: unknown;
+    published: unknown | null;
+    is_default: boolean;
+  };
+  communication_publications: {
+    funnel_id: string;
+    revision: number;
+    snapshot: unknown;
+    published_at: Timestamp;
+  };
+  communication_sources: {
+    bot_identity: string;
+    source_id: string;
+    code: string;
+    funnel_id: string;
+  };
+  communication_step_ids: {
+    funnel_id: string;
+    step_id: string;
+    first_published_at: Timestamp;
+    part_ids: unknown;
+  };
+  communication_intro: {
+    bot_identity: string;
+    owner_account_ref: string;
+    snapshot: unknown;
+  };
+  communication_contacts: {
+    contact_id: string;
+    bot_identity: string;
+    telegram_user_id: BigIntColumn;
+    marketing_enabled: boolean;
+  };
+  communication_enrollments: {
+    enrollment_id: string;
+    contact_id: string;
+    funnel_id: string;
+    enrolled_at: Timestamp;
+    initial_entry_key: string;
+  };
+  communication_entries: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+    contact_id: string;
+    funnel_id: string | null;
+    source_id: string | null;
+    source_code: string | null;
+    entered_at: Timestamp;
+    outcome: string;
+  };
+  communication_deliveries: {
+    delivery_id: string;
+    dedup_key: string;
+    bot_identity: string;
+    contact_id: string;
+    funnel_id: string | null;
+    step_id: string | null;
+    kind: "intro" | "entry" | "step" | "fallback";
+    published_revision: number;
+    snapshot: unknown;
+    parts: unknown;
+    revision: number;
+    due_at: Timestamp;
+    created_at: Timestamp;
+    completed_at: Timestamp | null;
+    cancel_requested: boolean;
+    attempt_id: string | null;
+    locked_at: Timestamp | null;
+  };
+  telegram_transport_slots: {
+    bot_identity: string;
+    lane: string;
+    available_at: Timestamp;
+  };
+
   communication_author_modes: {
     bot_identity: string;
     telegram_user_id: BigIntColumn;

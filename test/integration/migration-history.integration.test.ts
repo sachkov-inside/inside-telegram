@@ -1,3 +1,4 @@
+import { communicationFunnelsMigration } from "../../src/database/migrations/011-communication-funnels.js";
 import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 import type { Migration } from "kysely/migration";
@@ -46,6 +47,10 @@ it.each(["communications-first", "sign-in-first"] as const)(
       await applyHistorical(
         "010-communications-templates",
         communicationsTemplatesMigration,
+      );
+      await applyHistorical(
+        "011-communication-funnels",
+        communicationFunnelsMigration,
       );
       await database
         .insertInto("communication_templates")
@@ -107,27 +112,30 @@ it.each(["communications-first", "sign-in-first"] as const)(
     const ledger = await sql<{
       count: string;
     }>`select count(*) from kysely_migration`.execute(database);
-    expect(ledger.rows[0]?.count).toBe("11");
+    expect(ledger.rows[0]?.count).toBe("12");
   },
 );
 
-it("still rejects a missing dependent sign-in migration at every entrypoint", async () => {
-  await sql`insert into kysely_migration (name, timestamp) values ('009-sign-in-reservation', ${new Date().toISOString()})`.execute(
-    database,
-  );
-  try {
-    await expect(migrateToLatest(database)).rejects.toThrow(
-      "Database migration failed",
-    );
-    await expect(migrateDown(database)).rejects.toThrow(
-      "Database rollback failed",
-    );
-    await expect(
-      migrateTo(database, "007-owner-identity-recovery"),
-    ).rejects.toThrow("Database migration to");
-  } finally {
-    await sql`delete from kysely_migration where name = '009-sign-in-reservation'`.execute(
+it.each(["009-sign-in-reservation", "011-communication-funnels"])(
+  "still rejects missing dependencies for %s at every entrypoint",
+  async (migrationName) => {
+    await sql`insert into kysely_migration (name, timestamp) values (${migrationName}, ${new Date().toISOString()})`.execute(
       database,
     );
-  }
-});
+    try {
+      await expect(migrateToLatest(database)).rejects.toThrow(
+        "Database migration failed",
+      );
+      await expect(migrateDown(database)).rejects.toThrow(
+        "Database rollback failed",
+      );
+      await expect(
+        migrateTo(database, "007-owner-identity-recovery"),
+      ).rejects.toThrow("Database migration to");
+    } finally {
+      await sql`delete from kysely_migration where name = ${migrationName}`.execute(
+        database,
+      );
+    }
+  },
+);

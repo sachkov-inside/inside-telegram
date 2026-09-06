@@ -1,3 +1,4 @@
+import { communicationFunnelsMigration } from "./migrations/011-communication-funnels.js";
 import { sql } from "kysely";
 import { Migrator } from "kysely/migration";
 
@@ -29,6 +30,7 @@ const migrations = {
   "009-sign-in-reservation": signInReservationMigration,
   "010-communications-templates": communicationsTemplatesMigration,
   "010-sign-in-message-result": signInMessageResultMigration,
+  "011-communication-funnels": communicationFunnelsMigration,
 };
 
 function createMigrator(db: Database): Migrator {
@@ -38,18 +40,29 @@ function createMigrator(db: Database): Migrator {
     provider: {
       async getMigrations() {
         // Kysely calls the provider under its migration lock, after creating the ledger.
-        // Only the independently deployed communications migration may cross the sign-in sequence.
-        const independent = "010-communications-templates";
+        // Only the independently deployed communications sequence may cross the sign-in sequence.
+        const independent = [
+          "010-communications-templates",
+          "011-communication-funnels",
+        ];
         const expected = Object.keys(migrations)
-          .filter((name) => name !== independent)
+          .filter((name) => !independent.includes(name))
           .sort();
         const history = await sql<{
           name: string;
         }>`select name from kysely_migration order by timestamp, name`.execute(
           db,
         );
-        const ordered = history.rows.filter(({ name }) => name !== independent);
-        if (ordered.some(({ name }, index) => name !== expected[index])) {
+        const ordered = history.rows.filter(
+          ({ name }) => !independent.includes(name),
+        );
+        const communications = history.rows.filter(({ name }) =>
+          independent.includes(name),
+        );
+        if (
+          ordered.some(({ name }, index) => name !== expected[index]) ||
+          communications.some(({ name }, index) => name !== independent[index])
+        ) {
           throw new Error(
             "Migration history is out of order outside the communications compatibility exception",
           );

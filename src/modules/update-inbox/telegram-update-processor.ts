@@ -1,3 +1,4 @@
+import { MarketingEntry } from "../communications/marketing-entry.js";
 import { Communications } from "../communications/communications.js";
 import { translateTemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
 import { Inject, Injectable } from "@nestjs/common";
@@ -31,6 +32,7 @@ export class TelegramUpdateProcessor {
     private readonly callbackAnswers: TelegramCallbackAnswers,
     @Inject(Communications)
     private readonly communications: Communications,
+    @Inject(MarketingEntry) private readonly marketing: MarketingEntry,
   ) {}
 
   async processAvailable(limit = 50, now?: Date): Promise<number> {
@@ -56,7 +58,9 @@ export class TelegramUpdateProcessor {
               ? "none"
               : command.value.linkToken
                 ? "link-receipt"
-                : "welcome",
+                : this.marketing.enabled()
+                  ? "none"
+                  : "welcome",
           );
           if (command.value.signInToken?.kind === "digest") {
             await this.signIn.acceptStart(
@@ -71,6 +75,16 @@ export class TelegramUpdateProcessor {
               observedAt: command.value.contact.observedAt,
               telegramUserId: command.value.contact.telegramUserId,
             });
+          }
+          if (
+            !command.value.linkToken &&
+            !command.value.signInToken &&
+            this.marketing.enabled()
+          ) {
+            await this.marketing.enter(
+              command.value.contact,
+              command.value.marketingSource,
+            );
           }
         } else if (command.kind === "sign-in-decision") {
           await this.signIn.decide(command.value);

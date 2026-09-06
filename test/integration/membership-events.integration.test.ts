@@ -1,3 +1,4 @@
+import { MarketingEntry } from "../../src/modules/communications/marketing-entry.js";
 import { Communications } from "../../src/modules/communications/communications.js";
 import { DisabledAuthorAuthorization } from "../../src/modules/communications/author-authorization.js";
 import { sql } from "kysely";
@@ -37,6 +38,7 @@ if (!databaseUrl) {
 const linkedAt = new Date("2030-01-01T00:00:00.000Z");
 const clock: Clock = { now: () => linkedAt };
 const config: ApplicationConfig = {
+  marketingEnabled: false,
   botIdentity: "inside",
   canonicalChatId: "-1000000000000",
   databaseUrl,
@@ -369,6 +371,7 @@ describe("durable Membership events", () => {
       new BotSignIn(database, config, clock),
       new DisabledTelegramCallbackAnswers(),
       new Communications(database, config, new DisabledAuthorAuthorization()),
+      new MarketingEntry(database, config, clock),
     );
     const webhook = new TelegramWebhook(config, inbox, metrics);
     const update = canonicalMembershipUpdate(

@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { Inject, Injectable } from "@nestjs/common";
 
 import {
@@ -46,6 +47,9 @@ export class BotContacts {
     responseKind: StartResponseKind = "welcome",
   ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`bot-contact:${start.botIdentity}:${start.telegramUserId}`}, 0))`.execute(
+        transaction,
+      );
       const existing = await transaction
         .selectFrom("bot_contacts")
         .select("contactability")

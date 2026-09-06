@@ -1,3 +1,4 @@
+import { MarketingEntry } from "../../src/modules/communications/marketing-entry.js";
 import { Communications } from "../../src/modules/communications/communications.js";
 import { lockTelegramIdentity } from "../../src/modules/identity-linking/identity-link-account-lock.js";
 import { randomBytes, randomUUID } from "node:crypto";
@@ -95,6 +96,28 @@ afterAll(async () => {
 });
 
 describe("bot sign-in provider", () => {
+  it("does not enter marketing when a sign-in start arrives while marketing is enabled", async () => {
+    const marketing = application.get(MarketingEntry);
+    const enabled = vi.spyOn(marketing, "enabled").mockReturnValue(true);
+    const enter = vi.spyOn(marketing, "enter");
+    try {
+      const challenge = await register();
+      await start(challenge, 42);
+      expect(enter).not.toHaveBeenCalled();
+      expect(
+        await database
+          .selectFrom("start_response_deliveries")
+          .select("sign_in_request_ref")
+          .execute(),
+      ).toEqual([{ sign_in_request_ref: challenge.requestRef }]);
+      await callback(challenge, 42);
+      expect(await status(challenge)).toMatchObject({ status: "approved" });
+    } finally {
+      enabled.mockRestore();
+      enter.mockRestore();
+    }
+  });
+
   it.each(["sign-in", "email-link"] as const)(
     "serializes %s winning against the other ownership path",
     async (winner) => {
@@ -424,6 +447,7 @@ describe("bot sign-in provider", () => {
           },
         },
         application.get(Communications),
+        application.get(MarketingEntry),
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);

@@ -1,3 +1,4 @@
+import { Funnels } from "./funnels.js";
 import {
   Body,
   Controller,
@@ -25,6 +26,7 @@ export class CommunicationsController {
   constructor(
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
     @Inject(Communications) private readonly communications: Communications,
+    @Inject(Funnels) private readonly funnels: Funnels,
   ) {}
   @Post()
   @HttpCode(200)
@@ -45,9 +47,13 @@ export class CommunicationsController {
       return {
         contractVersion: COMMUNICATIONS_VERSION,
         status: "ok",
-        template: await this.communications.execute(
-          body as CommunicationsRequest,
-        ),
+        ...((body as CommunicationsRequest).operation.startsWith("templates.")
+          ? {
+              template: await this.communications.execute(
+                body as CommunicationsRequest,
+              ),
+            }
+          : await this.funnels.execute(body as CommunicationsRequest)),
       };
     } catch (error) {
       if (!(error instanceof CommunicationsError)) throw error;
