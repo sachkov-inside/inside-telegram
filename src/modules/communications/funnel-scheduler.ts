@@ -1,3 +1,6 @@
+import { reconcileBroadcasts } from "./broadcasts.js";
+import { trackedContent } from "./communication-tracking.js";
+import { updateMarketingAvailability } from "./marketing-preferences.js";
 export { relativeDue } from "./funnel-timeline.js";
 import { reconcileFunnels, terminal, started } from "./funnel-timeline.js";
 import { randomUUID } from "node:crypto";
@@ -108,6 +111,7 @@ export class FunnelScheduler {
           .execute();
       }
       await reconcileFunnels(tx, this.config.botIdentity, now);
+      await reconcileBroadcasts(tx, this.config.botIdentity, now);
       // A marketing backlog must never reserve capacity ahead of a ready service response.
       const service = await tx
         .selectFrom("start_response_deliveries")
@@ -153,6 +157,14 @@ export class FunnelScheduler {
             !["sent", "skipped", "cancelled", "suppressed"].includes(p.state),
         );
         if (!part || part.state !== "pending") continue;
+        if (delivery.broadcast_id) {
+          const broadcast = await tx
+            .selectFrom("communication_broadcasts")
+            .select("state")
+            .where("broadcast_id", "=", delivery.broadcast_id)
+            .executeTakeFirstOrThrow();
+          if (broadcast.state !== "running") continue;
+        }
         if (delivery.funnel_id) {
           const funnel = await tx
             .selectFrom("communication_funnels")
@@ -240,7 +252,14 @@ export class FunnelScheduler {
           delivery,
           attemptId,
           chatId: delivery.private_chat_id,
-          content,
+          content: await trackedContent(
+            tx,
+            this.config,
+            delivery.delivery_id,
+            part.partId,
+            content,
+            now,
+          ),
         };
       }
       return undefined;
@@ -306,8 +325,13 @@ export class FunnelScheduler {
         delivery.cancel_requested &&
         ["pending", "failed"].includes(part.state)
       ) {
-        part.state = "cancelled";
-        part.diagnosticCode = "cancel_requested";
+        const suppressed =
+          delivery.kind === "broadcast" &&
+          delivery.cancellation_reason === "marketing_unavailable";
+        part.state = suppressed ? "suppressed" : "cancelled";
+        part.diagnosticCode = suppressed
+          ? "marketing_unavailable"
+          : "cancel_requested";
       }
       const due =
         result.kind === "api_retryable"
@@ -329,6 +353,27 @@ export class FunnelScheduler {
         })
         .where("delivery_id", "=", deliveryId)
         .execute();
+      if (result.kind === "api_rejected" && result.providerErrorCode === 403) {
+        const contact = await tx
+          .selectFrom("communication_contacts")
+          .select("telegram_user_id")
+          .where("contact_id", "=", delivery.contact_id)
+          .executeTakeFirstOrThrow();
+        await updateMarketingAvailability(
+          tx,
+          this.config.botIdentity,
+          contact.telegram_user_id,
+          now,
+          false,
+        );
+        await tx
+          .updateTable("bot_contacts")
+          .set({ contactability: "blocked", updated_at: now })
+          .where("bot_identity", "=", this.config.botIdentity)
+          .where("telegram_user_id", "=", contact.telegram_user_id)
+          .execute();
+      }
+      await reconcileBroadcasts(tx, this.config.botIdentity, now);
     });
   }
 }
