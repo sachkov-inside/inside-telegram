@@ -59,7 +59,7 @@ export interface DeliverySnapshot {
   readonly revision: number;
   readonly contactId: string;
   readonly funnelId: string | null;
-  readonly broadcastId: null;
+  readonly broadcastId: string | null;
   readonly stepId: string | null;
   readonly publishedRevision: number;
   readonly snapshot: readonly MessagePart[];

@@ -102,6 +102,12 @@ export class BotContacts {
           existing.contactability === "blocked" ? "reactivated" : "refreshed";
       }
 
+      await sql`insert into communication_contacts(contact_id,bot_identity,telegram_user_id)
+        values(gen_random_uuid(),${start.botIdentity},${start.telegramUserId})
+        on conflict(bot_identity,telegram_user_id) do nothing`.execute(
+        transaction,
+      );
+
       await transaction
         .insertInto("bot_contact_events")
         .values({

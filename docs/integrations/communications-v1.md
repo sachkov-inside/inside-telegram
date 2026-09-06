@@ -6,7 +6,8 @@ The product authority remains the accepted
 [Workspace contract](https://github.com/sachkov-inside/workspace/blob/1553211220c44882dbacce7519dd50e35493090e/docs/specifications/telegram-communications-v1.md).
 This document describes the transport implemented by [Telegram #27](https://github.com/sachkov-inside/inside-telegram/issues/27)
 the funnel runtime in [Telegram #28](https://github.com/sachkov-inside/inside-telegram/issues/28),
-and audience updates/preferences in [Telegram #29](https://github.com/sachkov-inside/inside-telegram/issues/29),
+audience updates/preferences in [Telegram #29](https://github.com/sachkov-inside/inside-telegram/issues/29),
+and broadcasts/analytics in [Telegram #30](https://github.com/sachkov-inside/inside-telegram/issues/30),
 not a second product brief.
 
 ## Implemented operations
@@ -143,7 +144,7 @@ excludes stopped/unavailable contacts, and preserves all definitions and deliver
 not send, reserve an operation receipt or calculate Platform content eligibility. Platform #308
 adds the owning content validation to this preview.
 
-Broadcasts, explicit test send, eligibility, tracking and statistics remain
+Explicit test send and eligibility remain
 contract-only and return `501 not_implemented`. Platform #308 owns the editor and target validation;
 #310 owns complete user acceptance. Eligibility remains Platform-owned; tracking's bounded service
 actor cannot manage communications. These changes do not enable a marketing release.
@@ -157,6 +158,91 @@ operator pause, first entry while stopped and stop/publish against an in-flight 
 covers transport mapping and namespace boundaries; the versioned schema fixtures include a
 positive marketing source and a negative legacy-auth collision. Adapter architecture checks also
 run their existing passing and deliberately failing seam fixtures.
+
+## Broadcast operations and analytics
+
+`broadcasts.save/read/list/launch/lifecycle` use the existing Account authorization, revision,
+operation replay and actor audit. Save creates a draft; `scheduledAt` alone never arms it.
+`launch` arms the saved UTC schedule, or starts immediately if the time is absent or already due.
+A future scheduled launch returns no audience snapshot. The worker records the actual launch time,
+snapshot UUID and all recipient delivery intents in one transaction when it first processes the
+armed schedule. The originating launch operation remains attached to that record. Replaying it
+returns its original response; read returns the current state and revision.
+
+The audience is all BotContacts or a deduplicated union of owned funnel enrollments. Legacy contacts
+need no Account or enrollment. Stop and blocked contacts are excluded at launch. The shared
+scheduler lock serializes launch, contact changes and dispatch claims. After launch, content and
+audience cannot be edited. Resume preserves the snapshot; cancelled/completed IDs cannot launch
+again. Pause before launch delays the snapshot until resumed. Cancel preserves in-flight/unknown
+history and prevents new parts. Empty snapshots complete immediately.
+
+Broadcasts use `communication_deliveries`, the same worker and Telegram capacity slots as funnels,
+with service responses retaining priority. Stop/block persist `suppressed` on pending/failed parts,
+including delayed retries; in-flight/unknown parts retain evidence and a cancellation reason.
+Resume/unblock never revives these recipients. A confirmed Telegram 403 updates contactability and
+suppresses remaining work. `delivery.resolve` and `deliveries.read` include owned broadcasts with
+the same unknown-risk decision and immutable attempt history as funnels. A partial cancellation
+never reports full success. These commands do not themselves send real Telegram messages unless
+the separately gated live marketing runtime is enabled.
+
+`statistics.read` provides bot-wide contact totals/reachability/preferences, distinct participants
+in owned funnels, delivery counts, and paged contacts with first/latest sources and entry history.
+Optional funnel/broadcast filters restrict delivery statistics and the contact page; global contact
+totals retain their bot-wide meaning. Counts sent/suppressed/failed/unknown/pending count **parts**;
+`partialCancelled` counts terminal deliveries containing sent and cancelled/suppressed parts.
+`broadcasts.read/list` expose snapshot size and lifecycle; `deliveries.read` provides recipient
+progress, cancelled/skipped parts and diagnostic reasons. Contact IDs are opaque; raw Telegram IDs,
+provider payloads and credentials are not returned.
+
+Pages have at most 100 records. Contact and broadcast cursors are UUIDs. Each contact contains the
+first 100 entries and `nextEntryCursor`; `entries.read` with `contactId` and that cursor walks the
+remaining history without truncation. Entry cursors are opaque. Default/unknown entries have nullable
+source IDs; source code, funnel, outcome and timestamp are preserved. Duplicate webhooks add no
+entry, while an intentional second start has its own observation. These are observations of entry,
+not claims of purchase attribution or proof that the person read a material.
+
+### Tracking consumer seam
+
+The optional paired `PLATFORM_TRACKING_REDIRECT_URL` and `PLATFORM_TRACKING_TARGET_PREFIXES` configure
+one Platform redirect route and a JSON array of trusted content URL prefixes. Prefixes are normalized
+HTTPS URLs with non-root paths ending in `/`; configure only actual content routes, never generic
+redirect/auth endpoints. No credential, query or fragment is accepted. Absent configuration leaves
+original links intact; partial or unrestricted configuration fails startup. Prefix examples in
+`.env.example` are synthetic and do not assert the consumer's final route names.
+
+Before a shared delivery claim commits, matching URL buttons and text-link/URL entities receive
+opaque random tokens bound to the delivery, part and frozen destination. Text/entities retain their
+UTF-16 offsets. Token creation and claim commit atomically; retry reuses the token. The stored
+content snapshot remains the author's original content. Unmatched external links stay unchanged.
+
+`tracking.resolve` and `tracking.recordHit` require the existing service bearer credential and the
+closed `{ serviceRef: "platform-tracking" }` actor. The tracking actor cannot manage communications;
+an Account actor cannot use the tracking route. Resolve accepts only a token, rechecks its persisted
+destination against current configured prefixes, and returns `safeUrl`. It accepts no redirect URL
+and grants no content authorization.
+
+`recordHit` accepts an event UUID, token, occurrence time and `unknown|known_automation` classification.
+The persisted bot/event key makes concurrent/repeated ingestion idempotent; a changed payload under
+that event or operation ID returns conflict. The service actor and operation are audited atomically
+with ingestion. Future events beyond one minute and events predating token creation by
+more than one minute are rejected. Repeated visits with different event IDs remain separate.
+`trackingHits`/`uniqueTokensWithHits` exclude `known_automation`; `knownAutomationHits` is reported
+separately. The consumer classifies known automation using its versioned rule; the provider does not
+claim complete human detection. Forwarded links identify a delivery, not the visitor.
+
+`analyticsLagSeconds` is the largest observed receive-minus-occur delay of ingested events in scope.
+It cannot observe events still queued in Platform. Platform #309 must expose its own durable pending
+queue/lag and preserve resolved navigation when ingestion fails. No click is treated as reading,
+Account linkage, conversion or payment. There is no retention deletion of delivery/source/hit history.
+
+Migration `013-broadcast-analytics` adds broadcasts and token/hit ledgers without rewriting earlier
+migrations. `broadcasts.integration.test.ts` proves PostgreSQL snapshot/stop races, fake-clock schedule,
+replay, cancel/unknown, 429/blocked, lost acknowledgement, source paging and authenticated event
+negatives. `communication-tracking.test.ts` and versioned fixtures contain passing and rejected URL,
+actor and redirect shapes. Full checks also retain sign-in, identity and Membership regressions.
+All transports in these tests are fake. Platform #307/#309 supply consumers, and only #310 closes
+cross-application acceptance. Real author copy, real Telegram delivery and production enablement
+remain separate owner work.
 
 ## Platform author authorization operation
 

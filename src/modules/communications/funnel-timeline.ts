@@ -35,7 +35,10 @@ export async function cancelDelivery(
   const parts = delivery.parts as DeliveryPart[];
   for (const part of parts) {
     if (part.state === "pending" || part.state === "failed") {
-      part.state = "cancelled";
+      part.state =
+        delivery.kind === "broadcast" && reason === "marketing_unavailable"
+          ? "suppressed"
+          : "cancelled";
       part.diagnosticCode = reason;
     }
   }
@@ -43,6 +46,7 @@ export async function cancelDelivery(
     .updateTable("communication_deliveries")
     .set({
       cancel_requested: true,
+      cancellation_reason: reason,
       parts: JSON.stringify(parts),
       revision: delivery.revision + 1,
       completed_at: terminal(parts) ? now : null,
@@ -178,7 +182,7 @@ export function deliveryView(r: Delivery) {
     revision: r.revision,
     contactId: r.contact_id,
     funnelId: r.funnel_id,
-    broadcastId: null,
+    broadcastId: r.broadcast_id,
     stepId: r.step_id,
     publishedRevision: r.published_revision,
     snapshot: r.snapshot as MessagePart[],

@@ -279,6 +279,38 @@ export interface SignInSubjectsTable {
 export interface DatabaseSchema {
   sign_in_requests: SignInRequestsTable;
   sign_in_subjects: SignInSubjectsTable;
+  communication_broadcasts: {
+    broadcast_id: string;
+    bot_identity: string;
+    owner_account_ref: string;
+    revision: number;
+    state:
+      "draft" | "scheduled" | "running" | "paused" | "cancelled" | "completed";
+    parts: unknown;
+    audience: unknown;
+    scheduled_at: Timestamp | null;
+    audience_snapshot_id: string | null;
+    snapshot_size: number;
+    launched_at: Timestamp | null;
+    launch_operation_id: string | null;
+    created_at: Timestamp;
+  };
+  communication_tracking_tokens: {
+    token: string;
+    bot_identity: string;
+    delivery_id: string;
+    part_id: string;
+    destination: string;
+    created_at: Timestamp;
+  };
+  communication_tracking_hits: {
+    bot_identity: string;
+    event_id: string;
+    token: string;
+    occurred_at: Timestamp;
+    received_at: Timestamp;
+    traffic: "unknown" | "known_automation";
+  };
   communication_funnels: {
     funnel_id: string;
     bot_identity: string;
@@ -355,7 +387,12 @@ export interface DatabaseSchema {
     contact_id: string;
     funnel_id: string | null;
     step_id: string | null;
-    kind: "intro" | "entry" | "step" | "fallback";
+    kind: "intro" | "entry" | "step" | "fallback" | "broadcast";
+    broadcast_id: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
     published_revision: number;
     snapshot: unknown;
     parts: unknown;
@@ -363,6 +400,11 @@ export interface DatabaseSchema {
     due_at: Timestamp;
     created_at: Timestamp;
     completed_at: Timestamp | null;
+    cancellation_reason: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
     cancel_requested: boolean;
     attempt_id: string | null;
     locked_at: Timestamp | null;

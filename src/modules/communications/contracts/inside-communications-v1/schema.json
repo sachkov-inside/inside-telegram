@@ -1364,6 +1364,98 @@
             "expectedRevision",
             "payload"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["broadcasts.list"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cursor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["entries.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "cursor": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 128
+                },
+                "contactId": {
+                  "type": "string",
+                  "format": "uuid"
+                }
+              },
+              "required": ["contactId"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
         }
       ]
     },
@@ -1846,29 +1938,30 @@
               "entries": {
                 "type": "array",
                 "items": {
-                  "type": "object",
-                  "additionalProperties": false,
-                  "properties": {
-                    "sourceId": {
-                      "type": "string",
-                      "format": "uuid"
-                    },
-                    "enteredAt": {
-                      "type": "string",
-                      "format": "date-time"
-                    }
-                  },
-                  "required": ["sourceId", "enteredAt"]
+                  "$ref": "#/definitions/sourceEntry"
                 },
                 "minItems": 0,
                 "maxItems": 100
+              },
+              "reachable": {
+                "type": "boolean"
+              },
+              "marketingEnabled": {
+                "type": "boolean"
+              },
+              "nextEntryCursor": {
+                "type": ["string", "null"],
+                "maxLength": 128
               }
             },
             "required": [
               "contactId",
               "firstSourceId",
               "latestSourceId",
-              "entries"
+              "entries",
+              "reachable",
+              "marketingEnabled",
+              "nextEntryCursor"
             ]
           },
           "minItems": 0,
@@ -1877,6 +1970,10 @@
         "nextCursor": {
           "type": ["string", "null"],
           "maxLength": 128
+        },
+        "knownAutomationHits": {
+          "type": "integer",
+          "minimum": 0
         }
       },
       "required": [
@@ -1890,7 +1987,8 @@
         "uniqueTokensWithHits",
         "analyticsLagSeconds",
         "contacts",
-        "nextCursor"
+        "nextCursor",
+        "knownAutomationHits"
       ]
     },
     "response": {
@@ -2159,6 +2257,56 @@
             }
           },
           "required": ["contractVersion", "status", "deliveries", "nextCursor"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 128
+            },
+            "broadcasts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/broadcast"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            }
+          },
+          "required": ["contractVersion", "status", "broadcasts", "nextCursor"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 128
+            },
+            "entries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/sourceEntry"
+              },
+              "minItems": 0,
+              "maxItems": 100
+            }
+          },
+          "required": ["contractVersion", "status", "entries", "nextCursor"]
         }
       ]
     },
@@ -2334,6 +2482,33 @@
         "cancelRequested",
         "completedAt"
       ]
+    },
+    "sourceEntry": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "sourceId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "sourceCode": {
+          "type": ["string", "null"],
+          "maxLength": 64
+        },
+        "funnelId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "enteredAt": {
+          "type": "string",
+          "format": "date-time"
+        },
+        "outcome": {
+          "type": "string",
+          "maxLength": 64
+        }
+      },
+      "required": ["sourceId", "sourceCode", "funnelId", "enteredAt", "outcome"]
     }
   },
   "oneOf": [

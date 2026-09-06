@@ -24,9 +24,12 @@ The author-template slice adds explicit `/template` intake and authenticated tem
 It also provides versioned contracts for the later communications operations. Platform remains the
 permission authority; author checks fail closed until its authorization endpoint is configured.
 See [`docs/integrations/communications-v1.md`](docs/integrations/communications-v1.md) for the
-wire contract, fixtures, media validation and the limits of this enabling delivery. The editor,
-broadcasts and production activation belong to subsequent tickets. The funnel slice now supplies
-draft/publish, source routing, one common intro and durable multipart scheduling.
+wire contract, fixtures, media validation and the limits of this enabling delivery. The runtime
+supplies draft/publish, source routing, one common intro, durable multipart scheduling and one-time
+broadcasts through the shared sender. Broadcast audience snapshots are fixed at actual launch;
+stop/block suppression survives resume. Authenticated analytics expose contacts, source history,
+delivery progress and opaque tracking links with idempotent hit ingestion. Platform owns the editor,
+UI/MCP and redirect consumer; cross-application acceptance and production activation remain separate.
 `TELEGRAM_MARKETING_ENABLED=false` remains the default. No real funnels or authored copy are
 seeded: the current product direction is one owner-authored common funnel; multiple scenarios
 exist only in synthetic tests.

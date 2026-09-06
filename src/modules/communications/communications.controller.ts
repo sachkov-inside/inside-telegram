@@ -1,3 +1,4 @@
+import { CommunicationTracking } from "./communication-tracking.js";
 import { Funnels } from "./funnels.js";
 import {
   Body,
@@ -27,6 +28,8 @@ export class CommunicationsController {
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
     @Inject(Communications) private readonly communications: Communications,
     @Inject(Funnels) private readonly funnels: Funnels,
+    @Inject(CommunicationTracking)
+    private readonly tracking: CommunicationTracking,
   ) {}
   @Post()
   @HttpCode(200)
@@ -53,7 +56,9 @@ export class CommunicationsController {
                 body as CommunicationsRequest,
               ),
             }
-          : await this.funnels.execute(body as CommunicationsRequest)),
+          : (body as CommunicationsRequest).operation.startsWith("tracking.")
+            ? await this.tracking.execute(body as CommunicationsRequest)
+            : await this.funnels.execute(body as CommunicationsRequest)),
       };
     } catch (error) {
       if (!(error instanceof CommunicationsError)) throw error;
