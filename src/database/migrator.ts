@@ -1,3 +1,4 @@
+import { communicationFunnelsMigration } from "./migrations/011-communication-funnels.js";
 import { Migrator, type MigrationProvider } from "kysely/migration";
 
 import type { Database } from "./database.js";
@@ -22,6 +23,7 @@ const migrationProvider: MigrationProvider = {
       "006-platform-evidence-conformance": platformEvidenceConformanceMigration,
       "007-owner-identity-recovery": ownerIdentityRecoveryMigration,
       "010-communications-templates": communicationsTemplatesMigration,
+      "011-communication-funnels": communicationFunnelsMigration,
     };
   },
 };

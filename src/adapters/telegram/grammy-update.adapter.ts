@@ -20,6 +20,7 @@ export type TelegramUpdateCommand =
       readonly kind: "start";
       readonly value: {
         readonly contact: VerifiedPrivateStart;
+        readonly marketingSource?: string;
         readonly linkToken?:
           | { readonly digest: string; readonly kind: "digest" }
           | { readonly kind: "malformed" };
@@ -35,6 +36,7 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
 
   const message = { ...payload.message };
   delete message[LINK_TOKEN_FIELD];
+  delete message._inside_marketing_source;
   const text = message.text;
   if (typeof text !== "string") {
     return { ...payload, message };
@@ -45,6 +47,17 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
     return { ...payload, message };
   }
 
+  // Never reinterpret any legacy auth token, including ones starting with m_.
+  if (start.argument.startsWith("m_") && start.argument.length < 43) {
+    return {
+      ...payload,
+      message: {
+        ...message,
+        text: start.command,
+        _inside_marketing_source: start.argument,
+      },
+    };
+  }
   const linkToken = /^[A-Za-z0-9_-]{43,64}$/.test(start.argument)
     ? {
         digest: createHash("sha256").update(start.argument).digest("base64url"),
@@ -206,6 +219,9 @@ export class GrammyUpdateAdapter {
         updateId,
       },
       ...(linkToken ? { linkToken } : {}),
+      ...(typeof message._inside_marketing_source === "string"
+        ? { marketingSource: message._inside_marketing_source }
+        : {}),
     };
   }
 

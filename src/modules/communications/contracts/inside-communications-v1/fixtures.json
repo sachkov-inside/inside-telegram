@@ -1424,5 +1424,25 @@
         "deliveryId": "22222222-2222-4222-8222-222222222222"
       }
     }
+  },
+  {
+    "name": "marketing-source-short-namespace",
+    "definition": "source",
+    "valid": true,
+    "value": {
+      "sourceId": "22222222-2222-4222-8222-222222222222",
+      "name": "Synthetic source",
+      "code": "m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
+  },
+  {
+    "name": "legacy-auth-namespace-not-a-source",
+    "definition": "source",
+    "valid": false,
+    "value": {
+      "sourceId": "22222222-2222-4222-8222-222222222222",
+      "name": "Synthetic source",
+      "code": "m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    }
   }
 ]

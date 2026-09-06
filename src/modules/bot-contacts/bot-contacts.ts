@@ -1,3 +1,4 @@
+import { sql } from "kysely";
 import { Inject, Injectable } from "@nestjs/common";
 
 import {
@@ -31,7 +32,7 @@ export interface ContactOutcome {
   readonly responsePlanned: boolean;
 }
 
-export type StartResponseKind = "link-receipt" | "welcome";
+export type StartResponseKind = "link-receipt" | "welcome" | "none";
 
 @Injectable()
 export class BotContacts {
@@ -46,6 +47,9 @@ export class BotContacts {
     responseKind: StartResponseKind = "welcome",
   ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`bot-contact:${start.botIdentity}:${start.telegramUserId}`}, 0))`.execute(
+        transaction,
+      );
       const existing = await transaction
         .selectFrom("bot_contacts")
         .select("contactability")
@@ -97,6 +101,8 @@ export class BotContacts {
         })
         .onConflict((conflict) => conflict.doNothing())
         .execute();
+
+      if (responseKind === "none") return { contact, responsePlanned: false };
 
       const responseDelivery = await transaction
         .insertInto("start_response_deliveries")

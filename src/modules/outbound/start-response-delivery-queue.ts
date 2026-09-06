@@ -1,3 +1,12 @@
+import { Optional } from "@nestjs/common";
+import {
+  APPLICATION_CONFIG,
+  type ApplicationConfig,
+} from "../../config/application-config.js";
+import {
+  reserveTelegramSlot,
+  deferTelegramSlot,
+} from "./telegram-transport-slots.js";
 import { Inject, Injectable } from "@nestjs/common";
 
 import {
@@ -20,7 +29,12 @@ export interface ClaimedStartResponseDelivery {
 
 @Injectable()
 export class StartResponseDeliveryQueue {
-  constructor(@Inject(DATABASE) private readonly database: Database) {}
+  constructor(
+    @Inject(DATABASE) private readonly database: Database,
+    @Optional()
+    @Inject(APPLICATION_CONFIG)
+    private readonly config?: ApplicationConfig,
+  ) {}
 
   async claimNext(
     now: Date,
@@ -73,7 +87,13 @@ export class StartResponseDeliveryQueue {
 
       const delivery = await transaction
         .selectFrom("start_response_deliveries")
-        .select(["attempt_count", "id", "message_text", "private_chat_id"])
+        .select([
+          "attempt_count",
+          "id",
+          "message_text",
+          "private_chat_id",
+          "bot_identity",
+        ])
         .where("state", "in", ["pending", "retry_scheduled"])
         .where("available_at", "<=", now)
         .orderBy("id", "asc")
@@ -85,6 +105,16 @@ export class StartResponseDeliveryQueue {
         return undefined;
       }
 
+      if (
+        this.config?.marketingEnabled &&
+        !(await reserveTelegramSlot(
+          transaction,
+          delivery.bot_identity,
+          delivery.private_chat_id,
+          now,
+        ))
+      )
+        return undefined;
       const attemptNumber = delivery.attempt_count + 1;
       await transaction
         .updateTable("start_response_deliveries")
@@ -118,6 +148,19 @@ export class StartResponseDeliveryQueue {
       attemptedAt,
     );
     await this.database.transaction().execute(async (transaction) => {
+      if (
+        this.config?.marketingEnabled &&
+        result.kind === "api_retryable" &&
+        result.providerErrorCode === 429
+      ) {
+        await deferTelegramSlot(
+          transaction,
+          this.config.botIdentity,
+          new Date(
+            attemptedAt.getTime() + (result.retryAfterSeconds ?? 5) * 1000,
+          ),
+        );
+      }
       await transaction
         .insertInto("start_response_delivery_attempts")
         .values({

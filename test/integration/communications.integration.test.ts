@@ -266,8 +266,8 @@ describe("versioned HTTP scenarios shared with consumer", () => {
       (
         await http({
           ...request(),
-          operation: "funnels.read",
-          payload: { funnelId: randomUUID() },
+          operation: "funnels.rollback",
+          payload: { funnelId: randomUUID(), publishedRevision: 1 },
         })
       ).statusCode,
     ).toBe(501);
