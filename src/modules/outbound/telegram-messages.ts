@@ -17,7 +17,14 @@ export type TelegramDeliveryResult =
   | { readonly kind: "delivered"; readonly providerMessageId: string }
   | { readonly kind: "transport_unknown" };
 
+export interface TelegramMessageEdit {
+  readonly chatId: string;
+  readonly messageId: string;
+  readonly text: string;
+}
+
 export interface TelegramMessages {
+  editText(message: TelegramMessageEdit): Promise<TelegramDeliveryResult>;
   sendText(message: TelegramTextMessage): Promise<TelegramDeliveryResult>;
 }
 

@@ -593,6 +593,10 @@ class ControlledMessages implements TelegramMessages {
 
   constructor(private readonly results: TelegramDeliveryResult[]) {}
 
+  async editText(): Promise<TelegramDeliveryResult> {
+    throw new Error("Unexpected message edit");
+  }
+
   async sendText(
     message: TelegramTextMessage,
   ): Promise<TelegramDeliveryResult> {

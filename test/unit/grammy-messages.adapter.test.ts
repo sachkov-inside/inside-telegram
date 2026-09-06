@@ -7,6 +7,9 @@ describe("GrammyMessagesAdapter", () => {
   it("round-trips an int64-capable chat ID through the Telegram API seam", async () => {
     let receivedChatId: number | undefined;
     const adapter = new GrammyMessagesAdapter("synthetic", {
+      async editMessageText() {
+        return true;
+      },
       async sendMessage(chatId) {
         receivedChatId = chatId;
         return { message_id: 99 };
@@ -52,10 +55,67 @@ describe("GrammyMessagesAdapter", () => {
       sendSynthetic(adapterThrowing(new Error("Synthetic transport failure"))),
     ).resolves.toEqual({ kind: "transport_unknown" });
   });
+  it("edits the exact prompt and removes the inline keyboard without sending another message", async () => {
+    let received: unknown;
+    const adapter = new GrammyMessagesAdapter("synthetic", {
+      async sendMessage() {
+        throw new Error("Must edit, not send");
+      },
+      async editMessageText(chatId, messageId, text, options) {
+        received = { chatId, messageId, text, options };
+        return { message_id: messageId };
+      },
+    });
+    await expect(
+      adapter.editText({
+        chatId: "42",
+        messageId: "100",
+        text: "Вход подтверждён. Вернитесь на сайт.",
+      }),
+    ).resolves.toEqual({ kind: "delivered", providerMessageId: "100" });
+    expect(received).toEqual({
+      chatId: 42,
+      messageId: 100,
+      text: "Вход подтверждён. Вернитесь на сайт.",
+      options: { reply_markup: { inline_keyboard: [] } },
+    });
+  });
+
+  it("accepts an already applied edit after a lost acknowledgement", async () => {
+    const adapter = new GrammyMessagesAdapter("synthetic", {
+      async sendMessage() {
+        throw new Error("Must edit, not send");
+      },
+      async editMessageText() {
+        throw new GrammyError(
+          "Synthetic",
+          {
+            ok: false,
+            error_code: 400,
+            description:
+              "Bad Request: message is not modified: specified new message content is exactly the same",
+            parameters: {},
+          },
+          "editMessageText",
+          {},
+        );
+      },
+    });
+    await expect(
+      adapter.editText({
+        chatId: "42",
+        messageId: "100",
+        text: "Synthetic result",
+      }),
+    ).resolves.toEqual({ kind: "delivered", providerMessageId: "100" });
+  });
 });
 
 function adapterThrowing(error: unknown): GrammyMessagesAdapter {
   return new GrammyMessagesAdapter("synthetic", {
+    async editMessageText() {
+      return true;
+    },
     async sendMessage() {
       throw error;
     },

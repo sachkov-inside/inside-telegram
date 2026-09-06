@@ -12,6 +12,8 @@ import { botSignInMigration } from "./migrations/008-bot-sign-in.js";
 
 import { signInReservationMigration } from "./migrations/009-sign-in-reservation.js";
 
+import { signInMessageResultMigration } from "./migrations/010-sign-in-message-result.js";
+
 const migrationProvider: MigrationProvider = {
   async getMigrations() {
     return {
@@ -24,6 +26,7 @@ const migrationProvider: MigrationProvider = {
       "007-owner-identity-recovery": ownerIdentityRecoveryMigration,
       "008-bot-sign-in": botSignInMigration,
       "009-sign-in-reservation": signInReservationMigration,
+      "010-sign-in-message-result": signInMessageResultMigration,
     };
   },
 };

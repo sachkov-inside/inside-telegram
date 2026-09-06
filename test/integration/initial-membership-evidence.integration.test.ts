@@ -571,6 +571,10 @@ class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
 class ControlledTelegramMessages implements TelegramMessages {
   readonly sent: TelegramTextMessage[] = [];
 
+  async editText(): Promise<TelegramDeliveryResult> {
+    throw new Error("Unexpected message edit");
+  }
+
   async sendText(
     message: TelegramTextMessage,
   ): Promise<TelegramDeliveryResult> {

@@ -34,24 +34,30 @@ export class StartResponseDeliveryProcessor {
         break;
       }
 
-      const result = await this.messages.sendText({
-        chatId: delivery.privateChatId,
-        text: delivery.messageText,
-        ...(delivery.signInRequestRef
-          ? {
-              buttons: [
-                {
-                  text: "Это я",
-                  callbackData: `signin:approve:${delivery.signInRequestRef}`,
-                },
-                {
-                  text: "Это не я",
-                  callbackData: `signin:deny:${delivery.signInRequestRef}`,
-                },
-              ],
-            }
-          : {}),
-      });
+      const result = delivery.editMessageId
+        ? await this.messages.editText({
+            chatId: delivery.privateChatId,
+            messageId: delivery.editMessageId,
+            text: delivery.messageText,
+          })
+        : await this.messages.sendText({
+            chatId: delivery.privateChatId,
+            text: delivery.messageText,
+            ...(delivery.signInRequestRef
+              ? {
+                  buttons: [
+                    {
+                      text: "Подтвердить вход",
+                      callbackData: `signin:approve:${delivery.signInRequestRef}`,
+                    },
+                    {
+                      text: "Отменить",
+                      callbackData: `signin:deny:${delivery.signInRequestRef}`,
+                    },
+                  ],
+                }
+              : {}),
+          });
       await this.queue.recordResult(delivery, result, now ?? new Date());
       this.metrics.increment(`delivery_${result.kind}`);
     }

@@ -230,6 +230,158 @@ describe("bot sign-in provider", () => {
     expect((await status(challenge, true)).status).toBe("consumed");
   });
 
+  it("edits the approved prompt only after account finalization and retries the same message after transport ambiguity", async () => {
+    const challenge = await register();
+    await start(challenge, 42);
+    await callback(challenge, 42);
+    const edits = () =>
+      database
+        .selectFrom("start_response_deliveries")
+        .selectAll()
+        .where("edit_message_id", "is not", null)
+        .execute();
+    expect(await edits()).toHaveLength(0);
+    const verified = await status(challenge, true);
+    if (verified.status !== "verified")
+      throw new Error("Expected verified proof");
+    expect(await edits()).toHaveLength(0);
+    const accountRef = randomUUID();
+    const bind = () =>
+      request(`/${challenge.requestRef}/account-link`, {
+        contractVersion,
+        subjectRef: verified.subjectRef,
+        accountRef,
+      });
+    await Promise.all([bind(), bind()]);
+    expect(await edits()).toMatchObject([
+      {
+        edit_message_id: "100",
+        message_text: "Вход подтверждён. Вернитесь на сайт.",
+      },
+    ]);
+    const calls: { chatId: string; messageId: string; text: string }[] = [];
+    const messages = {
+      async sendText() {
+        throw new Error("Completion must edit, never send another message");
+      },
+      async editText(message: {
+        chatId: string;
+        messageId: string;
+        text: string;
+      }) {
+        calls.push(message);
+        return calls.length === 1
+          ? { kind: "transport_unknown" as const }
+          : {
+              kind: "delivered" as const,
+              providerMessageId: message.messageId,
+            };
+      },
+    };
+    const now = new Date();
+    const firstWorker = new StartResponseDeliveryProcessor(
+      new StartResponseDeliveryQueue(database),
+      messages,
+      new RuntimeMetrics(),
+      config,
+    );
+    expect(await firstWorker.processAvailable(1, now)).toBe(1);
+    const restartedWorker = new StartResponseDeliveryProcessor(
+      new StartResponseDeliveryQueue(secondDatabase),
+      messages,
+      new RuntimeMetrics(),
+      config,
+    );
+    const retryAt = new Date(now.getTime() + 1001);
+    expect(await restartedWorker.processAvailable(1, retryAt)).toBe(1);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual(calls[1]);
+    expect(calls[0]).toMatchObject({ chatId: "42", messageId: "100" });
+    expect(await edits()).toMatchObject([
+      { state: "delivered", attempt_count: 2 },
+    ]);
+    expect(await restartedWorker.processAvailable(1, retryAt)).toBe(0);
+  });
+
+  it.each(["before", "after"] as const)(
+    "retains completion intent across a failure %s the link commit without premature success",
+    async (failurePoint) => {
+      const challenge = await register();
+      await start(challenge, 42);
+      await callback(challenge, 42);
+      const verified = await status(challenge, true);
+      if (verified.status !== "verified")
+        throw new Error("Expected verified proof");
+      const accountRef = randomUUID();
+      const linking = application.get(IdentityLinking);
+      const confirm = linking.confirm.bind(linking);
+      const fault = vi
+        .spyOn(linking, "confirm")
+        .mockImplementationOnce(async (input) => {
+          if (failurePoint === "after") await confirm(input);
+          throw new Error("Synthetic process failure at link boundary");
+        });
+      const bind = () =>
+        request(`/${challenge.requestRef}/account-link`, {
+          contractVersion,
+          subjectRef: verified.subjectRef,
+          accountRef,
+        });
+      try {
+        expect((await bind()).statusCode).toBe(500);
+      } finally {
+        fault.mockRestore();
+      }
+      const queue = new StartResponseDeliveryQueue(secondDatabase);
+      if (failurePoint === "before") {
+        expect(await queue.claimNext(new Date(), true)).toBeUndefined();
+        expect((await bind()).json()).toMatchObject({ status: "linked" });
+      }
+      // After commit no request replay is needed: a fresh worker sees the durable result.
+      expect(await queue.claimNext(new Date(), true)).toMatchObject({
+        editMessageId: "100",
+        messageText: "Вход подтверждён. Вернитесь на сайт.",
+      });
+      expect(await queue.claimNext(new Date(), true)).toBeUndefined();
+    },
+  );
+
+  it("updates a cancelled prompt once and never lets another identity choose the edit target", async () => {
+    const challenge = await register();
+    await start(challenge, 42);
+    await callback(challenge, 43, "deny");
+    const edits = () =>
+      database
+        .selectFrom("start_response_deliveries")
+        .selectAll()
+        .where("edit_message_id", "is not", null)
+        .execute();
+    expect(await edits()).toHaveLength(0);
+    await callback(challenge, 42, "deny");
+    await callback(challenge, 42, "deny");
+    expect(await edits()).toMatchObject([
+      {
+        edit_message_id: "100",
+        private_chat_id: "42",
+        message_text: "Вход отменён.",
+      },
+    ]);
+    const queue = new StartResponseDeliveryQueue(database);
+    expect(await queue.claimNext(new Date(), false)).toBeUndefined();
+    const claims = await Promise.all([
+      queue.claimNext(new Date(), true),
+      new StartResponseDeliveryQueue(secondDatabase).claimNext(
+        new Date(),
+        true,
+      ),
+    ]);
+    expect(claims.filter(Boolean)).toHaveLength(1);
+    expect(claims.find(Boolean)).toMatchObject({
+      editMessageId: "100",
+      messageText: "Вход отменён.",
+    });
+  });
+
   it("refreshes inbox leases after a delayed callback instead of claiming with batch-start time", async () => {
     const current = new Date();
     const later = new Date(current.getTime() + 60_001);
@@ -354,6 +506,9 @@ describe("bot sign-in provider", () => {
       const delivery = new StartResponseDeliveryProcessor(
         new StartResponseDeliveryQueue(database),
         {
+          async editText() {
+            throw new Error("Unexpected message edit");
+          },
           async sendText(message) {
             messages.push(message);
             vi.setSystemTime(new Date(challenge.envelope.expiresAt));
@@ -422,6 +577,9 @@ describe("bot sign-in provider", () => {
     const delivery = new StartResponseDeliveryProcessor(
       new StartResponseDeliveryQueue(database),
       {
+        async editText() {
+          throw new Error("Unexpected message edit");
+        },
         async sendText(message) {
           messages.push(message);
           return { kind: "delivered", providerMessageId: "1" };
@@ -433,8 +591,8 @@ describe("bot sign-in provider", () => {
     expect(await delivery.processAvailable()).toBe(1);
     expect(messages[0]?.text).toBe("Вы входите в Sachkov Inside?");
     expect(messages[0]?.buttons?.map((button) => button.text)).toEqual([
-      "Это я",
-      "Это не я",
+      "Подтвердить вход",
+      "Отменить",
     ]);
     expect(messages[0]?.buttons?.map((button) => button.callbackData)).toEqual([
       `signin:approve:${challenge.requestRef}`,
@@ -495,12 +653,12 @@ describe("bot sign-in provider", () => {
     await callback(challenge, 42, "deny");
     await callback(challenge, 42);
     expect(await status(challenge, true)).toMatchObject({ status: "denied" });
-    expect(
-      await new StartResponseDeliveryQueue(database).claimNext(
-        new Date(),
-        true,
-      ),
-    ).toBeUndefined();
+    const queue = new StartResponseDeliveryQueue(database);
+    expect(await queue.claimNext(new Date(), true)).toMatchObject({
+      editMessageId: "100",
+      messageText: "Вход отменён.",
+    });
+    expect(await queue.claimNext(new Date(), true)).toBeUndefined();
   });
 
   it("allows exactly one consumer across independent database connections", async () => {
@@ -570,6 +728,7 @@ describe("bot sign-in provider", () => {
       { now: () => new Date() },
     );
     await disabled.decide({
+      messageId: "1",
       botIdentity: "inside",
       telegramUserId: "42",
       privateChatId: "42",
@@ -606,6 +765,7 @@ describe("bot sign-in provider", () => {
     const deadline = new Date(challenge.envelope.expiresAt);
     const expired = new BotSignIn(database, config, { now: () => deadline });
     await expired.decide({
+      messageId: "1",
       botIdentity: "inside",
       telegramUserId: "42",
       privateChatId: "42",

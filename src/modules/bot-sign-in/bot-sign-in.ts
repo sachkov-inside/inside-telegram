@@ -12,6 +12,8 @@ import { credentialsMatch } from "../../security/credentials.js";
 import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
 import { CLOCK, type Clock } from "../identity-linking/clock.js";
 
+import { queueSignInResult } from "./queue-sign-in-result.js";
+
 export interface RegisterSignIn {
   readonly requestRef: string;
   readonly startTokenDigest: string;
@@ -20,6 +22,7 @@ export interface RegisterSignIn {
 }
 
 export interface VerifiedSignInDecision {
+  readonly messageId: string;
   readonly botIdentity: string;
   readonly telegramUserId: string;
   readonly privateChatId: string;
@@ -200,9 +203,18 @@ export class BotSignIn {
         .set({
           state: decision.decision === "approve" ? "approved" : "denied",
           approved_at: decision.decision === "approve" ? now : null,
+          confirmation_message_id: decision.messageId,
         })
         .where("request_ref", "=", decision.requestRef)
         .execute();
+      if (decision.decision === "deny") {
+        await queueSignInResult(
+          transaction,
+          decision.requestRef,
+          now,
+          "Вход отменён.",
+        );
+      }
     });
   }
 

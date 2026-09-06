@@ -75,6 +75,11 @@ export interface BotContactEventsTable {
 }
 
 export interface StartResponseDeliveriesTable {
+  edit_message_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   sign_in_request_ref: ColumnType<
     string | null,
     string | null | undefined,
@@ -245,6 +250,11 @@ export interface IdentityLinkRecoveriesTable {
 }
 
 export interface SignInRequestsTable {
+  confirmation_message_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   request_ref: string;
   bot_identity: string;
   start_token_digest: string;

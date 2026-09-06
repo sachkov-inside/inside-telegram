@@ -340,10 +340,12 @@ function privateSignInDecision(
     );
   const telegramUserId = telegramId(value.from.id);
   const privateChatId = telegramId(value.message.chat.id);
+  const messageId = telegramId(value.message.message_id);
   if (
     !match ||
     !telegramUserId ||
     !privateChatId ||
+    !messageId ||
     telegramUserId !== privateChatId
   )
     return undefined;
@@ -351,6 +353,7 @@ function privateSignInDecision(
     botIdentity,
     telegramUserId,
     privateChatId,
+    messageId,
     requestRef: match[2]!,
     decision: match[1] === "approve" ? "approve" : "deny",
   };

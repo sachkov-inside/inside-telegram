@@ -8,6 +8,8 @@ import { CLOCK, type Clock } from "../identity-linking/clock.js";
 import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { isRequestRef } from "./bot-sign-in.js";
 
+import { queueSignInResult } from "./queue-sign-in-result.js";
+
 /** Finalizes an already consumed proof for the Account selected by the trusted Platform. */
 @Injectable()
 export class SignInAccountLink {
@@ -50,7 +52,16 @@ export class SignInAccountLink {
           .selectAll()
           .where("link_transaction_ref", "=", requestRef)
           .executeTakeFirst();
-        if (previous) return previous.account_ref === accountRef;
+        if (previous) {
+          if (previous.account_ref !== accountRef) return false;
+          await queueSignInResult(
+            transaction,
+            requestRef,
+            this.clock.now(),
+            "Вход подтверждён. Вернитесь на сайт.",
+          );
+          return true;
+        }
         const now = this.clock.now();
         if (request.expires_at <= now) return false;
         await transaction
@@ -69,6 +80,12 @@ export class SignInAccountLink {
             confirmed_at: null,
           })
           .execute();
+        await queueSignInResult(
+          transaction,
+          requestRef,
+          now,
+          "Вход подтверждён. Вернитесь на сайт.",
+        );
         return true;
       });
     if (!accepted) return { status: "unavailable" } as const;
@@ -77,11 +94,11 @@ export class SignInAccountLink {
       linkTransactionRef: requestRef,
       returnCorrelation: requestRef,
     });
-    return result.status === "linked" || result.status === "idempotent"
-      ? ({
-          status: "linked",
-          telegramIdentityRef: result.telegramIdentityRef,
-        } as const)
-      : ({ status: "conflict" } as const);
+    if (result.status !== "linked" && result.status !== "idempotent")
+      return { status: "conflict" } as const;
+    return {
+      status: "linked",
+      telegramIdentityRef: result.telegramIdentityRef,
+    } as const;
   }
 }
