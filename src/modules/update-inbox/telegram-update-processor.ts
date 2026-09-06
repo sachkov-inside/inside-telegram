@@ -1,3 +1,6 @@
+import { Optional } from "@nestjs/common";
+import { Communications } from "../communications/communications.js";
+import { translateTemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
 import { Inject, Injectable } from "@nestjs/common";
 
 import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
@@ -19,6 +22,9 @@ export class TelegramUpdateProcessor {
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
     @Inject(MembershipEvidenceProvider)
     private readonly membershipEvidence: MembershipEvidenceProvider,
+    @Optional()
+    @Inject(Communications)
+    private readonly communications?: Communications,
   ) {}
 
   async processAvailable(limit = 50, now = new Date()): Promise<number> {
@@ -54,6 +60,13 @@ export class TelegramUpdateProcessor {
           await this.botContacts.observeContactability(command.value);
         } else if (command.kind === "membership") {
           await this.membershipEvidence.accept(command.value);
+        } else if (command.kind === "ignored" && this.communications) {
+          const intake = translateTemplateIntake(
+            update.botIdentity,
+            update.updateId,
+            update.payload,
+          );
+          if (intake) await this.communications.intake(intake);
         }
 
         await this.inbox.markProcessed(update, now);

@@ -18,6 +18,15 @@ The permanent deployment kit and its verification/recovery procedure are documen
 [`docs/operations/production.md`](docs/operations/production.md). Its presence does not mean the
 production bot has been enabled.
 
+## Author templates and communications contract
+
+The author-template slice adds explicit `/template` intake and authenticated template read/save.
+It also provides versioned contracts for the later communications operations. Platform remains the
+permission authority; author checks fail closed until its authorization endpoint is configured.
+See [`docs/integrations/communications-v1.md`](docs/integrations/communications-v1.md) for the
+wire contract, fixtures, media validation and the limits of this enabling delivery. The editor,
+marketing scheduler, broadcasts and production activation belong to subsequent tickets.
+
 ## Ordinary `/start` runtime
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
@@ -199,6 +208,6 @@ These Workspace-only harness checks do not create an application build/runtime d
 
 ## Repository boundary
 
-This repository will own Telegram bot identity handling, bot contacts, linking, member-status
-updates, reconciliation, and normalized Membership Evidence. Platform remains the authority for
+This repository owns Telegram bot identity handling, bot contacts, linking, member-status
+updates, reconciliation, normalized Membership Evidence and author communication templates. Platform remains the authority for
 Platform Accounts, permissions, entitlements, profiles, and every content-access decision.
