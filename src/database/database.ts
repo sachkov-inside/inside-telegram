@@ -260,6 +260,7 @@ export interface SignInRequestsTable {
 }
 
 export interface SignInSubjectsTable {
+  reserved_for_sign_in: Generated<boolean>;
   subject_ref: string;
   bot_identity: string;
   telegram_user_id: BigIntColumn;

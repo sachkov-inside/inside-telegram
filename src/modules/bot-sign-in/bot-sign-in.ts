@@ -1,3 +1,4 @@
+import { lockTelegramIdentity } from "../identity-linking/identity-link-account-lock.js";
 import { createHash, randomInt, randomUUID } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
@@ -242,6 +243,11 @@ export class BotSignIn {
         if (!consume) return { status: "approved" };
         if (!request.telegram_user_id || !request.approved_at)
           return { status: "unavailable" };
+        await lockTelegramIdentity(
+          transaction,
+          request.bot_identity,
+          request.telegram_user_id,
+        );
         await transaction
           .insertInto("sign_in_subjects")
           .values({
@@ -263,6 +269,15 @@ export class BotSignIn {
           .where("bot_identity", "=", request.bot_identity)
           .where("telegram_user_id", "=", request.telegram_user_id)
           .executeTakeFirst();
+        if (!link) {
+          // Approval of independent registration reserves this subject even if the browser loses
+          // the consume response. A fresh bot sign-in can repair it; email linking cannot take it.
+          await transaction
+            .updateTable("sign_in_subjects")
+            .set({ reserved_for_sign_in: true })
+            .where("subject_ref", "=", subject.subject_ref)
+            .execute();
+        }
         await transaction
           .updateTable("sign_in_requests")
           .set({ state: "consumed", consumed_at: now })

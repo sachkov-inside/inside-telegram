@@ -10,6 +10,8 @@ import { platformEvidenceConformanceMigration } from "./migrations/006-platform-
 import { ownerIdentityRecoveryMigration } from "./migrations/007-owner-identity-recovery.js";
 import { botSignInMigration } from "./migrations/008-bot-sign-in.js";
 
+import { signInReservationMigration } from "./migrations/009-sign-in-reservation.js";
+
 const migrationProvider: MigrationProvider = {
   async getMigrations() {
     return {
@@ -21,6 +23,7 @@ const migrationProvider: MigrationProvider = {
       "006-platform-evidence-conformance": platformEvidenceConformanceMigration,
       "007-owner-identity-recovery": ownerIdentityRecoveryMigration,
       "008-bot-sign-in": botSignInMigration,
+      "009-sign-in-reservation": signInReservationMigration,
     };
   },
 };

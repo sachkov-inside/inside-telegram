@@ -9,7 +9,10 @@ import {
   type DatabaseSchema,
 } from "../../database/database.js";
 import { CLOCK, type Clock } from "./clock.js";
-import { lockIdentityLinkAccount } from "./identity-link-account-lock.js";
+import {
+  lockIdentityLinkAccount,
+  lockTelegramIdentity,
+} from "./identity-link-account-lock.js";
 import { isOpaqueRef } from "./identity-linking-validation.js";
 
 const MAX_LINK_LIFETIME_MILLISECONDS = 10 * 60 * 1000;
@@ -293,6 +296,51 @@ export class IdentityLinking {
       }
 
       await lockIdentityLinkAccount(transaction, linkTransaction.account_ref);
+      await lockTelegramIdentity(
+        transaction,
+        linkTransaction.bot_identity,
+        linkTransaction.candidate_telegram_user_id,
+      );
+      const reservation = await transaction
+        .selectFrom("sign_in_subjects")
+        .select("reserved_for_sign_in")
+        .where("bot_identity", "=", linkTransaction.bot_identity)
+        .where(
+          "telegram_user_id",
+          "=",
+          linkTransaction.candidate_telegram_user_id,
+        )
+        .executeTakeFirst();
+      const signInProof = await transaction
+        .selectFrom("sign_in_requests")
+        .select("request_ref")
+        .where("request_ref", "=", linkTransaction.link_transaction_ref)
+        .where("bot_identity", "=", linkTransaction.bot_identity)
+        .where(
+          "telegram_user_id",
+          "=",
+          linkTransaction.candidate_telegram_user_id,
+        )
+        .where("state", "=", "consumed")
+        .executeTakeFirst();
+      if (reservation?.reserved_for_sign_in && !signInProof) {
+        await transaction
+          .updateTable("link_transactions")
+          .set({ state: "conflict" })
+          .where(
+            "link_transaction_ref",
+            "=",
+            linkTransaction.link_transaction_ref,
+          )
+          .execute();
+        await addEvent(
+          transaction,
+          linkTransaction.link_transaction_ref,
+          "recovery_required",
+          this.clock.now(),
+        );
+        return { ...base, status: "recovery-required" };
+      }
       const telegramIdentityRef = randomUUID();
       const inserted = await transaction
         .insertInto("platform_links")

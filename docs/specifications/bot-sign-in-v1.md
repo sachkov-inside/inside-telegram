@@ -8,12 +8,14 @@
 ## Граница этого изменения
 
 Бот подтверждает Telegram identity. Он не создаёт Account, не выдаёт сессию сайта,
-не меняет PlatformLink и не разрешает доступ к контенту. Подтверждённая почта,
-правила регистрации и восстановления Account остаются без изменений в Platform.
+не разрешает доступ к контенту. Отдельное серверное завершение связывает consumed proof
+с выбранным Platform principal через существующий владелец PlatformLink. Правила Account
+и восстановления принадлежат Platform.
 Это обеспечивающий этап, а не готовый вход на сайт.
 
 Пользователь выбрал два равноправных способа входа: email и Telegram-бот.
-Создание нового Account без email ещё требует отдельного подтверждения владельца.
+Регистрация Account без email подтверждена владельцем в Platform #299 2026-09-06;
+добавление первой почты, замена identity и восстановление в эту поставку не входят.
 Logto остаётся единственным источником пользовательских сессий. До подключения
 Platform и проверки сохранения существующего Account провайдер нельзя включать.
 
@@ -93,11 +95,10 @@ prompt в пределах существующего retry budget; они не 
 
 ## До включения для пользователей
 
-- Подтвердить: регистрация без email или вход только в ранее созданный Account.
 - Подключить Logto и Platform с browser/state binding, защитой от login CSRF,
   ограничением частоты запросов, проверкой callback и безопасным return URL.
-- Проверить один Account при обоих способах входа и отдельный сценарий добавления
-  email/восстановления доступа. Не вводить вторую систему сессий.
+- Проверить один Account при обоих подтверждённо связанных способах входа. Не вводить
+  вторую систему сессий или неразрешённое восстановление.
 - Добавить server-side switch на стороне Platform, включая callback и уже
   начатые запросы, и проверить его вместе с переключателем провайдера.
 - Выполнить отдельную проверку применимости законодательства. Собственный бот
@@ -119,3 +120,25 @@ connections, стабильный subject, existing link без изменени
 Официальные технические основания: [Telegram deep links](https://core.telegram.org/bots/features#deep-linking),
 [callback query](https://core.telegram.org/bots/api#callbackquery) и
 [inline keyboard](https://core.telegram.org/bots/api#inlinekeyboardbutton).
+
+## Завершение связи с Account — интеграция Platform #299
+
+`POST /integrations/identity/v1/sign-in/:requestRef/account-link` использует тот же отдельный
+sign-in credential. Envelope содержит ровно `contractVersion: "inside.bot-sign-in.v1"`,
+`subjectRef` и `accountRef` (UUIDv4). `accountRef` здесь — непрозрачный linking principal,
+закреплённый Platform за Account до запроса. Клиент браузера не выбирает его.
+
+Метод принимает только consumed request с совпадающей Telegram identity и stable subject.
+Он сохраняет обычную link transaction и вызывает существующую confirmation операцию.
+Ответ: `contractVersion`, `status: "linked"`, `telegramIdentityRef` (UUIDv4), либо status
+`conflict`, `unavailable` или `disabled`. Повтор с тем же principal идемпотентен; другой principal
+не подменяет связь. До первой записи действует срок proof; уже созданная transaction сохраняет
+свою проверяемую историю. При потере ответа свежий вход завершает тот же stable principal.
+
+Миграция 009 добавляет durable reservation независимой Telegram-регистрации. Consume и обычная
+email-привязка сериализуются по `(botIdentity, telegramUserId)`. Если email-привязка победила,
+consume возвращает её existingLink. Если consume первым подтвердил независимую регистрацию,
+обычная привязка отклоняется; reservation не истекает вместе с запросом, и новый Telegram-вход
+может завершить регистрацию после потери ответа. Разрешение завершения определяется сохранённым
+consumed request, не клиентским boolean. Это не перенос Account или выдача Membership.
+Два interleaving PostgreSQL tests удерживают общий lock и проверяют оба порядка событий.

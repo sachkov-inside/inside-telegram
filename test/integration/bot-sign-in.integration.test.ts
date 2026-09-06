@@ -1,3 +1,4 @@
+import { lockTelegramIdentity } from "../../src/modules/identity-linking/identity-link-account-lock.js";
 import { randomBytes, randomUUID } from "node:crypto";
 
 import { NestFactory } from "@nestjs/core";
@@ -93,6 +94,103 @@ afterAll(async () => {
 });
 
 describe("bot sign-in provider", () => {
+  it.each(["sign-in", "email-link"] as const)(
+    "serializes %s winning against the other ownership path",
+    async (winner) => {
+      const linking = application.get(IdentityLinking);
+      const emailPrincipal = randomUUID();
+      const normalToken = randomBytes(32).toString("base64url");
+      const normal = await linking.register({
+        accountRef: emailPrincipal,
+        returnCorrelation: "race-return",
+        tokenDigest: digestSignInSecret(normalToken),
+        expiresAt: new Date(Date.now() + 60_000),
+      });
+      await linking.acceptStart({
+        botIdentity: "inside",
+        telegramUserId: "42",
+        observedAt: new Date(),
+        linkToken: { kind: "digest", digest: digestSignInSecret(normalToken) },
+      });
+      const challenge = await register();
+      await start(challenge, 42);
+      await callback(challenge, 42);
+      const locked = deferred();
+      const release = deferred();
+      const blocker = secondDatabase
+        .transaction()
+        .execute(async (transaction) => {
+          await lockTelegramIdentity(transaction, "inside", "42");
+          locked.resolve();
+          await release.promise;
+        });
+      await locked.promise;
+      const confirmEmail = () =>
+        linking.confirm({
+          accountRef: emailPrincipal,
+          returnCorrelation: "race-return",
+          linkTransactionRef: normal.linkTransactionRef,
+        });
+      const consume = () => status(challenge, true);
+      const waiting = async () => {
+        const result = await sql<{
+          count: number;
+        }>`select count(*)::int as count from pg_locks where locktype='advisory' and not granted and database=(select oid from pg_database where datname=current_database())`.execute(
+          database,
+        );
+        return result.rows[0]?.count ?? 0;
+      };
+      let proofPromise: Promise<SignInResult>;
+      let linkPromise: ReturnType<typeof confirmEmail>;
+      try {
+        if (winner === "sign-in") {
+          proofPromise = consume();
+          await expect.poll(waiting).toBe(1);
+          linkPromise = confirmEmail();
+        } else {
+          linkPromise = confirmEmail();
+          await expect.poll(waiting).toBe(1);
+          proofPromise = consume();
+        }
+        await expect.poll(waiting).toBe(2);
+      } finally {
+        release.resolve();
+        await blocker;
+      }
+      const [proof, linked] = await Promise.all([proofPromise, linkPromise]);
+      if (proof.status !== "verified") throw new Error("Expected proof");
+      if (winner === "email-link") {
+        expect(linked.status).toBe("linked");
+        expect(proof.existingLink?.accountRef).toBe(emailPrincipal);
+      } else {
+        expect(linked.status).toBe("recovery-required");
+        expect(proof.existingLink).toBeNull();
+        // Simulate loss of the first consume response: a fresh interaction repairs the reservation.
+        const retry = await register();
+        await start(retry, 42);
+        await callback(retry, 42);
+        const fresh = await status(retry, true);
+        expect(fresh).toMatchObject({
+          status: "verified",
+          subjectRef: proof.subjectRef,
+          existingLink: null,
+        });
+        expect(
+          (
+            await request(`/${retry.requestRef}/account-link`, {
+              contractVersion,
+              subjectRef: proof.subjectRef,
+              accountRef: randomUUID(),
+            })
+          ).json(),
+        ).toMatchObject({ status: "linked" });
+      }
+      expect(
+        await database.selectFrom("platform_links").selectAll().execute(),
+      ).toHaveLength(1);
+    },
+  );
+
   it("finalizes consumed proof idempotently and rejects a different Account or identity", async () => {
     const challenge = await register();
     const accountRef = randomUUID();
@@ -652,4 +750,12 @@ function callback(
   decision = "approve",
 ) {
   return webhook(decisionUpdate(challenge, userId, decision));
+}
+
+function deferred() {
+  let signal = () => {};
+  const promise = new Promise<void>((resolve) => {
+    signal = resolve;
+  });
+  return { promise, resolve: () => signal() };
 }
