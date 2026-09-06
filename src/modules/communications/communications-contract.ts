@@ -75,6 +75,7 @@ export function validateContent(
   )
     throw new CommunicationsError("unsupported_content");
   if (
+    (content.type === "text" && content.text.length > 4096) ||
     (content.type !== "text" && content.text.length > 1024) ||
     (content.type === "video_note" &&
       (content.text !== "" || content.entities.length > 0))
@@ -96,7 +97,7 @@ export function validateContent(
       throw new CommunicationsError("unsupported_content");
     if (entity.url) assertSafeUrl(entity.url);
     if (entity.type === "url")
-      assertSafeUrl(content.text.slice(entity.offset, end));
+      assertSafeUrl(content.text.slice(entity.offset, end), true);
     for (const other of content.entities) {
       if (other === entity) continue;
       const otherEnd = other.offset + other.length;
@@ -123,7 +124,17 @@ export function validateContent(
     }
   }
   // Never let Telegram's credential-bearing download addresses escape through text or links.
-  if (/api\.telegram\.org\/file\/bot/i.test(content.text))
+  for (const match of content.text.matchAll(/\bhttps?:\/\/[^\s<>"']+/gi)) {
+    let url: URL;
+    try {
+      url = new URL(match[0]);
+    } catch {
+      continue;
+    }
+    if (isTelegramEndpoint(url))
+      throw new CommunicationsError("unsupported_content");
+  }
+  if (/api\.telegram\.org\.?(?::[0-9]+)?\/file\/bot/i.test(content.text))
     throw new CommunicationsError("unsupported_content");
 }
 function splitsSurrogate(text: string, index: number): boolean {
@@ -134,13 +145,23 @@ function splitsSurrogate(text: string, index: number): boolean {
     /[\uDC00-\uDFFF]/.test(text[index]!)
   );
 }
-function assertSafeUrl(value: string): void {
-  const url = new URL(value);
+function assertSafeUrl(value: string, allowBareDomain = false): void {
+  let url: URL;
+  try {
+    const hasScheme = /^[a-z][a-z0-9+.-]*:/i.test(value);
+    url = new URL(allowBareDomain && !hasScheme ? `https://${value}` : value);
+  } catch {
+    throw new CommunicationsError("unsupported_content");
+  }
   if (
     url.protocol !== "https:" ||
     url.username ||
     url.password ||
-    url.hostname === "api.telegram.org"
+    isTelegramEndpoint(url)
   )
     throw new CommunicationsError("unsupported_content");
+}
+
+function isTelegramEndpoint(url: URL): boolean {
+  return url.hostname.replace(/\.$/, "") === "api.telegram.org";
 }

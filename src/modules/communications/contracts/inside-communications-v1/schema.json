@@ -115,7 +115,60 @@
           "pattern": "^[A-Za-z0-9_-]{1,1024}$"
         }
       },
-      "required": ["type", "text", "entities", "buttons"]
+      "required": ["type", "text", "entities", "buttons"],
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "text"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "minLength": 1,
+                "type": "string"
+              },
+              "fileId": false
+            }
+          },
+          "else": {
+            "required": ["fileId"],
+            "properties": {
+              "text": {
+                "maxLength": 1024,
+                "type": "string"
+              },
+              "fileId": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "video_note"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "text": {
+                "maxLength": 0,
+                "type": "string"
+              },
+              "entities": {
+                "maxItems": 0,
+                "type": "array"
+              }
+            }
+          }
+        }
+      ]
     },
     "part": {
       "type": "object",
@@ -477,9 +530,19 @@
                 },
                 "isDefault": {
                   "type": "boolean"
+                },
+                "entryResponse": {
+                  "$ref": "#/definitions/entryResponse"
                 }
               },
-              "required": ["funnelId", "name", "steps", "sources", "isDefault"]
+              "required": [
+                "funnelId",
+                "name",
+                "steps",
+                "sources",
+                "isDefault",
+                "entryResponse"
+              ]
             }
           },
           "required": [
@@ -1157,6 +1220,150 @@
             "expectedRevision",
             "payload"
           ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["intro.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {},
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["intro.save"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "introId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "parts": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/definitions/part"
+                  },
+                  "maxItems": 100,
+                  "minItems": 1
+                }
+              },
+              "required": ["introId", "parts"]
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "operation": {
+              "enum": ["deliveries.read"]
+            },
+            "operationId": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "actor": {
+              "$ref": "#/definitions/actor"
+            },
+            "expectedRevision": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 2147483647
+            },
+            "payload": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": {
+                "deliveryId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "funnelId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "broadcastId": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "cursor": {
+                  "type": "string",
+                  "maxLength": 128
+                }
+              },
+              "required": []
+            }
+          },
+          "required": [
+            "contractVersion",
+            "operation",
+            "operationId",
+            "actor",
+            "expectedRevision",
+            "payload"
+          ]
         }
       ]
     },
@@ -1361,6 +1568,9 @@
         },
         "isDefault": {
           "type": "boolean"
+        },
+        "entryResponse": {
+          "$ref": "#/definitions/entryResponse"
         }
       },
       "required": [
@@ -1371,7 +1581,8 @@
         "name",
         "steps",
         "sources",
-        "isDefault"
+        "isDefault",
+        "entryResponse"
       ]
     },
     "publishPreview": {
@@ -1908,7 +2119,220 @@
             }
           },
           "required": ["contractVersion", "status", "statistics"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "intro": {
+              "$ref": "#/definitions/intro"
+            }
+          },
+          "required": ["contractVersion", "status", "intro"]
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "contractVersion": {
+              "enum": ["inside-communications-v1"]
+            },
+            "status": {
+              "enum": ["ok"]
+            },
+            "deliveries": {
+              "type": "array",
+              "items": {
+                "$ref": "#/definitions/delivery"
+              },
+              "maxItems": 100
+            },
+            "nextCursor": {
+              "type": ["string", "null"],
+              "maxLength": 128
+            }
+          },
+          "required": ["contractVersion", "status", "deliveries", "nextCursor"]
         }
+      ]
+    },
+    "entryResponse": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "stepId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "maxItems": 100,
+          "minItems": 1
+        }
+      },
+      "required": ["stepId", "parts"]
+    },
+    "intro": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "introId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "maxItems": 100,
+          "minItems": 1
+        }
+      },
+      "required": ["introId", "revision", "parts"]
+    },
+    "deliveryPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "state": {
+          "enum": [
+            "pending",
+            "in_flight",
+            "sent",
+            "failed",
+            "unknown",
+            "suppressed",
+            "skipped",
+            "cancelled"
+          ]
+        },
+        "diagnosticCode": {
+          "type": ["string", "null"],
+          "maxLength": 128
+        },
+        "attempts": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "properties": {
+              "attemptId": {
+                "type": "string",
+                "format": "uuid"
+              },
+              "attemptedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "outcome": {
+                "enum": ["sent", "api_rejected", "retryable", "unknown"]
+              },
+              "diagnosticCode": {
+                "type": ["string", "null"],
+                "maxLength": 128
+              },
+              "duplicateRiskAccepted": {
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "attemptId",
+              "attemptedAt",
+              "outcome",
+              "diagnosticCode",
+              "duplicateRiskAccepted"
+            ]
+          },
+          "maxItems": 100
+        }
+      },
+      "required": ["partId", "state", "diagnosticCode", "attempts"]
+    },
+    "delivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "deliveryId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "revision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "contactId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "funnelId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "broadcastId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "stepId": {
+          "type": ["string", "null"],
+          "format": "uuid"
+        },
+        "publishedRevision": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "snapshot": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/part"
+          },
+          "maxItems": 100,
+          "minItems": 1
+        },
+        "parts": {
+          "type": "array",
+          "items": {
+            "$ref": "#/definitions/deliveryPart"
+          },
+          "maxItems": 100
+        },
+        "cancelRequested": {
+          "type": "boolean"
+        },
+        "completedAt": {
+          "type": ["string", "null"],
+          "format": "date-time"
+        }
+      },
+      "required": [
+        "deliveryId",
+        "revision",
+        "contactId",
+        "funnelId",
+        "broadcastId",
+        "stepId",
+        "publishedRevision",
+        "snapshot",
+        "parts",
+        "cancelRequested",
+        "completedAt"
       ]
     }
   },

@@ -36,7 +36,11 @@ operation-specific `payload`. Unknown fields and versions return `400 malformed`
   `503 authorization_unavailable`, and `501 not_implemented`.
 
 The schema also defines funnels, publish/preview/rollback, source links, broadcasts, explicit
-retry/skip, test send, eligibility, tracking and statistics. They are **contract-only** in this
+retry/skip, test send, eligibility, tracking and statistics. `intro.read/save` addresses one common
+intro by stable ID; `funnels.save.entryResponse` separates the zero-delay response from scheduled
+steps. `deliveries.read` exposes paginated per-delivery revision, content snapshot, per-part state,
+redacted attempt evidence and cancellation so an operator can build `delivery.resolve` without
+losing the original unknown attempt. They are **contract-only** in this
 slice; they return `501`, create no runtime state and send nothing. `expectedRevision` is `0` for
 queries/events and the current aggregate revision for mutations. The scheduling and publication
 semantics remain in the Workspace contract and subsequent owning tickets. Eligibility is a

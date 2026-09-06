@@ -26,6 +26,43 @@ describe("application configuration", () => {
     expect(config.workersEnabled).toBe(true);
   });
 
+  it("requires a complete secure author authorization endpoint while defaulting to disabled", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).platformAuthorAuthorizationUrl,
+    ).toBeUndefined();
+    const auth = {
+      PLATFORM_AUTHOR_AUTHORIZATION_URL:
+        "https://platform.example.test/authorize",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic_author_secret",
+    };
+    expect(
+      loadApplicationConfig({ ...validEnvironment, ...auth })
+        .platformAuthorAuthorizationUrl,
+    ).toBe(auth.PLATFORM_AUTHOR_AUTHORIZATION_URL);
+    for (const changed of [
+      { PLATFORM_AUTHOR_AUTHORIZATION_SECRET: undefined },
+      { PLATFORM_AUTHOR_AUTHORIZATION_URL: undefined },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "http://platform.example.test/authorize",
+      },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "https://user:password@platform.example.test/authorize",
+      },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "https://platform.example.test/authorize?secret=synthetic",
+      },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "https://platform.example.test/authorize#secret",
+      },
+    ])
+      expect(() =>
+        loadApplicationConfig({ ...validEnvironment, ...auth, ...changed }),
+      ).toThrow("PLATFORM_AUTHOR_AUTHORIZATION");
+  });
   it("requires a token before live external delivery can start", () => {
     expect(() =>
       loadApplicationConfig({

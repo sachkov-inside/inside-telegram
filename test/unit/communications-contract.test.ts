@@ -27,11 +27,32 @@ describe("vendored communications contract", () => {
   it("preserves UTF-16 formatting and rejects offsets, unsupported entities and secret URLs", () => {
     expect(() => validateContent(text)).not.toThrow();
     const invalid = [
+      {
+        ...text,
+        text: "https://api.telegram.org.:443/file/botSynthetic/file",
+        entities: [],
+      },
+      {
+        ...text,
+        text: "https://%61pi.telegram.org/%66ile/botSynthetic/file",
+        entities: [],
+      },
       { ...text, entities: [{ type: "bold", offset: 1, length: 1 }] },
       { ...text, entities: [{ type: "bold", offset: 8, length: 1 }] },
       { ...text, entities: [{ type: "custom_emoji", offset: 0, length: 2 }] },
       { ...text, entities: [{ type: "text_link", offset: 3, length: 5 }] },
       { ...text, text: "x".repeat(4097) },
+      { ...text, text: "😀".repeat(2049), entities: [] },
+      {
+        ...text,
+        buttons: [
+          {
+            text: "Secret",
+            url: "https://api.telegram.org./file/botSynthetic/file",
+          },
+        ],
+      },
+      { ...text, buttons: [{ text: "Invalid", url: "https://%zz" }] },
       { ...text, text: "https://api.telegram.org/file/botSynthetic/file" },
       {
         ...text,
@@ -54,6 +75,21 @@ describe("vendored communications contract", () => {
     ];
     for (const value of invalid)
       expect(() => validateContent(value)).toThrow("unsupported_content");
+  });
+  it("preserves bare-domain Telegram URL entities and gives an explicit error for malformed URLs", () => {
+    const value = {
+      ...text,
+      text: "example.com",
+      entities: [{ type: "url", offset: 0, length: 11 }],
+    };
+    expect(() => validateContent(value)).not.toThrow();
+    expect(value.text).toBe("example.com");
+    expect(() => validateContent({ ...value, text: "https://%zz" })).toThrow(
+      "unsupported_content",
+    );
+    expect(() =>
+      validateContent({ ...text, text: "😀".repeat(2048), entities: [] }),
+    ).not.toThrow();
   });
   it("never captures auth/link/sign-in starts, callbacks, edits or unverified senders", () => {
     const adapter = new GrammyUpdateAdapter();
