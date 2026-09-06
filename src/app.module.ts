@@ -19,6 +19,7 @@ import { createDatabase } from "./database/create-database.js";
 import { DATABASE } from "./database/database.js";
 import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
+import { SignInAccountLink } from "./modules/bot-sign-in/sign-in-account-link.js";
 import { BotSignIn } from "./modules/bot-sign-in/bot-sign-in.js";
 import { BotSignInController } from "./modules/bot-sign-in/bot-sign-in.controller.js";
 import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
@@ -136,6 +137,7 @@ export class AppModule {
         BackgroundWorkers,
         BotContacts,
         BotSignIn,
+        SignInAccountLink,
         DatabaseLifecycle,
         IdentityLinking,
         IdentityLinkRecovery,

@@ -93,6 +93,45 @@ afterAll(async () => {
 });
 
 describe("bot sign-in provider", () => {
+  it("finalizes consumed proof idempotently and rejects a different Account or identity", async () => {
+    const challenge = await register();
+    const accountRef = randomUUID();
+    const bind = (subjectRef: string, target = accountRef) =>
+      request(`/${challenge.requestRef}/account-link`, {
+        contractVersion,
+        subjectRef,
+        accountRef: target,
+      });
+    expect((await bind(randomUUID())).json()).toMatchObject({
+      status: "unavailable",
+    });
+    await start(challenge, 42);
+    await callback(challenge, 42);
+    const verified = await status(challenge, true);
+    if (verified.status !== "verified")
+      throw new Error("Expected verified proof");
+    expect((await bind(randomUUID())).json()).toMatchObject({
+      status: "unavailable",
+    });
+    const results = await Promise.all(
+      Array.from({ length: 4 }, () => bind(verified.subjectRef)),
+    );
+    const bodies = results.map((result) =>
+      result.json<{ status: string; telegramIdentityRef: string }>(),
+    );
+    expect(bodies.every((result) => result.status === "linked")).toBe(true);
+    expect(
+      new Set(bodies.map((result) => result.telegramIdentityRef)).size,
+    ).toBe(1);
+    expect(
+      (await bind(verified.subjectRef, randomUUID())).json(),
+    ).toMatchObject({ status: "unavailable" });
+    expect(
+      await database.selectFrom("platform_links").selectAll().execute(),
+    ).toHaveLength(1);
+    expect((await status(challenge, true)).status).toBe("consumed");
+  });
+
   it("refreshes inbox leases after a delayed callback instead of claiming with batch-start time", async () => {
     const current = new Date();
     const later = new Date(current.getTime() + 60_001);

@@ -18,6 +18,8 @@ import {
 import { credentialsMatch } from "../../security/credentials.js";
 import { BotSignIn, MalformedSignInRequestError } from "./bot-sign-in.js";
 
+import { SignInAccountLink } from "./sign-in-account-link.js";
+
 const CONTRACT_VERSION = "inside.bot-sign-in.v1";
 
 @Controller("integrations/identity/v1/sign-in")
@@ -25,6 +27,7 @@ export class BotSignInController {
   constructor(
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
     @Inject(BotSignIn) private readonly signIn: BotSignIn,
+    @Inject(SignInAccountLink) private readonly accountLink: SignInAccountLink,
   ) {}
 
   @Post()
@@ -80,6 +83,26 @@ export class BotSignInController {
     @Body() body: unknown,
   ) {
     return this.inspect(authorization, requestRef, body, true);
+  }
+
+  @Post(":requestRef/account-link")
+  @Header("Cache-Control", "no-store")
+  @HttpCode(200)
+  async bindAccount(
+    @Headers("authorization") authorization: string | undefined,
+    @Param("requestRef") requestRef: string,
+    @Body() body: unknown,
+  ) {
+    this.authenticate(authorization);
+    const envelope = readEnvelope(body, ["subjectRef", "accountRef"]);
+    return {
+      contractVersion: CONTRACT_VERSION,
+      ...(await this.accountLink.bind(
+        requestRef,
+        envelope.subjectRef!,
+        envelope.accountRef!,
+      )),
+    };
   }
 
   private async inspect(
