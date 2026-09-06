@@ -1444,5 +1444,68 @@
       "name": "Synthetic source",
       "code": "m_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
     }
+  },
+  {
+    "name": "explicit-delivery-retry-with-risk",
+    "definition": "request",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "delivery.resolve",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 2,
+      "payload": {
+        "deliveryId": "22222222-2222-4222-8222-222222222222",
+        "partId": "33333333-3333-4333-8333-333333333333",
+        "action": "retry",
+        "duplicateRiskAccepted": true
+      }
+    }
+  },
+  {
+    "name": "delivery-retry-requires-risk-field",
+    "definition": "request",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "operation": "delivery.resolve",
+      "operationId": "11111111-1111-4111-8111-111111111111",
+      "actor": {
+        "accountRef": "synthetic-author"
+      },
+      "expectedRevision": 2,
+      "payload": {
+        "deliveryId": "22222222-2222-4222-8222-222222222222",
+        "partId": "33333333-3333-4333-8333-333333333333",
+        "action": "retry"
+      }
+    }
+  },
+  {
+    "name": "delivery-resolution-result",
+    "definition": "response",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "ok",
+      "deliveryId": "22222222-2222-4222-8222-222222222222",
+      "partId": "33333333-3333-4333-8333-333333333333",
+      "outcome": "retry_requested"
+    }
+  },
+  {
+    "name": "resolution-cannot-claim-sent",
+    "definition": "response",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside-communications-v1",
+      "status": "ok",
+      "deliveryId": "22222222-2222-4222-8222-222222222222",
+      "partId": "33333333-3333-4333-8333-333333333333",
+      "outcome": "sent"
+    }
   }
 ]
