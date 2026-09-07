@@ -1,3 +1,4 @@
+import { enqueueBroadcastAuthorMenu } from "./author-delivery-menu.js";
 import { reconcileBroadcasts } from "./broadcasts.js";
 import { trackedContent } from "./communication-tracking.js";
 import { updateMarketingAvailability } from "./marketing-preferences.js";
@@ -21,7 +22,12 @@ import {
   type CommunicationTransport,
 } from "./communication-delivery.js";
 import { communicationLock } from "./communication-state.js";
-import type { FunnelDraft, MessagePart, DeliveryPart } from "./funnel-types.js";
+import type {
+  FunnelDraft,
+  MessagePart,
+  BroadcastPart,
+  DeliveryPart,
+} from "./funnel-types.js";
 @Injectable()
 export class FunnelScheduler {
   constructor(
@@ -160,10 +166,19 @@ export class FunnelScheduler {
         if (delivery.broadcast_id) {
           const broadcast = await tx
             .selectFrom("communication_broadcasts")
-            .select("state")
+            .select(["state", "launched_at"])
             .where("broadcast_id", "=", delivery.broadcast_id)
             .executeTakeFirstOrThrow();
           if (broadcast.state !== "running") continue;
+          const offset =
+            (delivery.snapshot as BroadcastPart[]).find(
+              (p) => p.partId === part.partId,
+            )?.sendAfterSeconds ?? 0;
+          if (
+            !broadcast.launched_at ||
+            +broadcast.launched_at + offset * 1000 > +now
+          )
+            continue;
         }
         if (delivery.funnel_id) {
           const funnel = await tx
@@ -333,12 +348,29 @@ export class FunnelScheduler {
           ? "marketing_unavailable"
           : "cancel_requested";
       }
-      const due =
+      let due =
         result.kind === "api_retryable"
           ? new Date(
               now.getTime() + Math.max(result.retryAfterSeconds ?? 5, 1) * 1000,
             )
           : now;
+      if (delivery.broadcast_id && result.kind === "delivered") {
+        const next = parts.find(
+          (p) =>
+            !["sent", "skipped", "cancelled", "suppressed"].includes(p.state),
+        );
+        const offset =
+          (delivery.snapshot as BroadcastPart[]).find(
+            (p) => p.partId === next?.partId,
+          )?.sendAfterSeconds ?? 0;
+        const b = await tx
+          .selectFrom("communication_broadcasts")
+          .select("launched_at")
+          .where("broadcast_id", "=", delivery.broadcast_id)
+          .executeTakeFirstOrThrow();
+        if (next && b.launched_at)
+          due = new Date(Math.max(+now, +b.launched_at + offset * 1000));
+      }
       if (result.kind === "api_retryable" && result.providerErrorCode === 429)
         await deferTelegramSlot(tx, this.config.botIdentity, due);
       await tx
@@ -374,6 +406,17 @@ export class FunnelScheduler {
           .execute();
       }
       await reconcileBroadcasts(tx, this.config.botIdentity, now);
+      if (
+        result.kind === "delivered" &&
+        (terminal(parts) || +due > +now) &&
+        delivery.broadcast_id
+      )
+        await enqueueBroadcastAuthorMenu(
+          tx,
+          this.config.botIdentity,
+          delivery.broadcast_id,
+          delivery.contact_id,
+        );
     });
   }
 }

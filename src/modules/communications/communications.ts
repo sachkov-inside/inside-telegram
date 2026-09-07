@@ -37,6 +37,7 @@ export class Communications {
   async list(
     request: CommunicationsRequest,
     transaction?: Transaction<DatabaseSchema>,
+    options: { search?: string; limit?: number } = {},
   ) {
     if (!("accountRef" in request.actor))
       throw new CommunicationsError("forbidden");
@@ -55,15 +56,36 @@ export class Communications {
         throw new CommunicationsError("malformed");
       query = query.where("template_id", ">", request.payload.cursor);
     }
-    const rows = await query.orderBy("template_id").limit(101).execute();
+    if (options.search) {
+      const types: Record<string, string> = {
+        текст: "text",
+        фото: "photo",
+        видео: "video",
+        кружок: "video_note",
+        голосовое: "voice",
+        документ: "document",
+      };
+      const search = options.search.toLowerCase();
+      query = query.where((q) =>
+        q.or([
+          sql<boolean>`position(${search} in lower(content->>'text')) > 0`,
+          sql<boolean>`content->>'type' = ${types[search] ?? search}`,
+        ]),
+      );
+    }
+    const limit = options.limit ?? 100;
+    const rows = await query
+      .orderBy("template_id")
+      .limit(limit + 1)
+      .execute();
     return {
-      templates: rows.slice(0, 100).map((row) => ({
+      templates: rows.slice(0, limit).map((row) => ({
         templateId: row.template_id,
         revision: row.revision,
         botIdentity: row.bot_identity,
         content: row.content as TemplateContent,
       })),
-      nextCursor: rows.length > 100 ? rows[99]!.template_id : null,
+      nextCursor: rows.length > limit ? rows[limit - 1]!.template_id : null,
     };
   }
 

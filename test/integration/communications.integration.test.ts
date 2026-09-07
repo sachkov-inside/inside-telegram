@@ -1,13 +1,15 @@
-import { AuthorFunnels } from "../../src/modules/communications/author-funnels.js";
+import { FunnelScheduler } from "../../src/modules/communications/funnel-scheduler.js";
+import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
+import type { CommunicationMessage } from "../../src/modules/communications/communication-delivery.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
   type AuthorContentValidationResult,
 } from "../../src/modules/communications/author-content-validation.js";
-import type {
-  MessagePart,
-  FunnelSnapshot,
-} from "../../src/modules/communications/funnel-types.js";
-import { AuthorAdmin } from "../../src/modules/communications/author-admin.js";
+import type { MessagePart } from "../../src/modules/communications/funnel-types.js";
+import {
+  AuthorAdmin,
+  type State,
+} from "../../src/modules/communications/author-admin.js";
 import { AuthorDelivery } from "../../src/modules/communications/author-delivery.js";
 import { translateAuthorInput } from "../../src/adapters/telegram/grammy-author-admin.adapter.js";
 import { randomUUID } from "node:crypto";
@@ -16,10 +18,7 @@ import {
   type NestFastifyApplication,
 } from "@nestjs/platform-fastify";
 import { Test } from "@nestjs/testing";
-import { sql, Kysely, PostgresDialect } from "kysely";
-import { Pool } from "pg";
-import type { DatabaseSchema } from "../../src/database/database.js";
-import { Funnels } from "../../src/modules/communications/funnels.js";
+import { sql } from "kysely";
 import {
   afterAll,
   afterEach,
@@ -112,7 +111,7 @@ beforeAll(async () => {
   communications = app.get(Communications);
 });
 beforeEach(async () => {
-  await sql`truncate communication_funnels, communication_intro, communication_sources, communication_author_sessions, communication_author_receipts, communication_author_outbox, communication_broadcasts, telegram_transport_slots, communication_intake_receipts, communication_operations, communication_templates, communication_author_modes,
+  await sql`truncate communication_author_compositions, communication_author_drafts, communication_funnels, communication_intro, communication_sources, communication_author_sessions, communication_author_receipts, communication_author_outbox, communication_broadcasts, telegram_transport_slots, communication_intake_receipts, communication_operations, communication_templates, communication_author_modes,
     link_transactions, platform_links, telegram_updates, bot_contacts, bot_contact_events, start_response_deliveries restart identity cascade`.execute(
     database,
   );
@@ -123,6 +122,9 @@ beforeEach(async () => {
   sent.length = 0;
 });
 afterAll(async () => {
+  await sql`truncate communication_author_compositions, communication_author_drafts, communication_broadcasts cascade`.execute(
+    database,
+  );
   await app?.close();
   await database.destroy();
 });
@@ -492,6 +494,7 @@ async function authorMessage(
   text: string,
   extra: Record<string, unknown> = {},
 ) {
+  id = Math.round(id * 10);
   const payload = update(id, { text, ...extra });
   await app
     .get(TelegramUpdateInbox)
@@ -507,7 +510,9 @@ async function authorMessage(
     )?.state,
   ).toBe("processed");
 }
-async function authorClick(id: number, label: string) {
+let navigationId = 1000000;
+async function authorClick(id: number, label: string, depth = 0) {
+  id = Math.round(id * 10);
   const messages = await database
     .selectFrom("communication_author_outbox")
     .select("message")
@@ -522,7 +527,22 @@ async function authorClick(id: number, label: string) {
     )
     .find((m) => m.authorButtons);
   const data = menu?.authorButtons?.find((b) => b.text === label)?.callbackData;
-  expect(data, label).toBeDefined();
+  if (!data && depth < 8) {
+    const state = await sessionState();
+    const next = state.menu?.buttons.some(([text]) => text === label)
+      ? "Ещё →"
+      : menu?.authorButtons?.some((b) => b.text === "Настройки")
+        ? "Настройки"
+        : "Ещё →";
+    if (menu?.authorButtons?.some((b) => b.text === next)) {
+      await authorClick(++navigationId, next);
+      return authorClick(id / 10, label, depth + 1);
+    }
+  }
+  expect(
+    data,
+    `${label}: ${menu?.authorButtons?.map((b) => b.text).join(", ")}`,
+  ).toBeDefined();
   const payload = {
     update_id: id,
     callback_query: {
@@ -539,102 +559,29 @@ async function authorClick(id: number, label: string) {
   ]);
   return input;
 }
-describe("author admin shared post and broadcast flow", () => {
-  it("preserves native entities, saves button rows, samples only the author and snapshots a scheduled broadcast", async () => {
-    await seedLink();
-    await authorMessage(100, "/admin");
-    await authorClick(101, "Создать пост");
-    await authorMessage(102, "😀 Native post", {
-      entities: [{ type: "bold", offset: 3, length: 6 }],
-    });
-    await authorClick(103, "Добавить кнопку");
-    await authorMessage(104, "Открыть Inside");
-    await authorMessage(105, "https://inside.test/material");
-    await authorMessage(106, "1");
-    const post = (await rows())[0]!;
-    expect(post.revision).toBe(2);
-    expect(post.content).toMatchObject({
-      entities: [{ type: "bold", offset: 3, length: 6 }],
-      buttons: [{ row: 0 }],
-    });
-    await authorClick(107, "Образец себе");
-    const samples = await database
-      .selectFrom("communication_author_outbox")
-      .selectAll()
-      .execute();
-    expect(samples.every((s) => s.telegram_user_id === "42")).toBe(true);
-    expect(
-      samples.filter(
-        (s) =>
-          (s.message as { content: { text: string } }).content.text ===
-          "😀 Native post",
-      ),
-    ).toHaveLength(1);
-    const sampleRequest = {
-      ...request(),
-      operation: "templates.testSend",
-      expectedRevision: 2,
-      payload: { templateId: post.template_id },
-    };
-    const sampleResponses = await Promise.all([
-      http(sampleRequest),
-      http(sampleRequest),
-    ]);
-    expect(sampleResponses[0]!.statusCode).toBe(200);
-    expect(sampleResponses[0]!.json()).toEqual(sampleResponses[1]!.json());
-    expect(contractValidator("response")(sampleResponses[0]!.json())).toBe(
-      true,
-    );
-    expect(
-      (
-        await http({
-          ...sampleRequest,
-          operationId: randomUUID(),
-          payload: { ...sampleRequest.payload, chatId: "666" },
-        })
-      ).statusCode,
-    ).toBe(400);
-    await authorClick(108, "Вернуться к посту");
-    await authorClick(109, "Создать рассылку");
-    await authorClick(110, "Время отправки");
-    await authorMessage(111, "01.01.2099 12:00");
-    await authorClick(112, "Перейти к запуску");
-    await authorClick(113, "Запустить рассылку");
-    const before = await database
-      .selectFrom("communication_broadcasts")
-      .selectAll()
-      .executeTakeFirstOrThrow();
-    expect(before.state).toBe("scheduled");
-    expect(before.scheduled_at?.toISOString()).toBe("2099-01-01T09:00:00.000Z");
-    await communications.execute({
-      ...request(),
-      expectedRevision: 2,
-      payload: {
-        templateId: post.template_id,
-        content: { ...content, text: "Changed source" },
-      },
-    });
-    expect(
-      (
-        await database
-          .selectFrom("communication_broadcasts")
-          .selectAll()
-          .executeTakeFirstOrThrow()
-      ).parts,
-    ).toEqual(before.parts);
-    await authorClick(114, "Приостановить");
-    await authorClick(115, "Продолжить");
-    await authorClick(116, "Отменить рассылку");
-    await authorClick(117, "Да, отменить");
-    expect(
-      (
-        await database
-          .selectFrom("communication_broadcasts")
-          .selectAll()
-          .executeTakeFirstOrThrow()
-      ).state,
-    ).toBe("cancelled");
-  });
+async function lastAuthorText() {
+  const row = await database
+    .selectFrom("communication_author_outbox")
+    .select("message")
+    .orderBy("sequence_id", "desc")
+    .executeTakeFirstOrThrow();
+  return (row.message as { content: { text: string } }).content.text;
+}
+
+async function sessionState() {
+  const row = await database
+    .selectFrom("communication_author_sessions")
+    .select("state")
+    .where("telegram_user_id", "=", "42")
+    .executeTakeFirstOrThrow();
+  return row.state as State;
+}
+
+async function broadcastRows() {
+  return database.selectFrom("communication_broadcasts").selectAll().execute();
+}
+
+describe("author transport and API", () => {
   it("lists only the current bot owner and checks current authorization before replay", async () => {
     const own = request();
     await communications.execute(own);
@@ -766,390 +713,344 @@ describe("author admin shared post and broadcast flow", () => {
       { state: "delivered", attempt_count: 1 },
     ]);
   });
-  it("lists posts within the existing transaction even with one available connection", async () => {
+  it("starts a new menu after an unknown edit so a late completion cannot overwrite it", async () => {
     await seedLink();
-    await authorMessage(100, "/admin");
-    const single = new Kysely<DatabaseSchema>({
-      dialect: new PostgresDialect({
-        pool: new Pool({
-          connectionString: databaseUrl,
-          max: 1,
-          connectionTimeoutMillis: 500,
-        }),
-      }),
-    });
-    try {
-      const admin = new AuthorAdmin(
-        single,
-        config,
-        authorization,
-        new Communications(single, config, authorization),
-        app.get(Funnels),
-        app.get(AuthorDelivery),
-        app.get(AuthorFunnels),
-      );
-      const session = await database
-        .selectFrom("communication_author_sessions")
-        .select("state")
-        .executeTakeFirstOrThrow();
-      const state = session.state as {
-        token: string;
-        actions: { kind: string }[];
-      };
-      await expect(
-        admin.handle({
-          botIdentity: "inside",
-          updateId: "101",
-          telegramUserId: "42",
-          text: "",
-          content: null,
-          callbackData: `author:${state.token}:${state.actions.findIndex((a) => a.kind === "posts")}`,
-        }),
-      ).resolves.toBe(true);
-    } finally {
-      await single.destroy();
-    }
-  });
-  it("discards a cancelled replacement when a stale menu opens a different broadcast", async () => {
-    await seedLink();
-    await communications.execute({
-      ...request(),
-      payload: {
-        templateId: randomUUID(),
-        content: { ...content, text: "Saved C" },
-      },
-    });
-    for (const name of ["Broadcast A", "Broadcast B"])
-      await app.get(Funnels).execute({
-        ...request(),
-        operation: "broadcasts.save",
-        payload: {
-          broadcastId: randomUUID(),
-          parts: [
-            { partId: randomUUID(), content: { ...content, text: name } },
-          ],
-          audience: { kind: "all" },
-          scheduledAt: null,
+    const sent: CommunicationMessage[] = [];
+    const worker = new AuthorDelivery(
+      database,
+      { ...config, deliveryMode: "live" },
+      authorization,
+      {
+        send: async (message) => {
+          sent.push(message);
+          return sent.length === 2
+            ? { kind: "transport_unknown" }
+            : { kind: "delivered", providerMessageId: String(sent.length) };
         },
-      });
-    await authorMessage(100, "/admin");
-    await authorClick(101, "Рассылки");
-    const old = await authorClick(102, "Broadcast A · v1");
-    await authorClick(103, "Сообщения и порядок");
-    await authorClick(104, "Заменить 1: Broadcast A");
-    await app.get(AuthorAdmin).handle({ ...old, updateId: "105" });
-    await authorClick(106, "Рассылки");
-    await authorClick(107, "Broadcast B · v1");
-    await authorClick(108, "Добавить сохранённый пост");
-    await authorClick(109, "Saved C");
-    const broadcasts = await database
-      .selectFrom("communication_broadcasts")
-      .select("parts")
-      .execute();
-    expect(
-      broadcasts.map((row) =>
-        (row.parts as { content: { text: string } }[]).map(
-          (p) => p.content.text,
-        ),
-      ),
-    ).toContainEqual(["Broadcast B", "Saved C"]);
-    expect(
-      broadcasts.map((row) =>
-        (row.parts as { content: { text: string } }[]).map(
-          (p) => p.content.text,
-        ),
-      ),
-    ).toContainEqual(["Broadcast A"]);
-  });
-  it("rejects stale menus without overwriting a newer web edit", async () => {
-    await seedLink();
-    await authorMessage(100, "/admin");
-    await authorClick(101, "Создать пост");
-    await authorMessage(102, "First");
-    const post = (await rows())[0]!;
-    await authorClick(103, "Заменить сообщение");
-    await communications.execute({
-      ...request(),
-      expectedRevision: 1,
-      payload: {
-        templateId: post.template_id,
-        content: { ...content, text: "Web edit" },
       },
-    });
-    await authorMessage(104, "Stale replacement");
-    expect((await rows())[0]?.content).toMatchObject({ text: "Web edit" });
+    );
+    const time = Date.now() + 1000;
+    await authorMessage(100, "/admin");
+    await worker.processAvailable(new Date(time));
+    const stale = await authorClick(101, "Рассылки");
+    await worker.processAvailable(new Date(time + 2000));
+    expect(sent[1]!.editMessageId).toBe("1");
+    // The author retries an old visible button after the edit response was lost.
+    await app.get(AuthorAdmin).handle({ ...stale, updateId: "1020" });
+    await worker.processAvailable(new Date(time + 4000));
+    expect(sent[2]!.editMessageId).toBeUndefined();
+    // A late edit of message 1 cannot modify the newly sent message 3.
+    expect(sent[2]!.authorMenu).toBe(true);
+    expect(
+      await database
+        .selectFrom("communication_author_outbox")
+        .selectAll()
+        .where("state", "=", "unknown")
+        .execute(),
+    ).toHaveLength(1);
   });
 });
 
-async function lastAuthorText() {
-  const row = await database
-    .selectFrom("communication_author_outbox")
-    .select("message")
-    .orderBy("sequence_id", "desc")
-    .executeTakeFirstOrThrow();
-  return (row.message as { content: { text: string } }).content.text;
+async function beginSequence(kind: "Рассылки" | "Воронки") {
+  await seedLink();
+  await authorMessage(100, "/admin");
+  await authorClick(101, kind);
+  await authorClick(
+    102,
+    kind === "Рассылки" ? "Создать рассылку" : "Создать воронку",
+  );
 }
-async function currentFunnel() {
-  const row = await database
-    .selectFrom("communication_funnels")
-    .select("draft")
-    .executeTakeFirstOrThrow();
-  return row.draft as FunnelSnapshot;
+async function acceptPost(
+  id: number,
+  text: string,
+  time: string,
+  extra: Record<string, unknown> = {},
+) {
+  await authorMessage(id, text, extra);
+  await authorMessage(id + 0.1, time);
 }
-
-describe("Telegram-first funnel authoring with real persisted sessions", () => {
-  async function startFunnel() {
-    await seedLink();
-    const saved = await communications.execute({
-      ...request(),
-      payload: {
-        templateId: randomUUID(),
-        content: {
-          ...content,
-          text: "😀 Native funnel",
-          entities: [{ type: "bold", offset: 3, length: 6 }],
-          buttons: [{ text: "Inside", url: "https://inside.test", row: 0 }],
-        },
-      },
+describe("simple sequential authoring", () => {
+  it("takes one native message and its offset at a time, preserving order and exposing the saved draft to a terminal agent", async () => {
+    await beginSequence("Рассылки");
+    await authorMessage(103, "Первое", {
+      entities: [{ type: "bold", offset: 0, length: 6 }],
     });
-    await authorMessage(100, "/admin");
-    await authorClick(101, "Воронки");
-    await authorClick(102, "Общий вводный блок");
-    await authorClick(103, "Добавить сохранённый пост");
-    await authorClick(104, "😀 Native funnel");
-    await authorClick(105, "Сохранить общий блок");
-    await authorClick(106, "Все воронки");
-    await authorClick(107, "Создать воронку");
-    await authorMessage(108, "Инженерная практика");
-    await authorClick(109, "Первый ответ");
-    await authorClick(110, "Добавить сохранённый пост");
-    await authorClick(111, "😀 Native funnel");
-    await authorClick(112, "К воронке");
-    await authorClick(113, "Выбрать для /start");
-    await authorClick(114, "Сохранить черновик");
-    return saved;
-  }
-  it("composes native saved posts, delays and sources, publishes once and preserves snapshots and part identity", async () => {
-    const saved = await startFunnel();
-    await authorClick(115, "Шаги и задержки");
-    await authorClick(116, "Добавить шаг");
-    await authorClick(117, "Задержка");
-    await authorMessage(118, "2 ч");
-    await authorClick(119, "Сообщения шага");
-    await authorClick(120, "Добавить сохранённый пост");
-    await authorClick(121, "😀 Native funnel");
-    await authorClick(122, "Образцы себе");
-    expect(
-      (
-        await database
-          .selectFrom("communication_author_outbox")
-          .selectAll()
-          .execute()
-      ).every((row) => row.telegram_user_id === "42"),
-    ).toBe(true);
-    await authorClick(123, "К сообщениям");
-    await authorClick(124, "К воронке");
-    await authorClick(125, "Источники");
-    await authorClick(126, "Добавить источник");
-    await authorMessage(127, "Канал");
-    await authorMessage(128, "m_channel");
-    await authorClick(129, "К воронке");
-    await authorClick(130, "Сохранить черновик");
-    const before = await currentFunnel();
-    expect(before.steps[0]?.delaySeconds).toBe(7200);
-    expect(before.sources[0]?.code).toBe("m_channel");
-    const part = before.steps[0]!.parts[0]!;
-    expect(part.content).toEqual(saved.content);
-    await communications.execute({
-      ...request(),
-      expectedRevision: saved.revision,
-      payload: {
-        templateId: saved.templateId,
-        content: { ...content, text: "Edited saved post" },
-      },
+    await authorMessage(103, "Первое", {
+      entities: [{ type: "bold", offset: 0, length: 6 }],
     });
-    expect((await currentFunnel()).steps[0]?.parts).toEqual(
-      before.steps[0]?.parts,
-    );
-    await authorClick(131, "Проверить публикацию");
-    expect(await lastAuthorText()).toContain("Новых шагов: 1");
-    await authorClick(132, "Опубликовать воронку");
-    const published = await database
-      .selectFrom("communication_funnels")
-      .selectAll()
-      .executeTakeFirstOrThrow();
-    expect(published.published_revision).toBe(3);
-    expect(published.lifecycle).toBe("published");
-    expect(contentValidation.snapshots.at(-1)?.at(-1)?.content).toEqual(
-      saved.content,
-    );
-    await authorClick(133, "Шаги и задержки");
-    await authorClick(134, "Шаг 1 · 2 ч");
-    await authorClick(135, "Сообщения шага");
-    await authorClick(136, "Сообщение 1");
-    await authorClick(137, "Заменить из сохранённых");
-    await authorClick(138, "Edited saved post");
-    await authorClick(139, "К воронке");
-    await authorClick(140, "Сохранить черновик");
-    const replaced = (await currentFunnel()).steps[0]!.parts[0]!;
-    expect(replaced.partId).toBe(part.partId);
-    expect(replaced.content.text).toBe("Edited saved post");
-    expect(
-      (
-        await database
-          .selectFrom("communication_funnels")
-          .select("published")
-          .executeTakeFirstOrThrow()
-      ).published,
-    ).toEqual(published.published);
-    await authorClick(141, "Приостановить");
-    await authorClick(142, "Продолжить");
-    expect(
-      (
-        await database
-          .selectFrom("communication_funnels")
-          .select("lifecycle")
-          .executeTakeFirstOrThrow()
-      ).lifecycle,
-    ).toBe("published");
-  });
-  it("preserves a media snapshot, replays one funnel callback once, and rejects the next action after permission revocation", async () => {
-    await startFunnel();
-    const media = await communications.execute({
-      ...request(),
-      payload: {
-        templateId: randomUUID(),
-        content: {
-          type: "photo",
-          fileId: "synthetic-photo-file",
-          text: "Media post",
-          entities: [{ type: "italic", offset: 0, length: 5 }],
-          buttons: [],
-        },
-      },
+    expect(await broadcastRows()).toHaveLength(0);
+    await authorClick(104, "Сразу");
+    await acceptPost(105, "", "1 ЧАС", {
+      text: undefined,
+      voice: { file_id: "prepared-voice" },
     });
-    await authorClick(115, "Первый ответ");
-    await authorClick(116, "Добавить сохранённый пост");
-    await authorClick(117, "Media post");
-    await authorClick(118, "К воронке");
-    const input = await authorClick(119, "Сохранить черновик");
-    const before = await database
-      .selectFrom("communication_funnels")
-      .selectAll()
-      .executeTakeFirstOrThrow();
-    expect(
-      (before.draft as FunnelSnapshot).entryResponse.parts[1]?.content,
-    ).toEqual(media.content);
-    const receipts = await database
-      .selectFrom("communication_author_receipts")
-      .selectAll()
-      .where("update_id", "=", input.updateId)
-      .execute();
-    expect(receipts).toHaveLength(1);
-    await app.get(AuthorAdmin).handle(input);
-    expect(
-      (
-        await database
-          .selectFrom("communication_funnels")
-          .select("revision")
-          .executeTakeFirstOrThrow()
-      ).revision,
-    ).toBe(before.revision);
-    authorization.result = "denied";
-    await authorClick(120, "Проверить публикацию");
-    expect(
-      (
-        await database
-          .selectFrom("communication_funnels")
-          .selectAll()
-          .executeTakeFirstOrThrow()
-      ).published_revision,
-    ).toBeNull();
+    await acceptPost(106, "Третье", "через 2 часа");
+    await authorClick(107, "Готово");
+    const b = (await sessionState()).broadcast!;
+    expect(b.parts.map((p) => p.sendAfterSeconds)).toEqual([0, 3600, 7200]);
+    expect(b.parts[0]!.content.entities).toEqual([
+      { type: "bold", offset: 0, length: 6 },
+    ]);
+    expect(b.parts[1]!.content).toMatchObject({
+      type: "voice",
+      fileId: "prepared-voice",
+    });
+    expect(b.audience).toEqual({ kind: "all" });
+    const labels = (await sessionState()).menu!.buttons.map(([label]) => label);
+    expect(labels).toEqual([
+      "Добавить сообщение",
+      "Запустить",
+      "Отменить рассылку",
+      "Посмотреть сообщения",
+      "Все рассылки",
+    ]);
+    const response = await http({
+      ...request(),
+      operation: "broadcasts.read",
+      payload: { broadcastId: b.broadcastId },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(contractValidator("response")(response.json())).toBe(true);
+    expect(response.json().broadcast.parts).toEqual(b.parts);
+    await authorClick(108, "Запустить");
+    expect((await broadcastRows())[0]!.state).toBe("draft");
     expect(
       await database
-        .selectFrom("communication_author_sessions")
+        .selectFrom("communication_deliveries")
         .selectAll()
         .execute(),
     ).toHaveLength(0);
+    expect(await lastAuthorText()).toContain("Запустить");
   });
-  it("blocks unavailable or invalid Platform content checks and stale publication revisions", async () => {
-    await startFunnel();
-    contentValidation.result = { status: "unavailable" };
-    await authorClick(115, "Проверить публикацию");
-    expect(await lastAuthorText()).toContain("публикации не было");
-    await authorClick(116, "К воронке");
-    contentValidation.result = {
-      status: "ok",
-      targetErrors: [
-        {
-          url: "https://inside.test/materials/missing",
-          targetId: null,
-          reason: "not_found",
-        },
-      ],
-    };
-    await authorClick(117, "Проверить публикацию");
-    expect(await lastAuthorText()).toContain("не найдено");
-    await authorClick(118, "К воронке");
-    contentValidation.result = { status: "ok", targetErrors: [] };
-    await authorClick(119, "Проверить публикацию");
-    const row = await database
-      .selectFrom("communication_funnels")
-      .selectAll()
-      .executeTakeFirstOrThrow();
-    const draft = row.draft as FunnelSnapshot;
-    await app.get(Funnels).execute({
-      ...request(),
-      operation: "funnels.save",
-      expectedRevision: row.revision,
-      payload: {
-        funnelId: draft.funnelId,
-        name: "Changed in web",
-        isDefault: draft.isDefault,
-        steps: draft.steps,
-        sources: draft.sources,
-        entryResponse: draft.entryResponse,
-      },
-    });
-    await authorClick(120, "Опубликовать воронку");
-    expect(await lastAuthorText()).toContain("изменились");
+  it.each([
+    ["text", {}],
+    [
+      "photo",
+      { text: undefined, photo: [{ file_id: "photo", width: 10, height: 10 }] },
+    ],
+    ["video", { text: undefined, video: { file_id: "video" } }],
+    ["video_note", { text: undefined, video_note: { file_id: "circle" } }],
+    ["voice", { text: undefined, voice: { file_id: "voice" } }],
+    ["document", { text: undefined, document: { file_id: "document" } }],
+  ])(
+    "saves %s and resumes its pending time after leaving the menu",
+    async (type, media) => {
+      await beginSequence("Рассылки");
+      await acceptPost(103, "Начало", "сразу");
+      await authorMessage(104, "Текст", media);
+      await authorMessage(105, "/admin");
+      await authorClick(106, "Рассылки");
+      await authorClick(107, "Начало · Черновик");
+      await authorClick(108, "Продолжить сообщение");
+      await authorMessage(109, "1 день");
+      await authorClick(110, "Готово");
+      expect((await broadcastRows())[0]!.parts).toMatchObject([
+        { content: { text: "Начало" } },
+        { sendAfterSeconds: 86400, content: { type } },
+      ]);
+      expect(
+        await database
+          .selectFrom("communication_author_compositions")
+          .selectAll()
+          .execute(),
+      ).toHaveLength(0);
+    },
+  );
+  it("rejects unsupported media and decreasing times without losing the pending message; cancellation drops only that message", async () => {
+    await beginSequence("Рассылки");
+    await authorMessage(103, "", { sticker: { file_id: "unsupported" } });
+    expect(await broadcastRows()).toHaveLength(0);
+    await acceptPost(104, "Первый", "2 часа");
+    await acceptPost(105, "Второй", "1 час");
+    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+    expect((await sessionState()).composing!.content!.text).toBe("Второй");
+    await authorMessage(106, "/cancel");
+    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+    await authorClick(107, "Добавить сообщение");
+    await authorMessage(108, "Без доступа");
+    authorization.result = "denied";
+    await authorMessage(109, "3 часа");
+    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+  });
+  it("keeps a pending message on concurrent terminal edits and reopens current provider content", async () => {
+    await beginSequence("Рассылки");
+    await acceptPost(103, "Начало", "сразу");
+    await authorMessage(104, "Не потерять");
+    const b = (await sessionState()).broadcast!;
+    const parts = b.parts.map((p) => ({
+      ...p,
+      content: { ...p.content, text: "Правка агента" },
+    }));
     expect(
       (
-        await database
-          .selectFrom("communication_funnels")
-          .select("published_revision")
-          .executeTakeFirstOrThrow()
-      ).published_revision,
-    ).toBeNull();
-  });
-  it("rolls back a source reservation conflict completely and keeps current definitions intact", async () => {
-    await startFunnel();
-    const row = await database
-      .selectFrom("communication_funnels")
-      .selectAll()
-      .executeTakeFirstOrThrow();
-    const reservedId = randomUUID();
-    await database
-      .insertInto("communication_sources")
-      .values({
-        bot_identity: "inside",
-        code: "m_reserved",
-        funnel_id: row.funnel_id,
-        source_id: reservedId,
-      })
-      .execute();
-    await authorClick(115, "Источники");
-    await authorClick(116, "Добавить источник");
-    await authorMessage(117, "Занятый источник");
-    await authorMessage(118, "m_reserved");
-    await authorClick(119, "К воронке");
-    await authorClick(120, "Сохранить черновик");
+        await http({
+          ...request(),
+          operation: "broadcasts.save",
+          expectedRevision: b.revision,
+          payload: {
+            broadcastId: b.broadcastId,
+            parts,
+            audience: b.audience,
+            scheduledAt: null,
+          },
+        })
+      ).statusCode,
+    ).toBe(200);
+    await authorMessage(105, "1 час");
     expect(await lastAuthorText()).toContain("изменились");
-    const after = await database
-      .selectFrom("communication_funnels")
-      .selectAll()
-      .executeTakeFirstOrThrow();
-    expect(after.revision).toBe(row.revision);
-    expect(after.draft).toEqual(row.draft);
+    expect((await broadcastRows())[0]!.parts).toEqual(parts);
+    await authorClick(106, "Рассылки");
+    await authorClick(107, "Начало · Черновик");
+    await authorClick(108, "Продолжить сообщение");
+    expect((await sessionState()).composing!.content!.text).toBe("Не потерять");
+    await authorMessage(109, "/cancel");
+    expect((await sessionState()).broadcast!.parts).toEqual(parts);
+  });
+  it("saves a funnel as entry plus offsets from enrollment and allows a terminal agent to configure the same draft", async () => {
+    await beginSequence("Воронки");
+    await authorMessage(103, "Вход");
+    await authorMessage(104, "1 час");
+    expect((await sessionState()).funnelAuthor!.funnel!.revision).toBe(0);
+    await authorClick(105, "Сразу");
+    await acceptPost(106, "Урок", "1 час");
+    await acceptPost(107, "Предложение", "2 часа");
+    await authorClick(108, "Готово");
+    const f = (await sessionState()).funnelAuthor!.funnel!;
+    expect(f.entryResponse.parts).toHaveLength(1);
+    expect(f.steps.map((s) => [s.delayAnchor, s.delaySeconds])).toEqual([
+      ["entry", 3600],
+      ["entry", 7200],
+    ]);
+    expect(f.publishedRevision).toBeNull();
+    const r = await http({
+      ...request(),
+      operation: "funnels.read",
+      payload: { funnelId: f.funnelId },
+    });
+    expect(r.statusCode).toBe(200);
+    expect(contractValidator("response")(r.json())).toBe(true);
+    const saved = await http({
+      ...request(),
+      operation: "funnels.save",
+      expectedRevision: f.revision,
+      payload: {
+        funnelId: f.funnelId,
+        name: f.name,
+        sources: f.sources,
+        isDefault: f.isDefault,
+        entryResponse: f.entryResponse,
+        steps: f.steps.map((s) => ({ ...s, delaySeconds: 7200 })),
+      },
+    });
+    expect(saved.statusCode).toBe(200);
+    await authorMessage(109, "/admin");
+    await authorClick(110, "Воронки");
+    await authorClick(111, "Вход · Черновик");
+    expect(
+      (await sessionState()).funnelAuthor!.funnel!.steps.map(
+        (s) => s.delaySeconds,
+      ),
+    ).toEqual([7200, 7200]);
+    await authorClick(112, "Отменить воронку");
+    await authorClick(113, "Да, отменить");
+    expect((await sessionState()).funnelAuthor!.funnel!.lifecycle).toBe(
+      "archived",
+    );
   });
 });
+
+it("restores the author menu below the delivered broadcast messages and never exposes it to subscribers", async () => {
+  await beginSequence("Рассылки");
+  for (const user of ["42", "43"])
+    await app.get(BotContacts).observeStart(
+      {
+        botIdentity: "inside",
+        telegramUserId: user,
+        privateChatId: user,
+        updateId: "99",
+        observedAt: new Date(),
+      },
+      "none",
+    );
+  await acceptPost(103, "First delivered post", "сразу");
+  await acceptPost(104, "Second delivered post", "сразу");
+  await authorClick(105, "Готово");
+  await authorClick(106, "Запустить");
+  await authorClick(108, "Запустить рассылку");
+  let now = Date.now() + 1000;
+  const observed: CommunicationMessage[] = [];
+  const transport = {
+    send: async (message: CommunicationMessage) => {
+      observed.push(message);
+      return {
+        kind: "delivered" as const,
+        providerMessageId: String(observed.length),
+      };
+    },
+  };
+  const author = new AuthorDelivery(
+    database,
+    { ...config, deliveryMode: "live" },
+    authorization,
+    transport,
+  );
+  const marketing = new FunnelScheduler(
+    database,
+    { ...config, marketingEnabled: true },
+    { now: () => new Date(now) },
+    transport,
+  );
+  for (let i = 0; i < 20; i++)
+    await author.processAvailable(new Date((now += 2000)));
+  for (let i = 0; i < 4; i++) {
+    now += 2000;
+    await marketing.processAvailable(1);
+  }
+  for (let i = 0; i < 5; i++)
+    await author.processAvailable(new Date((now += 2000)));
+  const own = observed.filter((m) => m.chatId === "42");
+  expect(own.filter((m) => !m.authorMenu).map((m) => m.content.text)).toEqual([
+    "First delivered post",
+    "Second delivered post",
+  ]);
+  expect(own.at(-1)!.authorMenu).toBe(true);
+  expect(own.at(-1)!.editMessageId).toBeUndefined();
+  expect(
+    observed.filter((m) => m.chatId === "43").map((m) => m.authorMenu),
+  ).toEqual([undefined, undefined]);
+  const input = translateAuthorInput("inside", "9999", {
+    callback_query: {
+      id: "footer",
+      from: { id: 42, is_bot: false },
+      message: { chat: { id: 42, type: "private" } },
+      data: own.at(-1)!.authorButtons![0]!.callbackData,
+    },
+  })!;
+  await app.get(AuthorAdmin).handle(input);
+  expect((await sessionState()).broadcast!.state).toBe("completed");
+});
+
+it.each(["/cancel", "discard"])(
+  "sequence cancellation %s keeps the simple funnel card",
+  async (mode) => {
+    await beginSequence("Воронки");
+    await acceptPost(103, "Keep this entry", "сразу");
+    await authorMessage(104, "Pending message");
+    if (mode === "/cancel") await authorMessage(105, "/cancel");
+    else {
+      await authorMessage(105, "/admin");
+      await authorClick(106, "Воронки");
+      await authorClick(107, "Keep this entry · Черновик");
+      await authorClick(108, "Отменить добавление");
+    }
+    const state = await sessionState();
+    expect(state.composing).toBeUndefined();
+    expect(state.funnelAuthor!.funnel!.entryResponse.parts).toHaveLength(1);
+    expect(state.menu!.buttons.map(([label]) => label)).toContain(
+      "Все воронки",
+    );
+    expect(state.menu!.buttons.map(([label]) => label).join(" ")).not.toMatch(
+      /сохранённый|порядок|Создать сообщение/,
+    );
+  },
+);

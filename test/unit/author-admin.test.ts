@@ -1,3 +1,4 @@
+import { parseFunnelDelay } from "../../src/modules/communications/author-funnels.js";
 import { describe, expect, it } from "vitest";
 import { translateAuthorInput } from "../../src/adapters/telegram/grammy-author-admin.adapter.js";
 import { snapshot } from "../../src/adapters/telegram/grammy-template-intake.adapter.js";
@@ -86,4 +87,14 @@ describe("native author input", () => {
     ])
       expect(parseMoscowSchedule(input)).toBeUndefined();
   });
+});
+
+it.each([
+  ["20 МИНУТ", 1200],
+  ["1 ДЕНЬ", 86400],
+  ["2 Часа", 7200],
+  ["2 дня", 172800],
+  ["10 секунд", 10],
+])("parses human delay %s consistently", (value, seconds) => {
+  expect(parseFunnelDelay(String(value))).toBe(seconds);
 });

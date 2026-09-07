@@ -885,3 +885,108 @@ async function seedEntryPage(first: number, last: number, funnel: FunnelDraft) {
     )
     .execute();
 }
+
+describe("broadcast elapsed schedule", () => {
+  it("sends at launch, +1h and +2h without resetting elapsed time across pause", async () => {
+    await oldContact();
+    const value = broadcast(
+      [0, 3600, 7200].map((sendAfterSeconds, i) => ({
+        ...part(`timed:${i}`),
+        sendAfterSeconds,
+      })),
+    );
+    await launch(value);
+    await tick(0);
+    expect(sent).toHaveLength(1);
+    await tick(3599);
+    expect(sent).toHaveLength(1);
+    await tick(1);
+    expect(sent).toHaveLength(2);
+    const read = async () =>
+      (
+        await http(
+          command("broadcasts.read", { broadcastId: value.broadcastId }),
+        )
+      ).json().broadcast;
+    let current = await read();
+    expect(
+      (
+        await http(
+          command(
+            "broadcasts.lifecycle",
+            { broadcastId: value.broadcastId, action: "pause" },
+            current.revision,
+          ),
+        )
+      ).statusCode,
+    ).toBe(200);
+    await tick(3600);
+    expect(sent).toHaveLength(2);
+    current = await read();
+    expect(
+      (
+        await http(
+          command(
+            "broadcasts.lifecycle",
+            { broadcastId: value.broadcastId, action: "resume" },
+            current.revision,
+          ),
+        )
+      ).statusCode,
+    ).toBe(200);
+    await tick(1);
+    expect(
+      sent.map((m) => (m.content.type === "text" ? m.content.text : "media")),
+    ).toEqual(["timed:0", "timed:1", "timed:2"]);
+    expect((await read()).state).toBe("completed");
+    await tick(7200);
+    expect(sent).toHaveLength(3);
+  });
+  it("starts delayed first part from actual scheduled launch and cancels future parts", async () => {
+    await oldContact();
+    const value = broadcast(
+      [3600, 7200].map((sendAfterSeconds, i) => ({
+        ...part(`later:${i}`),
+        sendAfterSeconds,
+      })),
+      new Date(+now + 60000).toISOString(),
+    );
+    await launch(value);
+    await tick(60);
+    expect(sent).toHaveLength(0);
+    await tick(3599);
+    expect(sent).toHaveLength(0);
+    await tick(1);
+    expect(sent).toHaveLength(1);
+    const current = (
+      await http(command("broadcasts.read", { broadcastId: value.broadcastId }))
+    ).json().broadcast;
+    expect(
+      (
+        await http(
+          command(
+            "broadcasts.lifecycle",
+            { broadcastId: value.broadcastId, action: "cancel" },
+            current.revision,
+          ),
+        )
+      ).statusCode,
+    ).toBe(200);
+    await tick(7200);
+    expect(sent).toHaveLength(1);
+  });
+  it.each([[3600, 0], [-1], [1.5], [2147483648]])(
+    "rejects invalid or decreasing offsets %j",
+    async (...offsets) => {
+      const value = broadcast(
+        offsets.map((sendAfterSeconds) => ({
+          ...part("invalid"),
+          sendAfterSeconds,
+        })),
+      );
+      expect((await http(command("broadcasts.save", value))).statusCode).toBe(
+        offsets.length > 1 ? 422 : 400,
+      );
+    },
+  );
+});

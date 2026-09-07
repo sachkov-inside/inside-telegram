@@ -185,3 +185,56 @@ it("accepts only explicit private human stop/resume commands and leaves auth nam
       "ignored",
     );
 });
+
+it("edits author menus and only replaces definitively unavailable messages", async () => {
+  const editMessageText = vi.fn().mockResolvedValue({ message_id: 17 });
+  const sendMessage = vi.fn().mockResolvedValue({ message_id: 18 });
+  const adapter = new GrammyCommunicationsAdapter({
+    editMessageText,
+    sendMessage,
+  } as unknown as Api);
+  const message = {
+    chatId: "42",
+    authorMenu: true,
+    editMessageId: "17",
+    authorButtons: [{ text: "Back", callbackData: "a:token:0" }],
+    content: { type: "text" as const, text: "Menu", entities: [], buttons: [] },
+  };
+  expect(await adapter.send(message)).toEqual({
+    kind: "delivered",
+    providerMessageId: "17",
+  });
+  expect(editMessageText).toHaveBeenCalledWith("42", 17, "Menu", {
+    entities: [],
+    reply_markup: {
+      inline_keyboard: [[{ text: "Back", callback_data: "a:token:0" }]],
+    },
+  });
+  const rejection = (code: number, description: string) =>
+    new GrammyError(
+      "synthetic",
+      { ok: false, error_code: code, description },
+      "editMessageText",
+      {},
+    );
+  editMessageText.mockRejectedValueOnce(
+    rejection(400, "Bad Request: message is not modified"),
+  );
+  expect(await adapter.send(message)).toEqual({
+    kind: "delivered",
+    providerMessageId: "17",
+  });
+  editMessageText.mockRejectedValueOnce(new Error("response lost"));
+  expect(await adapter.send(message)).toEqual({ kind: "transport_unknown" });
+  editMessageText.mockRejectedValueOnce(rejection(429, "Too many requests"));
+  expect(await adapter.send(message)).toMatchObject({ kind: "api_retryable" });
+  expect(sendMessage).not.toHaveBeenCalled();
+  editMessageText.mockRejectedValueOnce(
+    rejection(400, "Bad Request: message to edit not found"),
+  );
+  expect(await adapter.send(message)).toEqual({
+    kind: "delivered",
+    providerMessageId: "18",
+  });
+  expect(sendMessage).toHaveBeenCalledTimes(1);
+});

@@ -2,7 +2,7 @@ import type {
   FunnelStep,
   FunnelSource,
   EntryResponse,
-  MessagePart,
+  BroadcastPart,
 } from "./funnel-types.js";
 import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
@@ -67,7 +67,7 @@ export interface CommunicationsRequest {
     readonly sources?: readonly FunnelSource[];
     readonly entryResponse?: EntryResponse;
     readonly introId?: string;
-    readonly parts?: readonly MessagePart[];
+    readonly parts?: readonly BroadcastPart[];
     readonly action?:
       "pause" | "resume" | "archive" | "restore" | "skip" | "retry" | "cancel";
     readonly templateId?: string;

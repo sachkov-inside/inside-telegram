@@ -1,3 +1,4 @@
+import { authorDraftsMigration } from "./migrations/015-author-drafts.js";
 import { broadcastAnalyticsMigration } from "./migrations/013-broadcast-analytics.js";
 import { marketingPreferencesMigration } from "./migrations/012-marketing-preferences.js";
 import { communicationFunnelsMigration } from "./migrations/011-communication-funnels.js";
@@ -23,6 +24,7 @@ import { communicationsTemplatesMigration } from "./migrations/010-communication
 import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
+  "015-author-drafts": authorDraftsMigration,
   "014-author-admin": authorAdminMigration,
   "001-ordinary-start": ordinaryStartMigration,
   "002-identity-linking": identityLinkingMigration,
