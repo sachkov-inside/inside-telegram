@@ -122,3 +122,13 @@ delivery session may record `--branch main`. Ordinary local editorial work still
 AGENTS.md and does not require a tracker issue. The central sweep covers Content without installing
 the application engineering harness there. Its tracked commands can be submitted to the Workspace
 controller through the same CLI from an existing Inside installation.
+
+The 0.4.2 central worker normalizes absent/null optional workflow inputs to the same empty strings
+used by 0.4.1 clients before checking the fingerprint; all required fields, unknown keys and changed
+values still fail closed. Existing 0.4.1 clients remain compatible. Projects collection reads can
+lag a successful card write: a failed read-back retains the session but grants no ownership.
+Recover the exact request after the remote projection becomes visible; do not create another claim.
+
+The 0.4.3 controller uses the owning issue/PR projectItems connection with includeArchived:true
+for decisions, concurrency checks and read-back. The full Project.items collection is only a
+discovery index; its delayed membership or archive state cannot authorize restoring a card.

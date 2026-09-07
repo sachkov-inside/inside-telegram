@@ -139,6 +139,23 @@ def operate(api, repo, number, command, session, branch, reason, request):
     return dict(ok=True, issue=f'{repo}#{number}', **desired)
 
 
+def verified_inputs(value):
+    fields = {'command', 'issue', 'session', 'branch', 'reason', 'request'}
+    if not isinstance(value, dict) or set(value) - fields - {'fingerprint'}:
+        raise TrackerError('Unexpected dispatch input shape')
+    original = {key: value.get(key) for key in fields}
+    # GitHub may omit an empty optional workflow input or deliver it as null.
+    # The CLI fingerprints these two optional strings as empty strings.
+    for key in ('branch', 'reason'):
+        if original[key] is None:
+            original[key] = ''
+    if not all(isinstance(v, str) for v in original.values()):
+        raise TrackerError('Dispatch inputs must be strings')
+    if value.get('fingerprint') != fingerprint(original):
+        raise TrackerError('Dispatch operation fingerprint does not match')
+    return original
+
+
 def worker():
     if (os.environ.get('GITHUB_REPOSITORY') != CONTROLLER or
             os.environ.get('GITHUB_WORKFLOW') != 'Inside agent sessions' or
@@ -148,10 +165,7 @@ def worker():
     if api.call('user')['login'] != WRITER:
         raise TrackerError('Unexpected credential owner; migrate trusted state writer explicitly')
     event = json.loads(Path(os.environ['GITHUB_EVENT_PATH']).read_text())
-    value = event['inputs']
-    original = {k: v for k, v in value.items() if k != 'fingerprint'}
-    if value.get('fingerprint') != fingerprint(original):
-        raise TrackerError('Dispatch operation fingerprint does not match')
+    value = verified_inputs(event['inputs'])
     repo, number = identity(value['issue'])
     result = operate(api, repo, number, value['command'], value['session'], value.get('branch', ''),
                      value.get('reason', ''), value['request'])
