@@ -439,3 +439,37 @@ Migration `015-author-drafts` owns private incomplete destinations and pending c
 is required for timing: immutable delivery snapshots and published funnel JSON retain the new fields.
 The schema fixtures, PostgreSQL author-flow tests and clock-controlled scheduler tests cover this
 flow, exact elapsed times, pause/cancel, recovery, conflicts, permission boundaries and footer ordering.
+
+## Historical rollback validation (#41)
+
+`funnels.rollback` validates the actual immutable historical publication through
+`AUTHOR_CONTENT_VALIDATION` and Platform's existing authenticated `validate-content` endpoint. The
+check runs under the definition lock, after fresh author authorization, receipt replay and
+`expectedRevision`, before publication/step-history mutation. It checks the restored entry and all
+restored steps, not the current draft. A denied author yields `forbidden`; unavailable/missing
+validation yields `authorization_unavailable`; invalid free/public targets yield `unsupported_content`.
+No new publication or operation receipt is recorded on rejection. A committed receipt replays its
+original result even if the target later changes, without another publication. A new stale operation
+still returns `revision_conflict`. Reader access remains Platform-owned after any later content change.
+
+Configure `PLATFORM_AUTHOR_CONTENT_VALIDATION_URL` and the existing authorization secret before this
+provider revision is activated. This is the same callback used by the Telegram author menu; no
+historical-read endpoint or schema fork is introduced. The callback does not call Telegram, so it can
+run while the provider holds its definition transaction. Failure is visible, not a rollback bypass.
+
+`pnpm conformance:communications-provider` starts a repository-owned adapter environment for
+[Platform #310](https://github.com/sachkov-inside/platform/issues/310). It requires a fresh loopback
+PostgreSQL database named with `proof` or `conformance`; it binds application/control ports 44112/44113
+and calls Platform on 44111 (`CONFORMANCE_PLATFORM_URL` may select another loopback base). It runs
+real Nest, inbox, scheduler, authorization/content HTTP adapters and PostgreSQL with synthetic Telegram
+send ports and a controlled clock. It never loads a bot token and does not enable production workers.
+Start Platform's `pnpm conformance:communications` with a different fresh disposable database, capture
+both exact Git SHAs and exits, then stop this provider with SIGTERM/Control-C. Control credentials and
+IDs are synthetic. The controls are not production routes or a public API.
+
+Run `pnpm check:full` against a separate disposable check database; the suite resets its own fixtures.
+Do not run tests against the conformance process's database. The additional rollback tests prove both
+passing/negative historical snapshots, unavailable/denied validation, no publication/receipt on failure,
+and committed replay after validation becomes unavailable. Shared legacy scheduler tests still prove
+firstPublishedAt, terminal cancellation, suppression and delivery history. Local fake sends do not
+close #310 or prove Telegram rendering, real file references, consent, credentials or release readiness.

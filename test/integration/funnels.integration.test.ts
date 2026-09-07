@@ -18,6 +18,10 @@ import { AppModule } from "../../src/app.module.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
+import {
+  AUTHOR_CONTENT_VALIDATION,
+  type AuthorContentValidationResult,
+} from "../../src/modules/communications/author-content-validation.js";
 import { AUTHOR_AUTHORIZATION } from "../../src/modules/communications/author-authorization.js";
 import {
   COMMUNICATIONS_VERSION,
@@ -76,6 +80,12 @@ const transport = {
 const authorization = {
   authorize: vi.fn(async () => "allowed" as "allowed" | "denied"),
 };
+const contentValidation = {
+  validate: vi.fn(async (): Promise<AuthorContentValidationResult> => ({
+    status: "ok",
+    targetErrors: [],
+  })),
+};
 let app: NestFastifyApplication;
 let funnels: Funnels;
 let scheduler: FunnelScheduler;
@@ -90,6 +100,8 @@ beforeAll(async () => {
     .useValue(clock)
     .overrideProvider(AUTHOR_AUTHORIZATION)
     .useValue(authorization)
+    .overrideProvider(AUTHOR_CONTENT_VALIDATION)
+    .useValue(contentValidation)
     .overrideProvider(COMMUNICATION_TRANSPORT)
     .useValue(transport)
     .overrideProvider(TELEGRAM_MESSAGES)
@@ -118,6 +130,9 @@ beforeEach(async () => {
   sent.length = 0;
   transport.send.mockClear();
   authorization.authorize.mockResolvedValue("allowed");
+  contentValidation.validate
+    .mockReset()
+    .mockResolvedValue({ status: "ok", targetErrors: [] });
 });
 afterAll(async () => {
   await app?.close();
@@ -1556,4 +1571,113 @@ describe("entry-anchored funnel schedule", () => {
       false,
     );
   });
+});
+
+describe("historical rollback content validation", () => {
+  it.each(["not_published", "not_free", "incomplete"] as const)(
+    "rejects %s historical content without publication or receipt",
+    async (reason) => {
+      const old = await setup();
+      const current = {
+        ...old,
+        entryResponse: {
+          ...old.entryResponse,
+          parts: [part("current safe target")],
+        },
+      };
+      await funnels.execute(command("funnels.save", current, 2));
+      await funnels.execute(
+        command("funnels.publish", { funnelId: old.funnelId }, 3),
+      );
+      const rollback = command(
+        "funnels.rollback",
+        { funnelId: old.funnelId, publishedRevision: 2 },
+        4,
+      );
+      contentValidation.validate.mockResolvedValue({
+        status: "ok",
+        targetErrors: [
+          {
+            url: "https://inside.test/materials/historical",
+            targetId: randomUUID(),
+            reason,
+          },
+        ],
+      });
+      expect((await http(rollback)).statusCode).toBe(422);
+      expect(contentValidation.validate).toHaveBeenLastCalledWith(
+        { kind: "account", accountRef: "synthetic-author" },
+        [old.entryResponse, ...old.steps].flatMap((step) => step.parts),
+      );
+      const read = await funnels.execute(
+        command("funnels.read", { funnelId: old.funnelId }),
+      );
+      expect(read).toMatchObject({
+        funnel: {
+          revision: 4,
+          publishedRevision: 4,
+          entryResponse: current.entryResponse,
+        },
+      });
+      expect(
+        await database
+          .selectFrom("communication_publications")
+          .selectAll()
+          .where("funnel_id", "=", old.funnelId)
+          .execute(),
+      ).toHaveLength(2);
+      expect(
+        await database
+          .selectFrom("communication_operations")
+          .selectAll()
+          .where("operation_id", "=", rollback.operationId)
+          .execute(),
+      ).toHaveLength(0);
+      contentValidation.validate.mockResolvedValue({
+        status: "ok",
+        targetErrors: [],
+      });
+      const success = await http(rollback);
+      expect(success.statusCode).toBe(200);
+      expect(success.json()).toMatchObject({
+        funnel: {
+          revision: 5,
+          publishedRevision: 5,
+          entryResponse: old.entryResponse,
+        },
+      });
+      contentValidation.validate
+        .mockClear()
+        .mockResolvedValue({ status: "unavailable" });
+      expect((await http(rollback)).json()).toEqual(success.json());
+      expect(contentValidation.validate).not.toHaveBeenCalled();
+      expect(
+        (await http({ ...rollback, operationId: randomUUID() })).statusCode,
+      ).toBe(409);
+      expect(contentValidation.validate).not.toHaveBeenCalled();
+    },
+  );
+  it.each(["denied", "unavailable"] as const)(
+    "fails closed when content validation is %s",
+    async (status) => {
+      const old = await setup();
+      contentValidation.validate.mockResolvedValue({ status });
+      expect(
+        (
+          await http(
+            command(
+              "funnels.rollback",
+              { funnelId: old.funnelId, publishedRevision: 2 },
+              2,
+            ),
+          )
+        ).statusCode,
+      ).toBe(status === "denied" ? 403 : 503);
+      expect(
+        await funnels.execute(
+          command("funnels.read", { funnelId: old.funnelId }),
+        ),
+      ).toMatchObject({ funnel: { revision: 2 } });
+    },
+  );
 });
