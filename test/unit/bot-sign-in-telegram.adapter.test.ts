@@ -9,6 +9,20 @@ import { GrammyCallbackAnswersAdapter } from "../../src/adapters/telegram/grammy
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 
 describe("Telegram sign-in transport", () => {
+  it("acknowledges shared menu callbacks without redirecting the author to website sign-in", async () => {
+    let payload: unknown;
+    const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
+      async fetch(_url: unknown, options?: { body?: unknown }) {
+        payload = JSON.parse(String(options?.body));
+        return new Response(JSON.stringify({ ok: true, result: true }), {
+          headers: { "content-type": "application/json" },
+        });
+      },
+    });
+    await adapter.answer("synthetic-author-callback");
+    expect(payload).toEqual({ callback_query_id: "synthetic-author-callback" });
+  });
+
   it("cancels a stuck cosmetic callback so the caller can process the next update", async () => {
     let aborted = false;
     const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
