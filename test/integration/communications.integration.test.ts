@@ -1852,9 +1852,7 @@ describe("batch preparation and agent handoff", () => {
     await worker.processAvailable(new Date(time + 2000));
     expect(sent[1]!.editMessageId).toBe("1");
     // The author retries an old visible button after the edit response was lost.
-    await app
-      .get(AuthorAdmin)
-      .handle({ ...stale, updateId: "1020" });
+    await app.get(AuthorAdmin).handle({ ...stale, updateId: "1020" });
     await worker.processAvailable(new Date(time + 4000));
     expect(sent[2]!.editMessageId).toBeUndefined();
     // A late edit of message 1 cannot modify the newly sent message 3.
