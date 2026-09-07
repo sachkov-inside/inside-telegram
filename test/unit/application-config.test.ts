@@ -16,16 +16,124 @@ const validEnvironment = {
 };
 
 describe("application configuration", () => {
+  it("keeps content validation disabled until a secure authenticated endpoint is configured", () => {
+    expect(
+      loadApplicationConfig(validEnvironment)
+        .platformAuthorContentValidationUrl,
+    ).toBeUndefined();
+    const authorization = {
+      ...validEnvironment,
+      PLATFORM_AUTHOR_AUTHORIZATION_URL: "https://platform.test/authorize",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic-authorization-secret",
+    };
+    const url =
+      "https://platform.test/integrations/telegram/v1/communications/validate-content";
+    expect(
+      loadApplicationConfig({
+        ...authorization,
+        PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: url,
+      }).platformAuthorContentValidationUrl,
+    ).toBe(url);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: url,
+      }),
+    ).toThrow("requires author authorization");
+    for (const bad of [
+      "http://platform.test/validate",
+      "https://user:password@platform.test/validate",
+      "https://platform.test/validate?token=secret",
+      "https://platform.test/validate#fragment",
+    ])
+      expect(() =>
+        loadApplicationConfig({
+          ...authorization,
+          PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: bad,
+        }),
+      ).toThrow("PLATFORM_AUTHOR_CONTENT_VALIDATION_URL");
+  });
+
   it("keeps external delivery disabled by default", () => {
     const config = loadApplicationConfig(validEnvironment);
 
     expect(config.deliveryMode).toBe("disabled");
+    expect(config.signInEnabled).toBe(false);
+    expect(config.signInIntegrationSecret).toBeUndefined();
     expect(config.evidenceDeliveryMode).toBe("disabled");
     expect(config.membershipMode).toBe("disabled");
     expect(config.membershipReconciliationCadenceMilliseconds).toBe(240_000);
     expect(config.workersEnabled).toBe(true);
   });
 
+  it("requires a separate sign-in credential only when enabled", () => {
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_ENABLED: "true",
+      }),
+    ).toThrow("TELEGRAM_SIGN_IN_INTEGRATION_SECRET");
+    const credential = "synthetic_sign_in_credential_for_tests_only";
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_ENABLED: "true",
+        TELEGRAM_SIGN_IN_INTEGRATION_SECRET: credential,
+      }).signInEnabled,
+    ).toBe(true);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_INTEGRATION_SECRET: credential,
+        TELEGRAM_SIGN_IN_ENABLED: "true",
+        TELEGRAM_SIGN_IN_INTEGRATION_SECRET: credential,
+      }),
+    ).toThrow("separate");
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_ENABLED: "yes",
+      }),
+    ).toThrow("TELEGRAM_SIGN_IN_ENABLED");
+  });
+
+  it("requires a complete secure author authorization endpoint while defaulting to disabled", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).platformAuthorAuthorizationUrl,
+    ).toBeUndefined();
+    const auth = {
+      PLATFORM_AUTHOR_AUTHORIZATION_URL:
+        "https://platform.example.test/authorize",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic_author_secret",
+    };
+    expect(
+      loadApplicationConfig({ ...validEnvironment, ...auth })
+        .platformAuthorAuthorizationUrl,
+    ).toBe(auth.PLATFORM_AUTHOR_AUTHORIZATION_URL);
+    for (const changed of [
+      { PLATFORM_AUTHOR_AUTHORIZATION_SECRET: undefined },
+      { PLATFORM_AUTHOR_AUTHORIZATION_URL: undefined },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "http://platform.example.test/authorize",
+      },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "https://user:password@platform.example.test/authorize",
+      },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "https://platform.example.test/authorize?secret=synthetic",
+      },
+      {
+        PLATFORM_AUTHOR_AUTHORIZATION_URL:
+          "https://platform.example.test/authorize#secret",
+      },
+    ])
+      expect(() =>
+        loadApplicationConfig({ ...validEnvironment, ...auth, ...changed }),
+      ).toThrow("PLATFORM_AUTHOR_AUTHORIZATION");
+  });
   it("requires a token before live external delivery can start", () => {
     expect(() =>
       loadApplicationConfig({

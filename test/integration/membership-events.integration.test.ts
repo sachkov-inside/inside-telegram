@@ -1,3 +1,6 @@
+import { MarketingEntry } from "../../src/modules/communications/marketing-entry.js";
+import { Communications } from "../../src/modules/communications/communications.js";
+import { DisabledAuthorAuthorization } from "../../src/modules/communications/author-authorization.js";
 import { sql } from "kysely";
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
@@ -6,6 +9,8 @@ import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
 import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
+import { BotSignIn } from "../../src/modules/bot-sign-in/bot-sign-in.js";
+import { DisabledTelegramCallbackAnswers } from "../../src/modules/bot-sign-in/telegram-callback-answers.js";
 import type { Clock } from "../../src/modules/identity-linking/clock.js";
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
 import { MembershipEvidenceProvider } from "../../src/modules/membership-evidence/membership-evidence-provider.js";
@@ -33,6 +38,7 @@ if (!databaseUrl) {
 const linkedAt = new Date("2030-01-01T00:00:00.000Z");
 const clock: Clock = { now: () => linkedAt };
 const config: ApplicationConfig = {
+  marketingEnabled: false,
   botIdentity: "inside",
   canonicalChatId: "-1000000000000",
   databaseUrl,
@@ -362,6 +368,11 @@ describe("durable Membership events", () => {
       linking,
       metrics,
       provider,
+      new BotSignIn(database, config, clock),
+      new DisabledTelegramCallbackAnswers(),
+      new Communications(database, config, new DisabledAuthorAuthorization()),
+      { handle: async () => false },
+      new MarketingEntry(database, config, clock),
     );
     const webhook = new TelegramWebhook(config, inbox, metrics);
     const update = canonicalMembershipUpdate(

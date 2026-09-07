@@ -21,6 +21,7 @@ if (!databaseUrl) {
 const linkedAt = new Date("2030-01-01T00:00:00.000Z");
 const cadenceMilliseconds = 4 * 60_000;
 const config: ApplicationConfig = {
+  marketingEnabled: false,
   botIdentity: "inside",
   canonicalChatId: "-1000000000000",
   databaseUrl,

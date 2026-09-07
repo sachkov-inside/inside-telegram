@@ -1,3 +1,6 @@
+import { communicationLock } from "../communications/communication-state.js";
+import { updateMarketingAvailability } from "../communications/marketing-preferences.js";
+import { sql } from "kysely";
 import { Inject, Injectable } from "@nestjs/common";
 
 import {
@@ -31,7 +34,7 @@ export interface ContactOutcome {
   readonly responsePlanned: boolean;
 }
 
-export type StartResponseKind = "link-receipt" | "welcome";
+export type StartResponseKind = "link-receipt" | "welcome" | "none";
 
 @Injectable()
 export class BotContacts {
@@ -46,6 +49,13 @@ export class BotContacts {
     responseKind: StartResponseKind = "welcome",
   ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
+      await communicationLock(
+        transaction,
+        `communications-scheduler:${this.config.botIdentity}`,
+      );
+      await sql`select pg_advisory_xact_lock(hashtextextended(${`bot-contact:${start.botIdentity}:${start.telegramUserId}`}, 0))`.execute(
+        transaction,
+      );
       const existing = await transaction
         .selectFrom("bot_contacts")
         .select("contactability")
@@ -54,6 +64,13 @@ export class BotContacts {
         .forUpdate()
         .executeTakeFirst();
 
+      await updateMarketingAvailability(
+        transaction,
+        start.botIdentity,
+        start.telegramUserId,
+        start.observedAt,
+        true,
+      );
       let contact: ContactOutcome["contact"];
       if (!existing) {
         await transaction
@@ -85,6 +102,12 @@ export class BotContacts {
           existing.contactability === "blocked" ? "reactivated" : "refreshed";
       }
 
+      await sql`insert into communication_contacts(contact_id,bot_identity,telegram_user_id)
+        values(gen_random_uuid(),${start.botIdentity},${start.telegramUserId})
+        on conflict(bot_identity,telegram_user_id) do nothing`.execute(
+        transaction,
+      );
+
       await transaction
         .insertInto("bot_contact_events")
         .values({
@@ -97,6 +120,8 @@ export class BotContacts {
         })
         .onConflict((conflict) => conflict.doNothing())
         .execute();
+
+      if (responseKind === "none") return { contact, responsePlanned: false };
 
       const responseDelivery = await transaction
         .insertInto("start_response_deliveries")
@@ -134,6 +159,17 @@ export class BotContacts {
     observation: VerifiedPrivateContactability,
   ): Promise<boolean> {
     return this.database.transaction().execute(async (transaction) => {
+      await communicationLock(
+        transaction,
+        `communications-scheduler:${this.config.botIdentity}`,
+      );
+      await updateMarketingAvailability(
+        transaction,
+        observation.botIdentity,
+        observation.telegramUserId,
+        observation.observedAt,
+        observation.contactability === "reachable",
+      );
       const contact = await transaction
         .updateTable("bot_contacts")
         .set({

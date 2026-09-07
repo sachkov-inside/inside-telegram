@@ -1,3 +1,31 @@
+import { AuthorFunnels } from "./modules/communications/author-funnels.js";
+import {
+  AUTHOR_CONTENT_VALIDATION,
+  DisabledAuthorContentValidation,
+} from "./modules/communications/author-content-validation.js";
+import { HttpAuthorContentValidationAdapter } from "./adapters/platform/http-author-content-validation.adapter.js";
+import { AuthorAdmin } from "./modules/communications/author-admin.js";
+import {
+  AuthorDelivery,
+  AUTHOR_TRANSPORT,
+} from "./modules/communications/author-delivery.js";
+import { CommunicationTracking } from "./modules/communications/communication-tracking.js";
+import { Api } from "grammy";
+import { Funnels } from "./modules/communications/funnels.js";
+import { MarketingEntry } from "./modules/communications/marketing-entry.js";
+import { FunnelScheduler } from "./modules/communications/funnel-scheduler.js";
+import { COMMUNICATION_TRANSPORT } from "./modules/communications/communication-delivery.js";
+import {
+  GrammyCommunicationsAdapter,
+  DisabledCommunicationTransport,
+} from "./adapters/telegram/grammy-communications.adapter.js";
+import { Communications } from "./modules/communications/communications.js";
+import { CommunicationsController } from "./modules/communications/communications.controller.js";
+import {
+  AUTHOR_AUTHORIZATION,
+  DisabledAuthorAuthorization,
+} from "./modules/communications/author-authorization.js";
+import { HttpAuthorAuthorizationAdapter } from "./adapters/platform/http-author-authorization.adapter.js";
 import { Module, type DynamicModule } from "@nestjs/common";
 
 import {
@@ -5,6 +33,11 @@ import {
   GrammyMessagesAdapter,
 } from "./adapters/telegram/grammy-messages.adapter.js";
 import { GrammyMembershipAdapter } from "./adapters/telegram/grammy-membership.adapter.js";
+import { GrammyCallbackAnswersAdapter } from "./adapters/telegram/grammy-callback-answers.adapter.js";
+import {
+  TELEGRAM_CALLBACK_ANSWERS,
+  DisabledTelegramCallbackAnswers,
+} from "./modules/bot-sign-in/telegram-callback-answers.js";
 import { HttpPlatformEvidenceAdapter } from "./adapters/platform/http-platform-evidence.adapter.js";
 import {
   APPLICATION_CONFIG,
@@ -14,6 +47,9 @@ import { createDatabase } from "./database/create-database.js";
 import { DATABASE } from "./database/database.js";
 import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
+import { SignInAccountLink } from "./modules/bot-sign-in/sign-in-account-link.js";
+import { BotSignIn } from "./modules/bot-sign-in/bot-sign-in.js";
+import { BotSignInController } from "./modules/bot-sign-in/bot-sign-in.controller.js";
 import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
 import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
 import { IdentityLinkRecovery } from "./modules/identity-linking/identity-link-recovery.js";
@@ -54,11 +90,20 @@ export class AppModule {
     return {
       module: AppModule,
       controllers: [
+        BotSignInController,
+        CommunicationsController,
         IdentityLinkingController,
         OperationsController,
         TelegramWebhookController,
       ],
       providers: [
+        {
+          provide: TELEGRAM_CALLBACK_ANSWERS,
+          useFactory: () =>
+            config.deliveryMode === "live" && config.botToken
+              ? new GrammyCallbackAnswersAdapter(config.botToken)
+              : new DisabledTelegramCallbackAnswers(),
+        },
         { provide: APPLICATION_CONFIG, useValue: config },
         { provide: CLOCK, useValue: systemClock },
         {
@@ -116,8 +161,60 @@ export class AppModule {
             return new DisabledPlatformEvidenceDelivery();
           },
         },
+        AuthorAdmin,
+        AuthorFunnels,
+        AuthorDelivery,
+        {
+          provide: AUTHOR_TRANSPORT,
+          useFactory: () =>
+            config.deliveryMode === "live" && config.botToken
+              ? new GrammyCommunicationsAdapter(
+                  new Api(config.botToken, { timeoutSeconds: 10 }),
+                )
+              : new DisabledCommunicationTransport(),
+        },
+        CommunicationTracking,
+        Communications,
+        Funnels,
+        MarketingEntry,
+        FunnelScheduler,
+        {
+          provide: COMMUNICATION_TRANSPORT,
+          useFactory: () =>
+            config.marketingEnabled &&
+            config.deliveryMode === "live" &&
+            config.botToken
+              ? new GrammyCommunicationsAdapter(
+                  new Api(config.botToken, { timeoutSeconds: 10 }),
+                )
+              : new DisabledCommunicationTransport(),
+        },
+        {
+          provide: AUTHOR_AUTHORIZATION,
+          useFactory: () =>
+            config.platformAuthorAuthorizationUrl &&
+            config.platformAuthorAuthorizationSecret
+              ? new HttpAuthorAuthorizationAdapter(
+                  config.platformAuthorAuthorizationUrl,
+                  config.platformAuthorAuthorizationSecret,
+                )
+              : new DisabledAuthorAuthorization(),
+        },
+        {
+          provide: AUTHOR_CONTENT_VALIDATION,
+          useFactory: () =>
+            config.platformAuthorContentValidationUrl &&
+            config.platformAuthorAuthorizationSecret
+              ? new HttpAuthorContentValidationAdapter(
+                  config.platformAuthorContentValidationUrl,
+                  config.platformAuthorAuthorizationSecret,
+                )
+              : new DisabledAuthorContentValidation(),
+        },
         BackgroundWorkers,
         BotContacts,
+        BotSignIn,
+        SignInAccountLink,
         DatabaseLifecycle,
         IdentityLinking,
         IdentityLinkRecovery,

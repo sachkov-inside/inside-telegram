@@ -8,6 +8,7 @@ export interface ApplicationConfig {
   readonly canonicalChatId: string;
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
+  readonly marketingEnabled: boolean;
   readonly evidenceDeliveryMode: EvidenceDeliveryMode;
   readonly host: string;
   readonly linkReceiptText: string;
@@ -18,8 +19,15 @@ export interface ApplicationConfig {
   readonly membershipReconciliationCadenceMilliseconds: number;
   readonly platformEvidenceDeliverySecret?: string;
   readonly platformEvidenceDeliveryUrl?: string;
+  readonly platformAuthorAuthorizationUrl?: string;
+  readonly platformAuthorContentValidationUrl?: string;
+  readonly platformAuthorAuthorizationSecret?: string;
   readonly platformIntegrationSecret: string;
+  readonly platformTrackingRedirectUrl?: string;
+  readonly platformTrackingTargetPrefixes?: readonly string[];
   readonly port: number;
+  readonly signInEnabled?: boolean;
+  readonly signInIntegrationSecret?: string;
   readonly webhookSecret: string;
   readonly welcomeText: string;
   readonly workersEnabled: boolean;
@@ -59,6 +67,24 @@ export function loadApplicationConfig(
 
   const deliveryMode = environment.TELEGRAM_DELIVERY_MODE ?? "disabled";
   assertExternalMode(deliveryMode, "TELEGRAM_DELIVERY_MODE");
+
+  const signInFlag = environment.TELEGRAM_SIGN_IN_ENABLED ?? "false";
+  if (signInFlag !== "true" && signInFlag !== "false") {
+    throw new Error("TELEGRAM_SIGN_IN_ENABLED must be true or false");
+  }
+  const signInEnabled = signInFlag === "true";
+  const signInIntegrationSecret = signInEnabled
+    ? required(environment, "TELEGRAM_SIGN_IN_INTEGRATION_SECRET")
+    : environment.TELEGRAM_SIGN_IN_INTEGRATION_SECRET?.trim() || undefined;
+  if (
+    signInIntegrationSecret &&
+    (!/^[A-Za-z0-9_-]{32,256}$/.test(signInIntegrationSecret) ||
+      signInIntegrationSecret === platformIntegrationSecret)
+  ) {
+    throw new Error(
+      "TELEGRAM_SIGN_IN_INTEGRATION_SECRET must be a separate base64url credential of at least 32 characters",
+    );
+  }
 
   const membershipMode = environment.TELEGRAM_MEMBERSHIP_MODE ?? "disabled";
   assertExternalMode(membershipMode, "TELEGRAM_MEMBERSHIP_MODE");
@@ -108,12 +134,143 @@ export function loadApplicationConfig(
     }
   }
 
+  const platformAuthorAuthorizationUrl =
+    environment.PLATFORM_AUTHOR_AUTHORIZATION_URL;
+  const platformAuthorAuthorizationSecret =
+    environment.PLATFORM_AUTHOR_AUTHORIZATION_SECRET;
+  if (platformAuthorAuthorizationUrl || platformAuthorAuthorizationSecret) {
+    if (
+      !platformAuthorAuthorizationUrl ||
+      !platformAuthorAuthorizationSecret ||
+      !/^[A-Za-z0-9_-]{16,256}$/.test(platformAuthorAuthorizationSecret)
+    )
+      throw new Error(
+        "Both PLATFORM_AUTHOR_AUTHORIZATION_URL and a valid PLATFORM_AUTHOR_AUTHORIZATION_SECRET are required",
+      );
+    assertHttpUrl(
+      platformAuthorAuthorizationUrl,
+      "PLATFORM_AUTHOR_AUTHORIZATION_URL",
+    );
+    const url = new URL(platformAuthorAuthorizationUrl);
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    )
+      throw new Error(
+        "PLATFORM_AUTHOR_AUTHORIZATION_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
+      );
+  }
+
+  const platformAuthorContentValidationUrl =
+    environment.PLATFORM_AUTHOR_CONTENT_VALIDATION_URL;
+  if (platformAuthorContentValidationUrl) {
+    if (!platformAuthorAuthorizationUrl || !platformAuthorAuthorizationSecret)
+      throw new Error(
+        "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL requires author authorization configuration",
+      );
+    assertHttpUrl(
+      platformAuthorContentValidationUrl,
+      "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL",
+    );
+    const url = new URL(platformAuthorContentValidationUrl);
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    )
+      throw new Error(
+        "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
+      );
+  }
+
+  let platformTrackingRedirectUrl = environment.PLATFORM_TRACKING_REDIRECT_URL;
+  let platformTrackingTargetPrefixes: string[] | undefined;
+  if (
+    platformTrackingRedirectUrl ||
+    environment.PLATFORM_TRACKING_TARGET_PREFIXES
+  ) {
+    if (
+      !platformTrackingRedirectUrl ||
+      !environment.PLATFORM_TRACKING_TARGET_PREFIXES
+    )
+      throw new Error(
+        "Both tracking redirect URL and target prefixes are required",
+      );
+    const prefixes: unknown = JSON.parse(
+      environment.PLATFORM_TRACKING_TARGET_PREFIXES,
+    );
+    if (
+      !Array.isArray(prefixes) ||
+      !prefixes.length ||
+      prefixes.length > 20 ||
+      prefixes.some((p) => typeof p !== "string")
+    )
+      throw new Error("Invalid tracking target prefixes");
+    platformTrackingTargetPrefixes = prefixes as string[];
+    for (const value of [
+      platformTrackingRedirectUrl,
+      ...platformTrackingTargetPrefixes,
+    ]) {
+      const url = new URL(value);
+      if (
+        url.protocol !== "https:" ||
+        url.username ||
+        url.password ||
+        url.search ||
+        url.hash ||
+        url.hostname.replace(/\.$/, "") === "api.telegram.org"
+      )
+        throw new Error(
+          "Tracking URLs require HTTPS without credentials, query or fragment",
+        );
+    }
+    if (
+      platformTrackingTargetPrefixes.some((p) => {
+        const u = new URL(p);
+        return (
+          u.pathname === "/" || !u.pathname.endsWith("/") || p !== u.toString()
+        );
+      })
+    )
+      throw new Error(
+        "Tracking target prefixes require normalized non-root paths ending in slash",
+      );
+    platformTrackingRedirectUrl = new URL(
+      platformTrackingRedirectUrl,
+    ).toString();
+    if (
+      platformTrackingTargetPrefixes.some((p) =>
+        platformTrackingRedirectUrl!.startsWith(p),
+      )
+    )
+      throw new Error("Tracking redirect cannot be a tracking destination");
+  }
   return Object.freeze({
+    ...(platformTrackingRedirectUrl
+      ? { platformTrackingRedirectUrl, platformTrackingTargetPrefixes }
+      : {}),
+    ...(platformAuthorContentValidationUrl
+      ? { platformAuthorContentValidationUrl }
+      : {}),
+    ...(platformAuthorAuthorizationUrl
+      ? { platformAuthorAuthorizationUrl, platformAuthorAuthorizationSecret }
+      : {}),
     botIdentity,
     ...(botToken ? { botToken } : {}),
     canonicalChatId,
     databaseUrl,
     deliveryMode,
+    marketingEnabled: parseBoolean(
+      environment.TELEGRAM_MARKETING_ENABLED,
+      false,
+    ),
     evidenceDeliveryMode,
     host: environment.HOST ?? "127.0.0.1",
     linkReceiptText: required(environment, "TELEGRAM_LINK_RECEIPT_TEXT"),
@@ -134,6 +291,8 @@ export function loadApplicationConfig(
     ...(platformEvidenceDeliveryUrl ? { platformEvidenceDeliveryUrl } : {}),
     platformIntegrationSecret,
     port: parsePort(environment.PORT),
+    signInEnabled,
+    ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
     webhookSecret,
     welcomeText: required(environment, "TELEGRAM_WELCOME_TEXT"),
     workersEnabled: parseBoolean(environment.WORKERS_ENABLED, true),

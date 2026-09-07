@@ -36,6 +36,7 @@ if (!databaseUrl) {
 }
 
 const config: ApplicationConfig = {
+  marketingEnabled: false,
   botIdentity: "inside",
   canonicalChatId: "-1000000000000",
   databaseUrl,
@@ -593,6 +594,10 @@ class ControlledMessages implements TelegramMessages {
 
   constructor(private readonly results: TelegramDeliveryResult[]) {}
 
+  async editText(): Promise<TelegramDeliveryResult> {
+    throw new Error("Unexpected message edit");
+  }
+
   async sendText(
     message: TelegramTextMessage,
   ): Promise<TelegramDeliveryResult> {
@@ -619,6 +624,7 @@ async function prepareDelivery(
     new StartResponseDeliveryQueue(database),
     messages,
     new RuntimeMetrics(),
+    config,
   );
   return { messages, processor };
 }

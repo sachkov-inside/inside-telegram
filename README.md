@@ -14,6 +14,26 @@ bound. The production HTTP adapters have passed the two-application conformance 
 in [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md). Bot
 registration, real credentials, deployment, and production enablement remain explicit later gates.
 
+The permanent deployment kit and its verification/recovery procedure are documented in
+[`docs/operations/production.md`](docs/operations/production.md). Its presence does not mean the
+production bot has been enabled.
+
+## Author templates and communications contract
+
+The author-template slice adds explicit `/template` intake and authenticated template read/save.
+It also provides versioned contracts for the later communications operations. Platform remains the
+permission authority; author checks fail closed until its authorization endpoint is configured.
+See [`docs/integrations/communications-v1.md`](docs/integrations/communications-v1.md) for the
+wire contract, fixtures, media validation and the limits of this enabling delivery. The runtime
+supplies draft/publish, source routing, one common intro, durable multipart scheduling and one-time
+broadcasts through the shared sender. Broadcast audience snapshots are fixed at actual launch;
+stop/block suppression survives resume. Authenticated analytics expose contacts, source history,
+delivery progress and opaque tracking links with idempotent hit ingestion. Platform owns the editor,
+UI/MCP and redirect consumer; cross-application acceptance and production activation remain separate.
+`TELEGRAM_MARKETING_ENABLED=false` remains the default. No real funnels or authored copy are
+seeded: the current product direction is one owner-authored common funnel; multiple scenarios
+exist only in synthetic tests.
+
 ## Ordinary `/start` runtime
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
@@ -66,6 +86,13 @@ The Workspace-owned Membership Evidence schema and fixtures are vendored with a 
 commit and SHA-256 snapshot in
 [`src/contracts/inside-membership-evidence-v1/`](src/contracts/inside-membership-evidence-v1/).
 
+## Bot sign-in provider (disabled; website integration pending)
+
+The optional provider proves a private Telegram identity after an explicit confirmation button.
+It does not issue a website session or create/merge an Account. The protocol, server-side switch,
+and remaining Platform integration gates are in
+[`docs/specifications/bot-sign-in-v1.md`](docs/specifications/bot-sign-in-v1.md).
+
 ## Initial Membership Evidence
 
 - `TELEGRAM_CANONICAL_CHAT_ID` is required configuration and contains no committed real chat
@@ -89,7 +116,7 @@ commit and SHA-256 snapshot in
 ## Durable member-status events
 
 - Webhook registration must explicitly use
-  `allowed_updates=["message","chat_member","my_chat_member"]`; omitted registration is unsafe
+  `allowed_updates=["message","chat_member","my_chat_member","callback_query"]`; omitted registration is unsafe
   because Telegram excludes `chat_member` from its default set. Old update variants are still
   accepted into the durable inbox and safely ignored by processing.
 - Only the exact configured canonical chat can affect Membership. The subject comes from
@@ -174,6 +201,14 @@ pnpm infra:up
 DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm check:full
 ```
 
+Migration keys are retained across the independently deployed communications and sign-in branches.
+Only the independently deployed `010-communications-templates` → `011-communication-funnels`
+sequence may cross the sign-in sequence. Both sequences must retain their dependency order;
+all other applied migrations must remain an ordered prefix. The shared migrator enforces this under Kysely's migration
+lock for up, down and targeted commands. Rollback follows actual application order. PostgreSQL
+regressions cover both historical deployment orders, preserve existing data during backfill and
+reject a missing dependent sign-in migration. Do not rename applied keys or edit the ledger.
+
 The application CI runs the same command on Node 24 with PostgreSQL 18. The repository harness is
 verified with:
 
@@ -195,6 +230,6 @@ These Workspace-only harness checks do not create an application build/runtime d
 
 ## Repository boundary
 
-This repository will own Telegram bot identity handling, bot contacts, linking, member-status
-updates, reconciliation, and normalized Membership Evidence. Platform remains the authority for
+This repository owns Telegram bot identity handling, bot contacts, linking, member-status
+updates, reconciliation, normalized Membership Evidence and author communication templates. Platform remains the authority for
 Platform Accounts, permissions, entitlements, profiles, and every content-access decision.

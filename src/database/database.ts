@@ -75,6 +75,16 @@ export interface BotContactEventsTable {
 }
 
 export interface StartResponseDeliveriesTable {
+  edit_message_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  sign_in_request_ref: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
   attempt_count: number;
   available_at: Timestamp;
   bot_identity: string;
@@ -239,7 +249,228 @@ export interface IdentityLinkRecoveriesTable {
   telegram_user_id: BigIntColumn;
 }
 
+export interface SignInRequestsTable {
+  confirmation_message_id: ColumnType<
+    string | null,
+    string | null | undefined,
+    string | null
+  >;
+  request_ref: string;
+  bot_identity: string;
+  start_token_digest: string;
+  browser_secret_digest: string;
+  confirmation_code: string;
+  state: "pending" | "awaiting_approval" | "approved" | "denied" | "consumed";
+  telegram_user_id: BigIntColumn | null;
+  private_chat_id: BigIntColumn | null;
+  created_at: Timestamp;
+  expires_at: Timestamp;
+  approved_at: Timestamp | null;
+  consumed_at: Timestamp | null;
+}
+
+export interface SignInSubjectsTable {
+  reserved_for_sign_in: Generated<boolean>;
+  subject_ref: string;
+  bot_identity: string;
+  telegram_user_id: BigIntColumn;
+}
+
 export interface DatabaseSchema {
+  communication_author_sessions: {
+    bot_identity: string;
+    telegram_user_id: BigIntColumn;
+    account_ref: string;
+    state: unknown;
+  };
+  communication_author_receipts: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+  };
+  communication_author_outbox: {
+    sequence_id: Generated<string>;
+    available_at: Timestamp;
+    attempt_count: Generated<number>;
+    diagnostic_code: Generated<string | null>;
+    delivery_id: string;
+    bot_identity: string;
+    account_ref: string;
+    telegram_user_id: BigIntColumn;
+    telegram_identity_ref: string;
+    message: unknown;
+    state: "pending" | "sending" | "delivered" | "rejected" | "unknown";
+    created_at: Timestamp;
+    attempted_at: Timestamp | null;
+    provider_message_id: string | null;
+  };
+  sign_in_requests: SignInRequestsTable;
+  sign_in_subjects: SignInSubjectsTable;
+  communication_broadcasts: {
+    broadcast_id: string;
+    bot_identity: string;
+    owner_account_ref: string;
+    revision: number;
+    state:
+      "draft" | "scheduled" | "running" | "paused" | "cancelled" | "completed";
+    parts: unknown;
+    audience: unknown;
+    scheduled_at: Timestamp | null;
+    audience_snapshot_id: string | null;
+    snapshot_size: number;
+    launched_at: Timestamp | null;
+    launch_operation_id: string | null;
+    created_at: Timestamp;
+  };
+  communication_tracking_tokens: {
+    token: string;
+    bot_identity: string;
+    delivery_id: string;
+    part_id: string;
+    destination: string;
+    created_at: Timestamp;
+  };
+  communication_tracking_hits: {
+    bot_identity: string;
+    event_id: string;
+    token: string;
+    occurred_at: Timestamp;
+    received_at: Timestamp;
+    traffic: "unknown" | "known_automation";
+  };
+  communication_funnels: {
+    funnel_id: string;
+    bot_identity: string;
+    owner_account_ref: string;
+    revision: number;
+    published_revision: number | null;
+    lifecycle: "draft" | "published" | "paused" | "archived";
+    draft: unknown;
+    published: unknown | null;
+    is_default: boolean;
+  };
+  communication_publications: {
+    funnel_id: string;
+    revision: number;
+    snapshot: unknown;
+    published_at: Timestamp;
+  };
+  communication_sources: {
+    bot_identity: string;
+    source_id: string;
+    code: string;
+    funnel_id: string;
+  };
+  communication_step_ids: {
+    funnel_id: string;
+    step_id: string;
+    first_published_at: Timestamp;
+    part_ids: unknown;
+  };
+  communication_intro: {
+    bot_identity: string;
+    owner_account_ref: string;
+    snapshot: unknown;
+  };
+  communication_contacts: {
+    contact_id: string;
+    bot_identity: string;
+    telegram_user_id: BigIntColumn;
+    marketing_enabled: boolean;
+    unavailable_since: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
+  };
+  communication_preferences: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+    contact_id: string;
+    enabled: boolean;
+    observed_at: Timestamp;
+  };
+  communication_enrollments: {
+    enrollment_id: string;
+    contact_id: string;
+    funnel_id: string;
+    enrolled_at: Timestamp;
+    initial_entry_key: string;
+  };
+  communication_entries: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+    contact_id: string;
+    funnel_id: string | null;
+    source_id: string | null;
+    source_code: string | null;
+    entered_at: Timestamp;
+    outcome: string;
+  };
+  communication_deliveries: {
+    delivery_id: string;
+    dedup_key: string;
+    bot_identity: string;
+    contact_id: string;
+    funnel_id: string | null;
+    step_id: string | null;
+    kind: "intro" | "entry" | "step" | "fallback" | "broadcast";
+    broadcast_id: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    published_revision: number;
+    snapshot: unknown;
+    parts: unknown;
+    revision: number;
+    due_at: Timestamp;
+    created_at: Timestamp;
+    completed_at: Timestamp | null;
+    cancellation_reason: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    cancel_requested: boolean;
+    attempt_id: string | null;
+    locked_at: Timestamp | null;
+  };
+  telegram_transport_slots: {
+    bot_identity: string;
+    lane: string;
+    available_at: Timestamp;
+  };
+
+  communication_author_modes: {
+    bot_identity: string;
+    telegram_user_id: BigIntColumn;
+    account_ref: string;
+    enabled: boolean;
+    last_update_id: BigIntColumn;
+  };
+  communication_templates: {
+    template_id: string;
+    bot_identity: string;
+    owner_account_ref: string;
+    revision: number;
+    content: unknown;
+    created_at: Timestamp;
+    updated_at: Timestamp;
+  };
+  communication_operations: {
+    bot_identity: string;
+    operation_id: string;
+    actor_account_ref: string;
+    request: unknown;
+    result: unknown;
+    created_at: Timestamp;
+  };
+  communication_intake_receipts: {
+    bot_identity: string;
+    update_id: BigIntColumn;
+    outcome: string;
+    template_id: string | null;
+  };
   bot_contact_events: BotContactEventsTable;
   bot_contacts: BotContactsTable;
   identity_link_events: IdentityLinkEventsTable;
