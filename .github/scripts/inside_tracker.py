@@ -71,11 +71,11 @@ def identity(value):
     return f'{ORG}/{match[1]}', int(match[2])
 
 
-def connection(api, node_id, kind, field, selection):
+def connection(api, node_id, kind, field, selection, extra_args=''):
     nodes, cursor = [], None
     while True:
         data = api.graphql('''query($id:ID!, $cursor:String) { node(id:$id) { ... on ''' + kind + ''' {
-          ''' + field + '''(first:100, after:$cursor) { nodes { ''' + selection + ''' }
+          ''' + field + '''(first:100, after:$cursor''' + extra_args + ''') { nodes { ''' + selection + ''' }
           pageInfo { hasNextPage endCursor } } } } }''', id=node_id, cursor=cursor)['node'][field.split('(')[0]]
         nodes.extend(data['nodes'])
         if not data['pageInfo']['hasNextPage']:
@@ -165,9 +165,21 @@ class Reconciler:
                     key = (content['repository']['nameWithOwner'], content['number'])
                     self.cards.setdefault(key, {})[n] = card
 
+    def item_cards(self, item):
+        # Project.items is an eventually consistent discovery index. Read the
+        # owning content's connection for decisions and mutation verification.
+        values = connection(self.api, item['id'], item['kind'], 'projectItems',
+            '''id isArchived project { id }
+            fieldValues(first:100) { nodes { ... on ProjectV2ItemFieldSingleSelectValue {
+              name field { ... on ProjectV2SingleSelectField { name } } } } }''',
+            extra_args=', includeArchived:true')
+        numbers = {project['id']: number for number, project in self.projects.items()}
+        return {numbers[card['project']['id']]: card for card in values
+                if (card.get('project') or {}).get('id') in numbers}
+
     def one(self, repo, number, allow_add=False):
         item = snapshot(self.api, repo, number)
-        cards = self.cards.get((repo, number), {})
+        cards = self.item_cards(item)
         if any(c['isArchived'] for c in cards.values()):
             return report('skip', item, 'preserve intentional archive')
                 # The session module is installed by the session-operations release.
@@ -213,8 +225,7 @@ class Reconciler:
             return row
         # Fresh facts before the mutation; a concurrent edit invalidates this plan.
         fresh = snapshot(self.api, repo, number)
-        self.refresh()
-        if self.cards.get((repo, number), {}) != cards:
+        if self.item_cards(fresh) != cards:
             raise TrackerError(f'{repo}#{number}: Project changed during reconciliation; rerun')
         if 'session' in item:
             fresh['session'] = read_session(self.api, repo, number)[0]
@@ -256,8 +267,7 @@ class Reconciler:
                     self.api.graphql('''mutation($project:ID!,$item:ID!) {
                       deleteProjectV2Item(input:{projectId:$project,itemId:$item}) { deletedItemId } }''',
                       project=self.projects[p]['id'], item=card['id'])
-        self.refresh()
-        after = self.cards.get((repo, number), {})
+        after = self.item_cards(item)
         if decision.archive:
             verified = set(after) == set(cards) and all(c['isArchived'] for c in after.values())
         else:
