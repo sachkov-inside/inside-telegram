@@ -385,3 +385,51 @@ intro is checked before save because saving immediately applies it to future rec
 
 No real Telegram send, marketing enablement or deployment is part of local verification. Author
 samples are queued only for the confirmed author's private chat and use the existing transport gate.
+
+## Contextual Telegram drafts (#43)
+
+The primary author flow starts at `/admin` → «Рассылки» → «Создать рассылку». A name creates an
+empty private draft, with no armed schedule or subscriber delivery. «Создать сообщение» accepts one
+native message, queues its preview only to the confirmed author, and offers button editing,
+replacement, cancellation and explicit attachment. Attachment returns to the same broadcast.
+The same composer serves a funnel's entry response, delayed step and common intro. It carries the
+exact destination and optional existing part ID; replacement preserves that ID. A pending candidate
+never changes the destination before confirmation and `/cancel` returns to it without attachment.
+Messages created in context do not require creating a separate library post.
+
+«Добавить сохранённый пост» is an optional path through paged, owner-scoped search by text or media
+type. Results show type and an excerpt; choosing one displays the frozen native snapshot before
+attachment. Button changes affect that candidate, never the source template. Preview is an author
+outbox operation, not a subscriber broadcast. Its existing permission recheck, transport reservation,
+durable attempt and unknown-result policy remain in force.
+
+Migration `015-author-drafts` owns bot-only names and incomplete composition drafts in
+`communication_author_drafts`, scoped by bot and Account reference. Incomplete broadcasts have no
+provider broadcast until their first part is attached. Their saved schedule alone cannot send.
+Once created, `communication_broadcasts` remains the sole authority for content, revision, audience
+and dispatch; the draft table keeps only the author-facing name. Nonempty existing broadcasts keep
+the provider's minimum-one-part rule: replace the last part, or cancel the whole broadcast.
+Cancelled empty drafts stay visible and can be copied, without creating a subscriber delivery.
+
+Unapplied funnel/intro changes are retained after each author action in the same transaction as
+session state and the update receipt. `/admin`, navigation, process restart and a later session do
+not discard those drafts. Reopening restores the last composed state with its original provider
+revision; applying it still checks that revision. Explicit save/intro save clears the scratch copy;
+publication and intro validation retain their existing content and authority checks. Abandoning
+changes removes only the scratch draft. Revoked authorization does not reveal saved drafts, and a
+relinked foreign Account cannot read the old owner's drafts.
+
+The broadcast card exposes name, ordered message excerpts, audience, Moscow schedule, author samples,
+per-message native view, editing/replacement, order and removal. Launch confirmation names the saved
+version, audience and time. Lifecycle operations retain the original snapshot rules. Copy creates a
+new unarmed draft with new part IDs and no inherited schedule or delivery history. Global statistics
+and broadcast results remain separate navigation actions. Public HTTP/MCP request and response
+schemas are unchanged; the website does not interpret Telegram-only names or incomplete drafts.
+
+Verification: `communications.integration.test.ts` walks real PostgreSQL sessions through blank-draft
+reopen, all six native types, invalid input, contextual button editing, explicit confirmation,
+cancellation, paging/search isolation, stale callbacks, duplicate updates, permission revocation,
+concurrent web edits, funnel/intro restoration and copying. All automated Telegram transport is
+synthetic; it does not certify real file IDs or client rendering. Manual acceptance starts with a
+fresh `/admin` menu in the dedicated local test bot and never requires completing a website login
+for each authoring operation.

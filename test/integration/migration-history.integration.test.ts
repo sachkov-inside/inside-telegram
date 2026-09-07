@@ -112,7 +112,7 @@ it.each(["communications-first", "sign-in-first"] as const)(
     const ledger = await sql<{
       count: string;
     }>`select count(*) from kysely_migration`.execute(database);
-    expect(ledger.rows[0]?.count).toBe("15");
+    expect(ledger.rows[0]?.count).toBe("16");
   },
 );
 
@@ -122,6 +122,7 @@ it.each([
   "012-marketing-preferences",
   "013-broadcast-analytics",
   "014-author-admin",
+  "015-author-drafts",
 ])(
   "still rejects missing dependencies for %s at every entrypoint",
   async (migrationName) => {
