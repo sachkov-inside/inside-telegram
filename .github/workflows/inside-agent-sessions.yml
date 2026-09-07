@@ -1,0 +1,57 @@
+name: Inside agent sessions
+run-name: session ${{ inputs.request }} ${{ inputs.fingerprint }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      command:
+        type: choice
+        options: [start, block, handoff, release]
+        required: true
+      issue:
+        type: string
+        required: true
+      session:
+        type: string
+        required: true
+      branch:
+        type: string
+        default: ''
+      reason:
+        type: string
+        default: ''
+      request:
+        type: string
+        required: true
+      fingerprint:
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+# All session-state mutations use this one writer in Workspace, regardless of target repository.
+# GitHub may replace a pending run. Cancellation is a denied request, never a successful claim.
+concurrency:
+  group: inside-agent-session-writer
+  cancel-in-progress: false
+
+jobs:
+  command:
+    if: github.repository == 'sachkov-inside/workspace' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          persist-credentials: false
+      - name: Apply command and verify receipt
+        env:
+          GH_TOKEN: ${{ secrets.INSIDE_PROJECT_TOKEN }}
+        run: python3 .github/scripts/tracker_sessions.py worker
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tracker-session-result
+          path: tracker-session-result.json
+          if-no-files-found: error

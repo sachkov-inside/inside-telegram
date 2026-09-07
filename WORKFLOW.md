@@ -56,14 +56,11 @@ for blocking. A Wayfinder map carries `wayfinder:map`; Specifications and Ticket
 issue contracts and readiness labels. Do not mirror these distinctions in a Project field. The
 `Current` view contains issues only and shows pull requests through `Linked pull requests`.
 
-Repository automation closes an open native parent after its last sub-issue closes as `completed`,
-and repeats this up the parent chain. A child closed as `not_planned` does not complete its parent.
-The normal issue-close workflow then moves each automatically closed parent to `Done`.
-
-Repository workflows add new and reopened delivery issues and pull requests to Developer Pipeline.
-The Workspace workflow routes `backlog:human` issues only to Human Backlog. Set `Area` and
-`Priority` during delivery triage, move `Status` with the work, and treat the repository issue or
-pull request state as authoritative when it conflicts with a Project.
+Tracker automation is defined in `docs/agents/tracker-automation.md`. Its shared policy and
+workflow are managed harness files. GitHub issue and PR facts remain authoritative over Project
+fields. Automatic parent completion is opt-in and never accepts Human Backlog outcomes.
+Use the documented dry-run, bounded apply and recovery procedure when changing automation.
+Set `Area` and `Priority` during triage; the controller does not infer product priorities.
 
 ## Issue contract
 
@@ -112,6 +109,11 @@ index, and files as owner-controlled state: inspect it read-only, and let the ow
 advances after a merge. An explicit owner request concerning that checkout is the only authority to
 change its branch or files.
 
+Before writing a tracked task, follow the Agent sessions procedure in
+`docs/agents/tracker-automation.md` and obtain a successful start receipt. Use the same session
+identifier for block, handoff and release. Assignee records the responsible human, not a session
+lock. Existing work without a receipt is an adoption case, not an available task.
+
 Every tracked task has one writing worktree by default, regardless of how many agents help with it.
 Fetch refs without changing the primary checkout, then create that worktree for the task branch
 from the current `origin/main`. One worktree has one active writing agent, one task branch, and one
@@ -153,7 +155,8 @@ Work is ready for owner merge when:
 - acceptance criteria are met without silently expanding scope;
 - relevant focused checks and full repository verification pass;
 - durable documents and ADRs are updated when a confirmed decision changed;
-- the pull request follows its template, links an issue when applicable, and states `Not tested`;
+- the pull request follows its template, links an issue when applicable, and its final
+  Implementation Report reflects the current remote head;
 - a UI change includes mobile and desktop evidence and passes the repository-specific UI
   Definition of Done;
 - the owner gives explicit merge approval.
@@ -193,6 +196,24 @@ type, schema, test, lint or guardrail first; repository coding standard for recu
 specification for required behaviour; ADR for a hard-to-reverse trade-off; tracker issue for
 deferred work. Pull request history is the durable home for one-off findings. Do not create a
 repository review ledger.
+
+### Implementation report
+
+After final review closure and current-head pull request CI closure, the writing agent updates the
+pull request body from the final diff, issue or specification, verification evidence, and review
+outcomes. The repository pull request template is the single authority for the report format. The
+report guides owner review; it does not replace Standards, Spec, CI, or owner approval.
+
+Complete every applicable template section, state unchanged surfaces explicitly, and give a
+bounded review path through the conceptual files or groups that explain the change. Separate
+generated and mechanical files from that path. Record the final remote head SHA and the disposition
+of review findings. If code or durable documents change afterward, repeat the relevant verification
+and review closure, then refresh the report for the new head. Trivial documentation or chore work
+may keep only the compact template sections named by their comments.
+
+The report is complete when the owner can identify the delivered outcome, affected product and
+business surfaces, material design constraints, evidence, remaining gaps, and requested decisions
+without reconstructing them from the full diff.
 
 ### Architecture fitness
 
