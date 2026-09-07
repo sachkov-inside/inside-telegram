@@ -364,7 +364,8 @@ sources. The common intro is edited separately. Contents come from `templates.li
 copies the saved version, explicit replacement retains the part ID, and additions allocate new IDs.
 Changing a saved post does not modify a chosen draft or publication.
 
-Composition remains a scratch snapshot in the author session until «Сохранить черновик». Preview
+Composition remains a private scratch snapshot until «Сохранить черновик» (durable recovery is
+described under #43 below). Preview
 and publish require the same saved revision; publication rechecks the exact snapshot under the
 existing definition lock. Menu callbacks and business writes share one transaction and update
 receipt. A savepoint rolls back a rejected funnel action before the menu reports a conflict,
@@ -397,13 +398,19 @@ exact destination and optional existing part ID; replacement preserves that ID. 
 never changes the destination before confirmation and `/cancel` returns to it without attachment.
 Messages created in context do not require creating a separate library post.
 
+The pending message, exact destination and partial button input are checkpointed in
+`communication_author_compositions`, scoped by bot and Account, with the update receipt. Reopening
+the destination offers «Продолжить сообщение» and «Отменить добавление». `/admin` and stale buttons
+do not delete pending input. Successful attachment or explicit cancellation removes the checkpoint;
+a rejected mutation rolls back to a savepoint so a revision conflict preserves the candidate.
+
 «Добавить сохранённый пост» is an optional path through paged, owner-scoped search by text or media
 type. Results show type and an excerpt; choosing one displays the frozen native snapshot before
 attachment. Button changes affect that candidate, never the source template. Preview is an author
 outbox operation, not a subscriber broadcast. Its existing permission recheck, transport reservation,
 durable attempt and unknown-result policy remain in force.
 
-Migration `015-author-drafts` owns bot-only names and incomplete composition drafts in
+Migration `015-author-drafts` owns bot-only names and incomplete destination drafts in
 `communication_author_drafts`, scoped by bot and Account reference. Incomplete broadcasts have no
 provider broadcast until their first part is attached. Their saved schedule alone cannot send.
 Once created, `communication_broadcasts` remains the sole authority for content, revision, audience

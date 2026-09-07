@@ -1,3 +1,7 @@
+import {
+  validateAuthorButtonUrl,
+  appendAuthorButton,
+} from "./author-button.js";
 import type { Action, Context } from "./author-admin.js";
 import { authorRequest } from "./author-request.js";
 import type { Communications } from "./communications.js";
@@ -53,6 +57,18 @@ export class AuthorComposer {
       "Пришлите сообщение для выбранной рассылки или блока воронки: текст, фото, видео, кружок, голосовое или документ. После просмотра подтвердите добавление. /cancel — вернуться без изменений.",
       cancel,
     );
+  }
+  async resume(c: Context, reply: Reply) {
+    const s = c.state.composing!;
+    const prompts = {
+      capture: "Пришлите сообщение для выбранного объекта.",
+      search: "Напишите часть текста или тип поста.",
+      "button-title": "Напишите название кнопки (до 64 символов).",
+      "button-url": "Пришлите HTTPS-ссылку для кнопки.",
+      "button-row": "Введите номер ряда от 1 до 20.",
+    };
+    if (s.prompt) return reply(prompts[s.prompt], cancel);
+    return this.show(c, reply, true);
   }
   private async show(c: Context, reply: Reply, native = false) {
     const s = c.state.composing!;
@@ -195,12 +211,7 @@ export class AuthorComposer {
     }
     if (s.prompt === "button-url") {
       try {
-        validateContent({
-          type: "text",
-          text: "Кнопка",
-          entities: [],
-          buttons: [{ text: s.buttonTitle, url: text }],
-        });
+        validateAuthorButtonUrl(s.buttonTitle, text);
       } catch {
         return reply(
           "Нужна корректная HTTPS-ссылка без пароля или служебного адреса Telegram.",
@@ -217,15 +228,14 @@ export class AuthorComposer {
     if (s.prompt === "button-row" && s.content) {
       if (!/^([1-9]|1[0-9]|20)$/.test(text))
         return reply("Введите номер ряда от 1 до 20.", cancel);
-      const content = {
-        ...s.content,
-        buttons: [
-          ...s.content.buttons,
-          { text: s.buttonTitle!, url: s.buttonUrl!, row: Number(text) - 1 },
-        ],
-      };
+      let content: TemplateContent;
       try {
-        validateContent(content);
+        content = appendAuthorButton(
+          s.content,
+          s.buttonTitle!,
+          s.buttonUrl!,
+          Number(text) - 1,
+        );
       } catch {
         return reply(
           "Допустимо до 20 кнопок и до 8 в одном ряду. Выберите другой ряд или отмените правку.",

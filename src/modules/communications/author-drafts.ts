@@ -1,4 +1,5 @@
-import type { Context } from "./author-admin.js";
+import { CommunicationsError } from "./communications-contract.js";
+import type { Action, Context, State } from "./author-admin.js";
 import type { AuthorFunnelState } from "./author-funnels.js";
 
 type Kind = "broadcast" | "funnel" | "intro";
@@ -55,4 +56,58 @@ export async function retainFunnelDraft(c: Context) {
       s,
     );
   else await removeAuthorDraft(c, id);
+}
+
+export function compositions(c: Context) {
+  return c.tx
+    .selectFrom("communication_author_compositions")
+    .selectAll()
+    .where("bot_identity", "=", c.input.botIdentity)
+    .where("owner_account_ref", "=", c.accountRef);
+}
+export async function retainComposition(c: Context) {
+  const composer = c.state.composing;
+  if (!composer) return;
+  await c.tx
+    .insertInto("communication_author_compositions")
+    .values({
+      bot_identity: c.input.botIdentity,
+      owner_account_ref: c.accountRef,
+      destination_id: composer.destination.id,
+      state: JSON.stringify(c.state),
+    })
+    .onConflict((q) =>
+      q
+        .columns(["bot_identity", "owner_account_ref", "destination_id"])
+        .doUpdateSet({ state: JSON.stringify(c.state) }),
+    )
+    .execute();
+}
+export async function discardComposition(c: Context, id: string) {
+  await c.tx
+    .deleteFrom("communication_author_compositions")
+    .where("bot_identity", "=", c.input.botIdentity)
+    .where("owner_account_ref", "=", c.accountRef)
+    .where("destination_id", "=", id)
+    .execute();
+}
+export async function compositionButtons(
+  c: Context,
+  id: string,
+): Promise<[string, Action][]> {
+  const pending = await compositions(c)
+    .where("destination_id", "=", id)
+    .executeTakeFirst();
+  if (!pending) return [];
+  return [
+    ["Продолжить сообщение", { kind: "compose:resume", id }],
+    ["Отменить добавление", { kind: "compose:discard", id }],
+  ];
+}
+export async function restoreComposition(c: Context, id: string) {
+  const pending = await compositions(c)
+    .where("destination_id", "=", id)
+    .executeTakeFirst();
+  if (!pending) throw new CommunicationsError("not_found");
+  c.state = pending.state as State;
 }

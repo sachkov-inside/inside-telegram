@@ -2,6 +2,8 @@ import {
   drafts,
   retainFunnelDraft,
   removeAuthorDraft,
+  compositionButtons,
+  discardComposition,
 } from "./author-drafts.js";
 import type { MessageDestination } from "./author-composer.js";
 import type { TemplateContent } from "./communications-contract.js";
@@ -84,6 +86,7 @@ export class AuthorFunnels {
         )
         .join("\n")}\nИсточников: ${f.sources.length}`,
       [
+        ...(await compositionButtons(c, f.funnelId)),
         ...(editable
           ? ([
               ["Название", { kind: "f:name" }],
@@ -214,6 +217,10 @@ export class AuthorFunnels {
           .join("\n") || "Добавьте сохранённый пост."
       }\nВыбранное содержимое сохраняется отдельно от исходного поста.${s.target === "intro" ? " После сохранения новые получатели увидят этот блок; прежним он повторно не придёт." : ""}`,
       [
+        ...(await compositionButtons(
+          c,
+          (s.target === "intro" ? s.intro?.introId : s.funnel?.funnelId)!,
+        )),
         ...parts
           .slice(offset, offset + 10)
           .map((part, i): [string, Action] => [
@@ -268,7 +275,10 @@ export class AuthorFunnels {
       await retainFunnelDraft(c);
     if (a.kind === "f:discard") {
       const id = s.target === "intro" ? s.intro?.introId : s.funnel?.funnelId;
-      if (id) await removeAuthorDraft(c, id);
+      if (id) {
+        await removeAuthorDraft(c, id);
+        await discardComposition(c, id);
+      }
       c.state.funnelAuthor = {};
       return this.perform(c, { kind: "f:list" }, reply);
     }

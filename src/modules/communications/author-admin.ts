@@ -1,4 +1,8 @@
 import {
+  validateAuthorButtonUrl,
+  appendAuthorButton,
+} from "./author-button.js";
+import {
   AuthorComposer,
   type ComposerState,
   type ComposerResult,
@@ -10,7 +14,13 @@ import {
   newBroadcast,
   retainBroadcast,
 } from "./author-broadcast-drafts.js";
-import { retainFunnelDraft } from "./author-drafts.js";
+import {
+  retainFunnelDraft,
+  retainComposition,
+  discardComposition,
+  compositionButtons,
+  restoreComposition,
+} from "./author-drafts.js";
 import { messageLabel, previewAuthorMessage } from "./author-message-view.js";
 import { AuthorFunnels, type AuthorFunnelState } from "./author-funnels.js";
 import { authorRequest } from "./author-request.js";
@@ -37,6 +47,7 @@ import { AuthorDelivery, enqueueAuthorMessage } from "./author-delivery.js";
 import {
   CommunicationsError,
   validateContent,
+  type TemplateContent,
   type CommunicationsRequest,
   type TemplateSnapshot,
 } from "./communications-contract.js";
@@ -227,11 +238,14 @@ export class AuthorAdmin {
               ? context.state.actions[Number(index)]
               : undefined;
           if (!action) {
-            context.state = empty();
+            const pending = context.state.composing;
+            if (!pending) context.state = empty();
             await this.reply(
               context,
-              "Это меню уже устарело. Откройте пост, рассылку или воронку заново.",
-              home,
+              "Это меню уже устарело. Незавершённое сообщение сохранено, если вы начали его создание.",
+              pending
+                ? await compositionButtons(context, pending.destination.id)
+                : home,
             );
           } else await this.act(context, action);
         } else {
@@ -257,6 +271,7 @@ export class AuthorAdmin {
           }
         }
         await retainFunnelDraft(context);
+        await retainComposition(context);
         await tx
           .insertInto("communication_author_sessions")
           .values({
@@ -350,6 +365,7 @@ export class AuthorAdmin {
       c,
       `${c.state.broadcastName ?? "Рассылка"}\n${broadcastNames[b.state]} · версия ${b.revision}\n${b.parts.length} сообщений\nАудитория: ${b.audience.kind === "all" ? "все доступные контакты" : `${b.audience.funnelIds.length} воронок (без дублей)`}\nВремя: ${b.scheduledAt ? new Date(b.scheduledAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " (Москва, UTC+3)" : "сразу после запуска"}\nКонтактов при запуске: ${b.snapshotSize}\n${b.parts.map((p, i) => `${i + 1}. ${messageLabel(p.content, 100)}`).join("\n")}`,
       [
+        ...(await compositionButtons(c, b.broadcastId)),
         ["Образцы себе", { kind: "broadcast-sample" }],
         ...(editable
           ? ([
@@ -419,9 +435,12 @@ export class AuthorAdmin {
   }
   private async act(c: Context, a: Action): Promise<void> {
     // Expected revision is taken from the menu the author actually saw.
+    await sql`savepoint author_admin_action`.execute(c.tx);
     try {
       await this.perform(c, a);
+      await sql`release savepoint author_admin_action`.execute(c.tx);
     } catch (error) {
+      await sql`rollback to savepoint author_admin_action`.execute(c.tx);
       if (
         !(error instanceof CommunicationsError) ||
         ![
@@ -474,6 +493,12 @@ export class AuthorAdmin {
           partId: a.id ?? c.state.replacePart?.partId,
         };
       }
+      const pending = await compositionButtons(c, destination.id);
+      if (pending.length)
+        return reply(
+          "Для этого объекта уже есть незавершённое сообщение. Продолжите его или явно отмените добавление.",
+          pending,
+        );
       let content;
       if (a.kind === "compose:edit-broadcast")
         content = c.state.broadcast?.parts.find(
@@ -488,6 +513,17 @@ export class AuthorAdmin {
         return this.composer.library(c, reply);
       }
       return this.composer.begin(c, destination, reply, content);
+    }
+    if (a.kind === "compose:resume" && a.id) {
+      await restoreComposition(c, a.id);
+      return this.composer.resume(c, reply);
+    }
+    if (a.kind === "compose:discard" && a.id) {
+      await restoreComposition(c, a.id);
+      return this.composeResult(
+        c,
+        await this.composer.act(c, { kind: "compose:cancel" }, reply),
+      );
     }
     if (a.kind.startsWith("compose:"))
       return this.composeResult(c, await this.composer.act(c, a, reply));
@@ -871,6 +907,7 @@ export class AuthorAdmin {
   ): Promise<void> {
     if (result.kind === "handled") return;
     const d = result.destination;
+    await discardComposition(c, d.id);
     if (d.kind === "broadcast") {
       const b = c.state.broadcast;
       if (!b || b.broadcastId !== d.id)
@@ -974,12 +1011,7 @@ export class AuthorAdmin {
     }
     if (state.prompt === "button-url") {
       try {
-        validateContent({
-          type: "text",
-          text: "Ссылка",
-          entities: [],
-          buttons: [{ text: state.buttonTitle, url: text }],
-        });
+        validateAuthorButtonUrl(state.buttonTitle, text);
       } catch {
         return this.reply(
           c,
@@ -997,19 +1029,14 @@ export class AuthorAdmin {
       if (!/^([1-9]|1[0-9]|20)$/.test(text))
         return this.reply(c, "Введите номер ряда от 1 до 20.");
       const t = state.template;
-      const content = {
-        ...t.content,
-        buttons: [
-          ...t.content.buttons,
-          {
-            text: state.buttonTitle!,
-            url: state.buttonUrl!,
-            row: Number(text) - 1,
-          },
-        ],
-      };
+      let content: TemplateContent;
       try {
-        validateContent(content);
+        content = appendAuthorButton(
+          t.content,
+          state.buttonTitle!,
+          state.buttonUrl!,
+          Number(text) - 1,
+        );
       } catch {
         return this.reply(
           c,

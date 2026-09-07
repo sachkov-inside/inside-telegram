@@ -277,6 +277,12 @@ export interface SignInSubjectsTable {
 }
 
 export interface DatabaseSchema {
+  communication_author_compositions: {
+    bot_identity: string;
+    owner_account_ref: string;
+    destination_id: string;
+    state: unknown;
+  };
   communication_author_drafts: {
     bot_identity: string;
     owner_account_ref: string;

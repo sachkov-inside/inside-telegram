@@ -115,7 +115,7 @@ beforeAll(async () => {
   communications = app.get(Communications);
 });
 beforeEach(async () => {
-  await sql`truncate communication_author_drafts, communication_funnels, communication_intro, communication_sources, communication_author_sessions, communication_author_receipts, communication_author_outbox, communication_broadcasts, telegram_transport_slots, communication_intake_receipts, communication_operations, communication_templates, communication_author_modes,
+  await sql`truncate communication_author_compositions, communication_author_drafts, communication_funnels, communication_intro, communication_sources, communication_author_sessions, communication_author_receipts, communication_author_outbox, communication_broadcasts, telegram_transport_slots, communication_intake_receipts, communication_operations, communication_templates, communication_author_modes,
     link_transactions, platform_links, telegram_updates, bot_contacts, bot_contact_events, start_response_deliveries restart identity cascade`.execute(
     database,
   );
@@ -126,6 +126,9 @@ beforeEach(async () => {
   sent.length = 0;
 });
 afterAll(async () => {
+  await sql`truncate communication_author_compositions, communication_author_drafts, communication_broadcasts cascade`.execute(
+    database,
+  );
   await app?.close();
   await database.destroy();
 });
@@ -1439,6 +1442,92 @@ describe("contextual Telegram composition", () => {
     });
   });
 
+  it("restores an unfinished broadcast message and button prompt after leaving and stale callbacks", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Рассылки");
+    await authorClick(102, "Создать рассылку");
+    await authorMessage(103, "Продолжение");
+    await authorClick(104, "Создать сообщение");
+    await authorMessage(105, "Незавершённый текст");
+    const stale = await authorClick(106, "Добавить кнопку");
+    await authorMessage(107, "Подробнее");
+    await authorMessage(108, "/admin");
+    await authorClick(109, "Рассылки");
+    await authorClick(110, "Продолжение · Черновик");
+    await authorClick(111, "Продолжить сообщение");
+    expect((await sessionState()).composing).toMatchObject({
+      prompt: "button-url",
+      buttonTitle: "Подробнее",
+      content: { text: "Незавершённый текст" },
+    });
+    await app.get(AuthorAdmin).handle({ ...stale, updateId: "1115" });
+    expect(await lastAuthorText()).toContain("устарело");
+    await authorClick(112, "Продолжить сообщение");
+    await authorMessage(113, "https://inside.test/resume");
+    await authorMessage(114, "2");
+    await authorClick(115, "Добавить в рассылку");
+    expect((await broadcastRows())[0]!.parts).toMatchObject([
+      {
+        content: {
+          text: "Незавершённый текст",
+          buttons: [{ text: "Подробнее", row: 1 }],
+        },
+      },
+    ]);
+    expect(
+      await database
+        .selectFrom("communication_author_compositions")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
+    await authorClick(116, "Создать сообщение");
+    await authorMessage(117, "Отменяемый текст");
+    await authorMessage(118, "/admin");
+    await authorClick(119, "Рассылки");
+    await authorClick(120, "Продолжение · Черновик");
+    await authorClick(121, "Отменить добавление");
+    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+    expect(
+      await database
+        .selectFrom("communication_author_compositions")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
+  });
+
+  it("restores the exact funnel step for an unconfirmed message", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Воронки");
+    await authorClick(102, "Создать воронку");
+    await authorMessage(103, "Восстановление шага");
+    await authorClick(104, "Шаги и задержки");
+    await authorClick(105, "Добавить шаг");
+    await authorClick(106, "Сообщения шага");
+    await authorClick(107, "Создать сообщение");
+    await authorMessage(108, "Сохранённый предпросмотр шага");
+    const destination = (await sessionState()).composing!.destination;
+    await authorMessage(109, "/admin");
+    await authorClick(110, "Воронки");
+    await authorClick(111, "Восстановление шага · есть правки");
+    await authorClick(112, "Продолжить сообщение");
+    expect((await sessionState()).composing!.destination).toEqual(destination);
+    await authorClick(113, "Добавить в блок");
+    expect(
+      (await sessionState()).funnelAuthor!.funnel!.steps[0]!.parts,
+    ).toMatchObject([{ content: { text: "Сохранённый предпросмотр шага" } }]);
+    expect(
+      (await sessionState()).funnelAuthor!.funnel!.entryResponse.parts,
+    ).toHaveLength(0);
+    expect(
+      await database
+        .selectFrom("communication_author_compositions")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
+  });
+
   it("rejects a stale broadcast attachment after another writer changes the revision", async () => {
     await seedLink();
     await authorMessage(100, "/admin");
@@ -1469,6 +1558,14 @@ describe("contextual Telegram composition", () => {
     });
     await authorClick(109, "Добавить в рассылку");
     expect(await lastAuthorText()).toContain("изменились");
+    const pending = await database
+      .selectFrom("communication_author_compositions")
+      .selectAll()
+      .execute();
+    expect(pending).toHaveLength(1);
+    expect((pending[0]!.state as State).composing!.content!.text).toBe(
+      "Запоздалая часть",
+    );
     expect((await broadcastRows())[0]!.parts).toMatchObject([
       { content: { text: "Версия с сайта" } },
     ]);
