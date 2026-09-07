@@ -19,6 +19,7 @@ export type MessageDestination = { expectedRevision: number } & (
 );
 export interface ComposerState {
   destination: MessageDestination;
+  sequence?: { lastOffset: number; firstEntry: boolean };
   content?: TemplateContent;
   prompt?: "capture" | "search" | "button-title" | "button-url" | "button-row";
   buttonTitle?: string;

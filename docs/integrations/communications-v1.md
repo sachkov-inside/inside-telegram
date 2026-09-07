@@ -269,9 +269,10 @@ revoked, inactive or mismatched subjects are denied. Missing/malformed/unavailab
 authorize. HTTP 401/403 deny; transport/provider errors fail closed as unavailable. No Telegram raw
 ID, credentials or provider payload is returned by the management API.
 
-## Author admin and shared saved posts (#37)
+## Legacy author composer and shared saved posts (#37)
 
-`/admin` opens the private author menu. Every command and callback checks the current confirmed link
+The original composer remains for persisted-session recovery. The current `/admin` flow is
+described in [Simple Telegram authoring](#simple-telegram-authoring-43). Every command and callback checks the current confirmed link
 and `communications:manage`. The menu creates/replaces native posts, lists saved posts, configures
 HTTPS button text/URL with automatic placement, sends samples to the author, and assembles ordered broadcast parts.
 The all-contact audience, schedule (explicit Moscow UTC+3 input), launch/pause/resume/cancel and statistics call the
@@ -355,7 +356,7 @@ No real author permission endpoint, Platform editor, credentialed Telegram messa
 release or production enablement is proven here. Platform #307 supplies authorization, #308 the
 editor, and #310 the cross-application acceptance. Every merge and release still requires owner GO.
 
-## Funnel author menu (#38)
+## Legacy funnel author menu (#38)
 
 `/admin` → «Воронки» uses the same persisted author session, fresh confirmed-link authorization,
 update receipts and author-only outbox as posts and broadcasts. It creates and edits the entry
@@ -387,96 +388,54 @@ intro is checked before save because saving immediately applies it to future rec
 No real Telegram send, marketing enablement or deployment is part of local verification. Author
 samples are queued only for the confirmed author's private chat and use the existing transport gate.
 
-## Contextual Telegram drafts (#43)
+## Simple Telegram authoring (#43)
 
-The primary flow starts at `/admin` → «Рассылки» or «Воронки» → «Создать». Send several native
-Telegram messages consecutively, then press «Готово». Each accepted update checkpoints its content
-and receipt atomically; duplicate updates do not append again. The first message supplies an editable
-name. Unsupported messages keep intake open and preserve accepted parts. Broadcasts hold up to 20
-parts; the prepared funnel entry holds up to 100. Albums are not supported: send media separately.
-`/cancel` ends intake without removing received messages. Reopen the draft and «Добавить сообщения»
-to continue. No separate library post or UUID entry is required.
+The current `/admin` menu contains «Рассылки», «Воронки», and «Статистика».
+Create a broadcast or funnel, send one native message, choose its time, then send the next.
+«Готово» returns to the short summary. The incoming order is the delivery order; elapsed times
+cannot decrease. Text, photo, video, video note, voice and document preserve native formatting and
+file IDs. Albums are rejected without losing accepted messages. The first message supplies the name.
+Broadcasts allow 20 messages; funnels allow 100 across entry and delayed steps.
 
-Broadcast parts are immediately saved in the canonical provider draft. «Готово» saves a prepared
-funnel through `funnels.save`; incomplete funnel work remains in the private scratch checkpoint.
-The compact card leads to messages and timing. Less frequent actions use «Ещё →» or
-«Настройки». Message lists page five at a time; select an item for its preview, editing, ordering or
-removal. HTTPS buttons ask only for title and URL; new buttons occupy the next available row. Old
-persisted row-input prompts remain recoverable, but no new interaction requests a row number.
+A broadcast time is elapsed from its actual launch: «Сразу», «Через 1 час», «Через 2 часа», or
+free text such as `20 минут`. The optional `sendAfterSeconds` on each broadcast part is an integer
+0..2147483647, defaults to zero, and is nondecreasing. Saving never starts the clock. «Запустить»
+shows confirmation; only the final confirmation launches for all eligible bot contacts. Stopped or
+unreachable contacts are excluded. A scheduled API broadcast anchors offsets to actual launch too.
+Pause suspends delivery without resetting the launch clock; resume sends overdue parts in order.
+Cancel stops future parts. Retries and unknown outcomes keep the existing durable delivery policy.
 
-A broadcast sends all its parts consecutively to all eligible bot contacts at one common time.
-«Отправка» → «Сейчас» or «Запланировать» leads to a confirmation identifying the saved revision,
-time and audience; no send starts until the author confirms. Users who stopped marketing or are
-unreachable remain excluded. Distinct calendar times require separate broadcasts. A funnel instead
-sends an entry response and then steps with delays after completion of the preceding step.
-«Сообщения и отправка» → a message → «Когда отправить» accepts e.g. `20 минут` or `1 день`.
-A newly delayed message is appended to the chain; step order remains editable in settings. At least
-one entry message remains. Moving a never-published part keeps its ID and native content. A historical
-part cannot move to another block because this would violate delivery identity; changing a single-part
-step's delay remains supported. Preparing content and saving a draft never publishes it.
+A newly authored funnel sends its first message immediately on entry. Later messages use
+`delayAnchor: "entry"` and `delaySeconds` from that person's entry, so +1h/+2h mean one and two hours,
+not one then three. Previously saved steps without `delayAnchor` retain delays after the preceding
+step. Entry-anchored steps still respect earlier unfinished delivery; a late worker catches up in
+order. Saving remains separate from publication. «Сделать основной» selects the funnel for ordinary
+entry; «Включить воронку» explicitly publishes. Existing published edits require «Применить изменения».
+An unpublished draft can be archived/cancelled and restored to draft without publishing.
 
-The owner works with an agent directly from the terminal. Telegram does not contain an agent button
-or generate a handoff task. After «Готово» (or «Сохранить черновик» for later manual funnel edits),
-the agent can list/read the canonical drafts through the existing authenticated Platform MCP/API
-as the same Account with `communications:manage`. Bot token possession is not management access.
-The agent preserves native text/entities/fileId/part IDs and saves timing, buttons or order using
-the current expectedRevision and a new operationId. Replays keep operationId; conflicts require
-rereading and reconciling. Publication and launch need an explicit owner instruction. Reopening the
-bot draft reads the same provider data after agent changes.
+Each message waits in a durable bot/Account-scoped composition until its time is accepted.
+Acceptance saves the canonical provider draft and update receipt atomically. `/admin` or restart
+preserves pending content; reopen the draft and continue. An incomplete time, invalid message,
+stale callback or revision conflict does not lose the candidate or attach it twice. «Не добавлять это
+сообщение» discards just the pending message. «Готово» cannot bypass an unanswered time prompt.
+The next message captures a fresh expectedRevision. Concurrent agent edits require reread/reconciliation.
 
-Navigation edits the latest successfully delivered author menu in place, scoped by bot, Account,
-Telegram identity and chat. The target message ID commits before external I/O. Native previews get a new message. A definitive Telegram edit rejection can send a replacement;
-unknown transport results never trigger an automatic resend. Permission rechecks and update receipts
-remain in force for every click and reply.
+The ordinary menu omits saved-post browsing, replacement, reordering, button rows and agent handoff.
+Advanced authenticated API/MCP operations and legacy persisted composer recovery remain available.
+The owner works with an agent in the terminal: list/read the canonical draft as the same Account with
+`communications:manage`, preserve native content and stable IDs, then save using expectedRevision and
+operationId. Replays reuse operationId. Bot token possession does not grant author access. Launch and
+publication require the owner's instruction. Reopening the bot reads the same provider draft.
+Platform vendors the additive timing schema and generates its HTTP/MCP validators from it.
 
-The optional «Создать сообщение» composer accepts one message, queues its native preview to the
-confirmed author and offers button editing, replacement, cancellation and explicit attachment.
-The same composer serves entry responses, delayed steps and common intro. It carries the exact
-destination and optional existing part ID; replacement preserves that ID. A pending candidate never
-changes the destination before confirmation; `/cancel` returns to it without attachment.
+Menu navigation updates the last confirmed author menu in place; native previews end with a fresh
+menu. When the broadcast delivers to its linked owning author, the scheduler atomically enqueues a
+fresh menu after the currently due group of posts. Future scheduled groups get their own footer.
+Ordinary subscribers never receive admin controls. The footer only navigates; opening it rechecks
+current permissions. Author delivery rechecks the link and permission before sending. Unknown
+transport outcomes never trigger an automatic resend or a false successful-delivery footer.
 
-The pending message, exact destination and partial button input are checkpointed in
-`communication_author_compositions`, scoped by bot and Account, with the update receipt. Reopening
-the destination offers «Продолжить сообщение» and «Отменить добавление». `/admin` and stale buttons
-do not delete pending input. Successful attachment or explicit cancellation removes the checkpoint;
-a rejected mutation rolls back to a savepoint so a revision conflict preserves the candidate.
-Recovery restores only the candidate and its selected block, preserving later destination edits.
-The candidate carries its original provider revision; restoring it never silently rebases a write.
-Library recovery retains the search and page even before a post has been selected.
-
-«Добавить сохранённый пост» is an optional path through paged, owner-scoped search by text or media
-type. Results show type and an excerpt; choosing one displays the frozen native snapshot before
-attachment. Button changes affect that candidate, never the source template. Preview is an author
-outbox operation, not a subscriber broadcast. Its existing permission recheck, transport reservation,
-durable attempt and unknown-result policy remain in force.
-
-Migration `015-author-drafts` owns bot-only names and incomplete destination drafts in
-`communication_author_drafts`, scoped by bot and Account reference. Incomplete broadcasts have no
-provider broadcast until their first part is attached. Their saved schedule alone cannot send.
-Once created, `communication_broadcasts` remains the sole authority for content, revision, audience
-and dispatch; the draft table keeps only the author-facing name. Nonempty existing broadcasts keep
-the provider's minimum-one-part rule: replace the last part, or cancel the whole broadcast.
-Cancelled empty drafts stay visible and can be copied, without creating a subscriber delivery.
-
-Unapplied funnel/intro changes are retained after each author action in the same transaction as
-session state and the update receipt. `/admin`, navigation, process restart and a later session do
-not discard those drafts. Reopening restores the last composed state with its original provider
-revision; applying it still checks that revision. Explicit save/intro save clears the scratch copy;
-publication and intro validation retain their existing content and authority checks. Abandoning
-changes removes only the scratch draft. Revoked authorization does not reveal saved drafts, and a
-relinked foreign Account cannot read the old owner's drafts.
-
-The broadcast card exposes name, ordered message excerpts, audience, Moscow schedule, author samples,
-per-message native view, editing/replacement, order and removal. Launch confirmation names the saved
-version, audience and time. Lifecycle operations retain the original snapshot rules. Copy creates a
-new unarmed draft with new part IDs and no inherited schedule or delivery history. Global statistics
-and broadcast results remain separate navigation actions. Public HTTP/MCP request and response
-schemas are unchanged; the website does not interpret Telegram-only names or incomplete drafts.
-
-Verification: `communications.integration.test.ts` walks real PostgreSQL sessions through blank-draft
-reopen, all six native types, invalid input, contextual button editing, explicit confirmation,
-cancellation, paging/search isolation, stale callbacks, duplicate updates, permission revocation,
-concurrent web edits, funnel/intro restoration and copying. All automated Telegram transport is
-synthetic; it does not certify real file IDs or client rendering. Manual acceptance starts with a
-fresh `/admin` menu in the dedicated local test bot and never requires completing a website login
-for each authoring operation.
+Migration `015-author-drafts` owns private incomplete destinations and pending compositions. These checkpoints never authorize subscriber delivery. No new database migration
+is required for timing: immutable delivery snapshots and published funnel JSON retain the new fields.
+The schema fixtures, PostgreSQL author-flow tests and clock-controlled scheduler tests cover this
+flow, exact elapsed times, pause/cancel, recovery, conflicts, permission boundaries and footer ordering.

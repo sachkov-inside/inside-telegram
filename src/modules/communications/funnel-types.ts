@@ -3,12 +3,16 @@ export interface MessagePart {
   readonly partId: string;
   readonly content: TemplateContent;
 }
+export interface BroadcastPart extends MessagePart {
+  readonly sendAfterSeconds?: number;
+}
 export interface EntryResponse {
   readonly stepId: string;
   readonly parts: readonly MessagePart[];
 }
 export interface FunnelStep extends EntryResponse {
   readonly delaySeconds: number;
+  readonly delayAnchor?: "entry";
 }
 export interface FunnelSource {
   readonly sourceId: string;

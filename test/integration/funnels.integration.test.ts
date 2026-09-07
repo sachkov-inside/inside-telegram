@@ -1488,3 +1488,72 @@ it("preview does not call a removed unknown lane completed", async () => {
     completedParticipantsReceivingNewSteps: 0,
   });
 });
+
+describe("entry-anchored funnel schedule", () => {
+  it("keeps +1h/+2h anchored to entry even when the first hour delivery is late", async () => {
+    const value: FunnelDraft = {
+      ...draft("anchored"),
+      steps: [3600, 7200].map((delaySeconds, i) => ({
+        stepId: randomUUID(),
+        delaySeconds,
+        delayAnchor: "entry",
+        parts: [part(`anchored:${i}`)],
+      })),
+    };
+    await setup(value);
+    await start();
+    await tick(0);
+    await tick(1);
+    sent.length = 0;
+    await tick(3598);
+    expect(sent).toHaveLength(0);
+    await tick(601);
+    expect(
+      sent.map((m) => (m.content.type === "text" ? m.content.text : "media")),
+    ).toEqual(["anchored:0"]);
+    await tick(2999);
+    expect(sent).toHaveLength(1);
+    await tick(1);
+    expect(
+      sent.map((m) => (m.content.type === "text" ? m.content.text : "media")),
+    ).toEqual(["anchored:0", "anchored:1"]);
+    await tick(7200);
+    expect(sent).toHaveLength(2);
+  });
+  it("archives and restores an unpublished draft without activating it", async () => {
+    const value = draft();
+    await http(command("funnels.save", value));
+    const archived = await http(
+      command(
+        "funnels.lifecycle",
+        { funnelId: value.funnelId, action: "archive" },
+        1,
+      ),
+    );
+    expect(archived.statusCode).toBe(200);
+    expect(archived.json().funnel.lifecycle).toBe("archived");
+    const restored = await http(
+      command(
+        "funnels.lifecycle",
+        { funnelId: value.funnelId, action: "restore" },
+        2,
+      ),
+    );
+    expect(restored.statusCode).toBe(200);
+    expect(restored.json().funnel).toMatchObject({
+      lifecycle: "draft",
+      publishedRevision: null,
+    });
+    await start();
+    await tick(7200);
+    expect(
+      await database
+        .selectFrom("communication_enrollments")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
+    expect(sent.some((m) => m.content.text?.startsWith("general:"))).toBe(
+      false,
+    );
+  });
+});

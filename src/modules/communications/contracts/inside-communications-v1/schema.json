@@ -209,6 +209,10 @@
           },
           "minItems": 1,
           "maxItems": 20
+        },
+        "delayAnchor": {
+          "type": "string",
+          "enum": ["entry"]
         }
       },
       "required": ["stepId", "delaySeconds", "parts"]
@@ -815,7 +819,7 @@
                 "parts": {
                   "type": "array",
                   "items": {
-                    "$ref": "#/definitions/part"
+                    "$ref": "#/definitions/broadcastPart"
                   },
                   "minItems": 1,
                   "maxItems": 20
@@ -1842,7 +1846,7 @@
         "parts": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/part"
+            "$ref": "#/definitions/broadcastPart"
           },
           "minItems": 1,
           "maxItems": 20
@@ -2523,7 +2527,7 @@
         "snapshot": {
           "type": "array",
           "items": {
-            "$ref": "#/definitions/part"
+            "$ref": "#/definitions/broadcastPart"
           },
           "maxItems": 100,
           "minItems": 1
@@ -2743,6 +2747,25 @@
           "required": ["contractVersion", "requestId", "status"]
         }
       ]
+    },
+    "broadcastPart": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "partId": {
+          "type": "string",
+          "format": "uuid"
+        },
+        "content": {
+          "$ref": "#/definitions/content"
+        },
+        "sendAfterSeconds": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 2147483647
+        }
+      },
+      "required": ["partId", "content"]
     }
   },
   "oneOf": [

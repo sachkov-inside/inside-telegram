@@ -119,12 +119,15 @@ export async function reconcileFunnels(
         .where("funnel_id", "=", draft.funnelId)
         .where("step_id", "=", step.stepId)
         .executeTakeFirstOrThrow();
-      const due = relativeDue(
-        enrollment.enrolled_at,
-        definition.first_published_at,
-        previous,
-        step.delaySeconds,
-      );
+      const due =
+        step.delayAnchor === "entry"
+          ? new Date(+enrollment.enrolled_at + step.delaySeconds * 1000)
+          : relativeDue(
+              enrollment.enrolled_at,
+              definition.first_published_at,
+              previous,
+              step.delaySeconds,
+            );
       const suppressed = suppressContactId !== undefined && +due <= +now;
       const parts: DeliveryPart[] = step.parts.map((p) => ({
         partId: p.partId,

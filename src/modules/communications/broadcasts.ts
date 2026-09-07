@@ -8,7 +8,7 @@ import {
 } from "./communications-contract.js";
 import { planDelivery } from "./communication-state.js";
 import { cancelDelivery } from "./funnel-timeline.js";
-import type { MessagePart } from "./funnel-types.js";
+import type { BroadcastPart } from "./funnel-types.js";
 
 type Broadcast = Selectable<DatabaseSchema["communication_broadcasts"]>;
 type Audience = NonNullable<CommunicationsRequest["payload"]["audience"]>;
@@ -18,7 +18,7 @@ export function broadcastView(row: Broadcast) {
     broadcastId: row.broadcast_id,
     revision: row.revision,
     state: row.state,
-    parts: row.parts as MessagePart[],
+    parts: row.parts as BroadcastPart[],
     audience: row.audience as Audience,
     scheduledAt: row.scheduled_at?.toISOString() ?? null,
     audienceSnapshotId: row.audience_snapshot_id,
@@ -78,7 +78,17 @@ export async function applyBroadcast(
     const parts = payload.parts!;
     if (new Set(parts.map((p) => p.partId)).size !== parts.length)
       throw new CommunicationsError("unsupported_content");
-    parts.forEach((p) => validateContent(p.content));
+    parts.forEach((p, i) => {
+      validateContent(p.content);
+      const offset = p.sendAfterSeconds ?? 0;
+      if (
+        !Number.isSafeInteger(offset) ||
+        offset < 0 ||
+        offset > 2147483647 ||
+        offset < (parts[i - 1]?.sendAfterSeconds ?? 0)
+      )
+        throw new CommunicationsError("unsupported_content");
+    });
     const audience = payload.audience!;
     if (audience.kind === "funnels") {
       const ids = [...new Set(audience.funnelIds)];
@@ -222,7 +232,7 @@ async function launchBroadcast(
       broadcastId: row.broadcast_id,
       kind: "broadcast",
       key: `broadcast:${row.broadcast_id}:${contact.contact_id}`,
-      parts: row.parts as MessagePart[],
+      parts: row.parts as BroadcastPart[],
       revision: row.revision,
       dueAt: now,
       now,

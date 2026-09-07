@@ -93,32 +93,99 @@ export class AuthorFunnels {
     s.target = "entry";
     s.dirty = true;
   }
+  appendTimed(c: Context, content: TemplateContent, offset: number) {
+    const s = this.state(c),
+      f = s.funnel!;
+    if (offset === 0 && !f.steps.length && f.entryResponse.parts.length < 20)
+      return this.appendPrepared(c, content);
+    if (f.lifecycle === "archived" || !f.entryResponse.parts.length)
+      throw new CommunicationsError("revision_conflict");
+    s.funnel = {
+      ...f,
+      steps: [
+        ...f.steps,
+        {
+          stepId: randomUUID(),
+          delaySeconds: offset,
+          delayAnchor: "entry",
+          parts: [{ partId: randomUUID(), content }],
+        },
+      ],
+    };
+    s.dirty = true;
+    s.target = "entry";
+  }
   private async show(c: Context, reply: Reply): Promise<void> {
-    const s = this.state(c);
+    const s = this.state(c),
+      f = s.funnel;
     s.prompt = undefined;
-    const f = s.funnel;
     if (!f) return this.perform(c, { kind: "f:list" }, reply);
-    const editable = f.lifecycle !== "archived";
+    const pending = await compositionButtons(c, f.funnelId);
     return reply(
-      `${f.name}\n${names[f.lifecycle]}${s.dirty ? " · есть правки" : ""}\nСообщений: ${f.entryResponse.parts.length + f.steps.reduce((n, step) => n + step.parts.length, 0)} · шагов с задержкой: ${f.steps.length}\nСначала подготовьте сообщения, затем настройте порядок, кнопки и задержки. Публикация — отдельное подтверждение.`,
+      `${f.name}\n${names[f.lifecycle]}${s.dirty ? " · есть правки" : ""}\nСообщений: ${f.entryResponse.parts.length + f.steps.reduce((n, step) => n + step.parts.length, 0)}. Основная воронка: ${f.isDefault ? "да" : "нет"}.\n${f.steps
+        .map(
+          (step, i) =>
+            `${i + 1}. Через ${formatFunnelDelay(step.delaySeconds)} ${step.delayAnchor === "entry" ? "от входа" : "после предыдущего шага"}`,
+        )
+        .slice(0, 5)
+        .join("\n")}`,
       [
-        ...(await compositionButtons(c, f.funnelId)),
-        ["Сообщения и отправка", { kind: "f:messages" }],
-        ...(editable
-          ? ([
-              ["Добавить сообщения", { kind: "batch:funnel" }],
-              [
-                s.dirty ? "Сохранить черновик" : "Проверить публикацию",
-                { kind: s.dirty ? "f:save" : "f:preview" },
+        ...pending,
+        ...(f.lifecycle !== "archived" && !pending.length
+          ? [
+              ["Добавить сообщение", { kind: "sequence:funnel" }] as [
+                string,
+                Action,
               ],
-            ] as Buttons)
+            ]
           : []),
-        ["Настройки", { kind: "f:settings" }],
+        ...(s.dirty
+          ? [["Сохранить черновик", { kind: "f:save" }] as [string, Action]]
+          : []),
+        ...(!s.dirty &&
+        f.lifecycle !== "archived" &&
+        f.revision &&
+        f.revision !== f.publishedRevision
+          ? [
+              [
+                f.publishedRevision === null
+                  ? "Включить воронку"
+                  : "Применить изменения",
+                { kind: "f:preview" },
+              ] as [string, Action],
+            ]
+          : []),
+        ...(f.lifecycle === "draft" && !f.isDefault
+          ? [["Сделать основной", { kind: "f:default" }] as [string, Action]]
+          : []),
+        ...(f.lifecycle === "published"
+          ? [
+              ["Приостановить", { kind: "f:life", value: "pause" }] as [
+                string,
+                Action,
+              ],
+            ]
+          : []),
+        ...(f.lifecycle === "paused"
+          ? [
+              ["Продолжить", { kind: "f:life", value: "resume" }] as [
+                string,
+                Action,
+              ],
+            ]
+          : []),
+        ...(f.lifecycle !== "archived"
+          ? [
+              [
+                "Отменить воронку",
+                { kind: f.revision ? "f:confirm-archive" : "f:discard" },
+              ] as [string, Action],
+            ]
+          : []),
         ["Все воронки", { kind: "f:list" }],
       ],
     );
   }
-
   private async settings(c: Context, reply: Reply): Promise<void> {
     const s = this.state(c),
       f = s.funnel!;
@@ -434,7 +501,6 @@ export class AuthorFunnels {
       c.state.funnelAuthor = {};
       return reply("Воронки · черновики сохраняются при каждом действии", [
         ["Создать воронку", { kind: "f:new" }],
-        ["Общий вводный блок", { kind: "f:intro" }],
         ...items,
         ...(ids.length > 10
           ? [
@@ -795,6 +861,8 @@ export class AuthorFunnels {
         },
         f.revision,
       );
+      if (!validRequest(request) && a.value === "quiet")
+        throw new CommunicationsError("malformed");
       if (!validRequest(request))
         return reply(
           "Добавьте хотя бы один пост в первый ответ и в каждый шаг, затем сохраните черновик.",
@@ -803,6 +871,7 @@ export class AuthorFunnels {
       const result = await this.funnels.execute(request, c.tx);
       if ("funnel" in result) s.funnel = result.funnel;
       s.dirty = false;
+      if (a.value === "quiet") return;
       return this.show(c, reply);
     }
     if (a.kind === "f:preview" || a.kind === "f:publish") {
@@ -865,7 +934,12 @@ export class AuthorFunnels {
         [["Опубликовать воронку", { kind: "f:publish" }], ...back],
       );
     }
-    if (a.kind === "f:life" && !s.dirty) {
+    if (a.kind === "f:confirm-archive")
+      return reply(
+        "Отменить воронку? Новые сообщения больше не будут отправляться. Уже доставленные останутся у получателей.",
+        [["Да, отменить", { kind: "f:life", value: "archive" }], ...back],
+      );
+    if (a.kind === "f:life" && (!s.dirty || a.value === "archive")) {
       const result = await this.funnels.execute(
         this.request(
           c,
@@ -878,7 +952,11 @@ export class AuthorFunnels {
         ),
         c.tx,
       );
-      if ("funnel" in result) s.funnel = result.funnel;
+      if ("funnel" in result) {
+        s.funnel = result.funnel;
+        s.dirty = false;
+        await removeAuthorDraft(c, f.funnelId);
+      }
       return this.show(c, reply);
     }
     return this.show(c, reply);
@@ -1054,7 +1132,7 @@ export function parseFunnelDelay(value: string): number | undefined {
     ? seconds
     : undefined;
 }
-function formatFunnelDelay(seconds: number): string {
+export function formatFunnelDelay(seconds: number): string {
   for (const [unit, factor] of [
     ["д", 86400],
     ["ч", 3600],

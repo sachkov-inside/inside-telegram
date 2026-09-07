@@ -418,7 +418,7 @@ export class Funnels {
       };
     }
     if (operation === "funnels.lifecycle") {
-      const lifecycle = (
+      let lifecycle: "draft" | "published" | "paused" | "archived" = (
         {
           pause: "paused",
           resume: "published",
@@ -426,8 +426,14 @@ export class Funnels {
           restore: "paused",
         } as const
       )[payload.action as "pause" | "resume" | "archive" | "restore"];
-      if (!existing.published || !lifecycle)
+      if (
+        !lifecycle ||
+        (!existing.published &&
+          !["archive", "restore"].includes(payload.action!))
+      )
         throw new CommunicationsError("revision_conflict");
+      if (!existing.published && payload.action === "restore")
+        lifecycle = "draft";
       await tx
         .updateTable("communication_funnels")
         .set({ lifecycle, revision: expectedRevision + 1 })
