@@ -16,10 +16,10 @@ on:
         required: true
       branch:
         type: string
-        default: ''
+        default: ""
       reason:
         type: string
-        default: ''
+        default: ""
       request:
         type: string
         required: true
