@@ -71,8 +71,10 @@ socket включается при загрузке host. Автоматичес
 Для отката сначала сверяйте, что webhook всё ещё указывает на этот relay. Верните
 сохранённый URL/IP и прежние `allowed_updates`/`max_connections` через `setWebhook`,
 с тем же secret и `drop_pending_updates=false`. Проверьте результат повторным
-чтением. После восстановления маршрута остановите только эти service/socket и
-удалите только добавленные для них firewall rules. Не удаляйте очередь или данные
+чтением. После восстановления маршрута отключите автозапуск и остановите socket:
+`systemctl disable --now inside-telegram-webhook-relay.socket`. Затем остановите
+`inside-telegram-webhook-relay.service` и удалите только добавленные для них
+firewall rules. Не удаляйте очередь или данные
 бота. Возврат исходного маршрута может вернуть исходную сетевую задержку.
 
 Источники: [Telegram webhook requirements](https://core.telegram.org/bots/webhooks),
