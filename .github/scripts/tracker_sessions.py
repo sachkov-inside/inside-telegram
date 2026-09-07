@@ -15,7 +15,7 @@ import uuid
 from datetime import datetime, timezone
 from pathlib import Path
 
-from inside_tracker import CONTROLLER, GitHub, MARKER, Reconciler, TrackerError, identity, snapshot
+from inside_tracker import CONTROLLER, REPOSITORIES, GitHub, MARKER, Reconciler, TrackerError, identity, snapshot
 from tracker_policy import ROLES, unfinished
 
 SESSION_WORKFLOW = 'inside-agent-sessions.yml'
@@ -34,13 +34,19 @@ def read_session(api, repo, number):
     comment = matches[0]
     try:
         state = json.loads(comment['body'][len(MARKER):].strip())
-        validate_state(state)
+        validate_state(state, repo)
     except (ValueError, KeyError, TypeError) as error:
         raise TrackerError('Malformed trusted session state; owner repair required') from error
     return state, comment['id']
 
 
-def validate_state(state):
+def valid_branch(branch, repo):
+    # Inside Content's owner-approved local workflow keeps editorial work on main.
+    return (branch == 'main' and repo == 'sachkov-inside/inside-content' or
+            bool(re.fullmatch(r'(feat|fix|docs|chore|research|prototype)/[A-Za-z0-9][A-Za-z0-9._/-]{0,180}', branch)))
+
+
+def validate_state(state, repo):
     required = {'session', 'request', 'command', 'phase', 'branch', 'reason', 'updated_at'}
     if not isinstance(state, dict) or set(state) != required or not all(isinstance(v, str) for v in state.values()):
         raise ValueError('invalid session shape')
@@ -48,7 +54,7 @@ def validate_state(state):
         raise ValueError('command/phase mismatch')
     if not all(re.fullmatch(r'[A-Za-z0-9_-]{8,100}', state[k]) for k in ('session', 'request')):
         raise ValueError('invalid session identifiers')
-    if not re.fullmatch(r'(feat|fix|docs|chore|research|prototype)/[A-Za-z0-9][A-Za-z0-9._/-]{0,180}', state['branch']):
+    if not valid_branch(state['branch'], repo):
         raise ValueError('invalid task branch')
     timestamp = datetime.fromisoformat(state['updated_at'])
     if timestamp.tzinfo is None or state['command'] != 'start' and not state['reason'].strip():
@@ -84,7 +90,7 @@ def transition(item, state, command, session, branch, reason, request):
             raise TrackerError('Legacy assigned/PR work needs owner adoption; it is not free')
         if state and state['phase'] == 'released' and any(p['state'] == 'OPEN' for p in item['prs']):
             raise TrackerError('Existing PR requires an explicit owner handoff before another writer')
-        if not re.fullmatch(r'(feat|fix|docs|chore|research|prototype)/[A-Za-z0-9][A-Za-z0-9._/-]{0,180}', branch):
+        if not valid_branch(branch, item['repo']):
             raise TrackerError('Provide the task branch, without local paths or credentials')
         if held and branch != state['branch']:
             raise TrackerError('Active session branch cannot be changed implicitly')
@@ -97,7 +103,8 @@ def transition(item, state, command, session, branch, reason, request):
         branch = state['branch']
         phase = {'block': 'blocked', 'handoff': 'review', 'release': 'released'}[command]
         if command == 'handoff' and not any(p['state'] == 'OPEN' and not p['isDraft']
-                and p.get('headRefName') == branch and p.get('repository', {}).get('nameWithOwner') == item['repo']
+                and p.get('headRefName') == branch and p.get('repository', {}).get('nameWithOwner')
+                in {f'sachkov-inside/{r}' for r in REPOSITORIES}
                 for p in item['prs']):
             raise TrackerError('Review handoff requires a linked open non-draft PR')
     return dict(session=session, request=request, command=command, phase=phase, branch=branch, reason=reason.strip(),
@@ -216,7 +223,7 @@ def request_command(args):
         result = json.loads((Path(temp) / 'tracker-session-result.json').read_text())
     state = {k: v for k, v in result.items() if k not in {'ok', 'issue'}}
     try:
-        validate_state(state)
+        validate_state(state, repo)
     except (ValueError, TypeError, KeyError) as error:
         raise TrackerError('Invalid receipt state') from error
     if (result.get('ok') is not True or result.get('issue') != values['issue'] or

@@ -114,3 +114,11 @@ Transition requirements and receipts are enforced by `tracker_sessions.py`; conc
 scenarios are exercised by `harness/tests/test_tracker_sessions.py`. Tests simulate the serialized
 writer and unknown remote responses. Actual GitHub scheduling/credential acceptance must additionally
 be verified after merge with two competing requests against one bounded verification issue.
+
+Repository ownership exceptions: Workshop Cases uses Platform issues, so a handoff may point to a
+native linked PR in another Inside repository when its branch matches the held task branch. Inside
+Content retains its owner-approved main-only editorial workflow; a specifically requested tracked
+delivery session may record `--branch main`. Ordinary local editorial work still follows its own
+AGENTS.md and does not require a tracker issue. The central sweep covers Content without installing
+the application engineering harness there. Its tracked commands can be submitted to the Workspace
+controller through the same CLI from an existing Inside installation.
