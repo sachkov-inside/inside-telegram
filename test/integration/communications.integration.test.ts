@@ -1029,3 +1029,28 @@ it("restores the author menu below the delivered broadcast messages and never ex
   await app.get(AuthorAdmin).handle(input);
   expect((await sessionState()).broadcast!.state).toBe("completed");
 });
+
+it.each(["/cancel", "discard"])(
+  "sequence cancellation %s keeps the simple funnel card",
+  async (mode) => {
+    await beginSequence("Воронки");
+    await acceptPost(103, "Keep this entry", "сразу");
+    await authorMessage(104, "Pending message");
+    if (mode === "/cancel") await authorMessage(105, "/cancel");
+    else {
+      await authorMessage(105, "/admin");
+      await authorClick(106, "Воронки");
+      await authorClick(107, "Keep this entry · Черновик");
+      await authorClick(108, "Отменить добавление");
+    }
+    const state = await sessionState();
+    expect(state.composing).toBeUndefined();
+    expect(state.funnelAuthor!.funnel!.entryResponse.parts).toHaveLength(1);
+    expect(state.menu!.buttons.map(([label]) => label)).toContain(
+      "Все воронки",
+    );
+    expect(state.menu!.buttons.map(([label]) => label).join(" ")).not.toMatch(
+      /сохранённый|порядок|Создать сообщение/,
+    );
+  },
+);

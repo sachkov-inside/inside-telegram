@@ -235,6 +235,8 @@ export class AuthorAdmin {
               { kind: "f:show" },
               (text, buttons) => this.reply(context, text, buttons),
             );
+        } else if (close && context.state.composing?.sequence) {
+          await this.sequenceResult(context, { kind: "finished" });
         } else if (close && context.state.composing) {
           await this.composeResult(
             context,
@@ -818,6 +820,8 @@ export class AuthorAdmin {
     }
     if (a.kind === "compose:discard" && a.id) {
       await restoreComposition(c, a.id);
+      if (c.state.composing?.sequence)
+        return this.sequenceResult(c, { kind: "finished" });
       return this.composeResult(
         c,
         await this.composer.act(c, { kind: "compose:cancel" }, reply),
@@ -1393,7 +1397,7 @@ export class AuthorAdmin {
     c.state = empty();
     return this.reply(
       c,
-      "Выберите действие. Для нового поста нажмите «Создать пост».",
+      "Выберите «Рассылки» или «Воронки», чтобы добавить сообщения.",
       home,
     );
   }
