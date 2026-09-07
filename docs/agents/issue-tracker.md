@@ -21,7 +21,8 @@ Workspace parent rather than duplicating its discussion. Platform implementation
 - A map is an issue labelled `wayfinder:map`; its decision tickets are native sub-issues labelled
   `wayfinder:research|prototype|grilling|task`.
 - Use native dependencies for blocking and native parent/sub-issues for hierarchy.
-- Use the assignee as the claim. An open, unblocked, and unassigned child is on the frontier.
+- Follow `docs/agents/tracker-automation.md` for session claims. Assignee records the responsible human.
+- A candidate becomes writable only after a successful start receipt; preserve legacy assigned work.
 - Resolve a decision with a durable comment, close its issue, and link the result from its parent.
 
 ## Cross-repository hierarchy
