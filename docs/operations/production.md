@@ -83,7 +83,9 @@ payloads не входят в image. Запишите image id, commit и вре
 Для нового host без relay нужен отдельный проверенный transport-план; команды ниже относятся к текущему production.
 
 ```bash
-test -f /etc/inside/telegram/compose.override.yaml || exit 1
+(
+set -e
+test -f /etc/inside/telegram/compose.override.yaml
 telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
   -f /opt/inside/telegram/compose.yaml
   -f /etc/inside/telegram/compose.override.yaml)
@@ -91,6 +93,7 @@ telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
 "${telegram_compose[@]}" stop app
 "${telegram_compose[@]}" --profile operations run --rm --interactive=false migrate
 "${telegram_compose[@]}" up --detach --no-build --wait app
+)
 ```
 
 При ошибке migration или readiness остановитесь и сохраните диагностику без секретов. Старые
