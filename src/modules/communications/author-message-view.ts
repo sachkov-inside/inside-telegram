@@ -17,6 +17,7 @@ export async function previewAuthorMessage(
   c: Context,
   content: TemplateContent,
 ) {
+  c.state.freshMenu = true;
   await enqueueAuthorMessage(c.tx, {
     deliveryId: randomUUID(),
     botIdentity: c.input.botIdentity,

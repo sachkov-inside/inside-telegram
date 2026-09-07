@@ -273,8 +273,8 @@ ID, credentials or provider payload is returned by the management API.
 
 `/admin` opens the private author menu. Every command and callback checks the current confirmed link
 and `communications:manage`. The menu creates/replaces native posts, lists saved posts, configures
-HTTPS button text/URL/row, sends samples to the author, and assembles ordered broadcast parts.
-Audience, schedule (explicit Moscow UTC+3 input), launch/pause/resume/cancel and statistics call the
+HTTPS button text/URL with automatic placement, sends samples to the author, and assembles ordered broadcast parts.
+The all-contact audience, schedule (explicit Moscow UTC+3 input), launch/pause/resume/cancel and statistics call the
 same `Communications`/`Funnels` operations as the authenticated API. `/template` remains compatible.
 Callbacks carry a session menu token; stale menus cannot apply a mutation against a newer screen.
 Session state, update receipt, operation receipt, mutation and author reply queue commit together.
@@ -389,14 +389,53 @@ samples are queued only for the confirmed author's private chat and use the exis
 
 ## Contextual Telegram drafts (#43)
 
-The primary author flow starts at `/admin` → «Рассылки» → «Создать рассылку». A name creates an
-empty private draft, with no armed schedule or subscriber delivery. «Создать сообщение» accepts one
-native message, queues its preview only to the confirmed author, and offers button editing,
-replacement, cancellation and explicit attachment. Attachment returns to the same broadcast.
-The same composer serves a funnel's entry response, delayed step and common intro. It carries the
-exact destination and optional existing part ID; replacement preserves that ID. A pending candidate
-never changes the destination before confirmation and `/cancel` returns to it without attachment.
-Messages created in context do not require creating a separate library post.
+The primary flow starts at `/admin` → «Рассылки» or «Воронки» → «Создать». Send several native
+Telegram messages consecutively, then press «Готово». Each accepted update checkpoints its content
+and receipt atomically; duplicate updates do not append again. The first message supplies an editable
+name. Unsupported messages keep intake open and preserve accepted parts. Broadcasts hold up to 20
+parts; the prepared funnel entry holds up to 100. Albums are not supported: send media separately.
+`/cancel` ends intake without removing received messages. Reopen the draft and «Добавить сообщения»
+to continue. No separate library post or UUID entry is required.
+
+Broadcast parts are immediately saved in the canonical provider draft. «Готово» saves a prepared
+funnel through `funnels.save`; incomplete funnel work remains in the private scratch checkpoint.
+The compact card leads to messages, timing and «Для агента». Less frequent actions use «Ещё →» or
+«Настройки». Message lists page five at a time; select an item for its preview, editing, ordering or
+removal. HTTPS buttons ask only for title and URL; new buttons occupy the next available row. Old
+persisted row-input prompts remain recoverable, but no new interaction requests a row number.
+
+A broadcast sends all its parts consecutively to all eligible bot contacts at one common time.
+«Отправка» → «Сейчас» or «Запланировать» leads to a confirmation identifying the saved revision,
+time and audience; no send starts until the author confirms. Users who stopped marketing or are
+unreachable remain excluded. Distinct calendar times require separate broadcasts. A funnel instead
+sends an entry response and then steps with delays after completion of the preceding step.
+«Сообщения и отправка» → a message → «Когда отправить» accepts e.g. `20 минут` or `1 день`.
+A newly delayed message is appended to the chain; step order remains editable in settings. At least
+one entry message remains. Moving a never-published part keeps its ID and native content. A historical
+part cannot move to another block because this would violate delivery identity; changing a single-part
+step's delay remains supported. Preparing content and saving a draft never publishes it.
+
+«Для агента» supplies a copyable task containing the exact canonical broadcast/funnel ID and existing
+Platform MCP read/save tool names. Dirty funnels save first. The agent needs an authenticated Platform
+MCP connection as the same Account with `communications:manage`; bot token possession is not access.
+The workflow is: read the draft, preserve native text/entities/fileId/part IDs, apply the owner's timing,
+buttons and ordering with the current expectedRevision and a new operationId, then show the result.
+A replay retains operationId; a conflict requires rereading and reconciling, never overwriting unseen
+changes. Funnel preview checks the prepared definition. Publication and launch require a separate
+explicit owner instruction. Reopening the bot draft reads the same provider data after agent changes.
+The button creates a handoff task; it does not itself connect an agent or execute MCP operations.
+
+Navigation edits the latest successfully delivered author menu in place, scoped by bot, Account,
+Telegram identity and chat. The target message ID commits before external I/O. Native previews and
+agent handoff text get a new message. A definitive Telegram edit rejection can send a replacement;
+unknown transport results never trigger an automatic resend. Permission rechecks and update receipts
+remain in force for every click and reply.
+
+The optional «Создать сообщение» composer accepts one message, queues its native preview to the
+confirmed author and offers button editing, replacement, cancellation and explicit attachment.
+The same composer serves entry responses, delayed steps and common intro. It carries the exact
+destination and optional existing part ID; replacement preserves that ID. A pending candidate never
+changes the destination before confirmation; `/cancel` returns to it without attachment.
 
 The pending message, exact destination and partial button input are checkpointed in
 `communication_author_compositions`, scoped by bot and Account, with the update receipt. Reopening

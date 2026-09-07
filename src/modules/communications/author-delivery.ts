@@ -235,9 +235,31 @@ export class AuthorDelivery {
         ))
       )
         return;
+      const message = row.message as CommunicationMessage;
+      if (message.authorMenu && message.editMenu && !message.editMessageId) {
+        const previous = await tx
+          .selectFrom("communication_author_outbox")
+          .select(["message", "provider_message_id"])
+          .where("bot_identity", "=", row.bot_identity)
+          .where("account_ref", "=", row.account_ref)
+          .where("telegram_identity_ref", "=", row.telegram_identity_ref)
+          .where("telegram_user_id", "=", row.telegram_user_id)
+          .where("state", "=", "delivered")
+          .orderBy("sequence_id", "desc")
+          .executeTakeFirst();
+        if (
+          (previous?.message as CommunicationMessage | undefined)?.authorMenu &&
+          previous?.provider_message_id
+        )
+          row.message = {
+            ...message,
+            editMessageId: previous.provider_message_id,
+          };
+      }
       await tx
         .updateTable("communication_author_outbox")
         .set({
+          message: JSON.stringify(row.message),
           state: "sending",
           attempted_at: now,
           attempt_count: row.attempt_count + 1,

@@ -28,3 +28,9 @@ export function appendAuthorButton(
   validateContent(updated);
   return updated;
 }
+
+export function nextAuthorButtonRow(content: TemplateContent): number {
+  return content.buttons.length
+    ? Math.max(...content.buttons.map((b, index) => b.row ?? index)) + 1
+    : 0;
+}

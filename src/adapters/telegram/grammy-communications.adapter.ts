@@ -16,7 +16,8 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
       | "sendVideoNote"
       | "sendVoice"
       | "sendDocument"
-    >,
+    > &
+      Partial<Pick<Api, "editMessageText">>,
   ) {}
   async send(message: CommunicationMessage): Promise<TelegramDeliveryResult> {
     const c = message.content;
@@ -43,6 +44,41 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
       let sent: { message_id: number };
       switch (c.type) {
         case "text":
+          if (
+            message.authorMenu &&
+            message.editMessageId &&
+            this.api.editMessageText
+          ) {
+            try {
+              const edited = await this.api.editMessageText(
+                message.chatId,
+                Number(message.editMessageId),
+                c.text,
+                {
+                  entities,
+                  reply_markup: reply_markup.inline_keyboard
+                    ? { inline_keyboard: reply_markup.inline_keyboard }
+                    : undefined,
+                },
+              );
+              return {
+                kind: "delivered",
+                providerMessageId:
+                  typeof edited === "boolean"
+                    ? message.editMessageId
+                    : String(edited.message_id),
+              };
+            } catch (error) {
+              if (!(error instanceof GrammyError) || error.error_code !== 400)
+                throw error;
+              if (error.description.includes("message is not modified"))
+                return {
+                  kind: "delivered",
+                  providerMessageId: message.editMessageId,
+                };
+              // A definitive rejection means no edit was applied. Replace an unavailable menu.
+            }
+          }
           sent = await this.api.sendMessage(message.chatId, c.text, {
             entities,
             reply_markup,

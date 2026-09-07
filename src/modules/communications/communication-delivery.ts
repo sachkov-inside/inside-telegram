@@ -4,6 +4,9 @@ export interface CommunicationMessage {
   readonly chatId: string;
   readonly content: TemplateContent;
   readonly offerStart?: boolean;
+  readonly authorMenu?: boolean;
+  readonly editMenu?: boolean;
+  readonly editMessageId?: string;
   readonly authorButtons?: readonly { text: string; callbackData: string }[];
 }
 export interface CommunicationTransport {

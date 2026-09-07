@@ -1,3 +1,4 @@
+import type { CommunicationMessage } from "../../src/modules/communications/communication-delivery.js";
 import { AuthorFunnels } from "../../src/modules/communications/author-funnels.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
@@ -514,7 +515,8 @@ async function authorMessage(
     )?.state,
   ).toBe("processed");
 }
-async function authorClick(id: number, label: string) {
+let navigationId = 1000000;
+async function authorClick(id: number, label: string, depth = 0) {
   id = Math.round(id * 10);
   const messages = await database
     .selectFrom("communication_author_outbox")
@@ -530,7 +532,22 @@ async function authorClick(id: number, label: string) {
     )
     .find((m) => m.authorButtons);
   const data = menu?.authorButtons?.find((b) => b.text === label)?.callbackData;
-  expect(data, label).toBeDefined();
+  if (!data && depth < 8) {
+    const state = await sessionState();
+    const next = state.menu?.buttons.some(([text]) => text === label)
+      ? "Ещё →"
+      : menu?.authorButtons?.some((b) => b.text === "Настройки")
+        ? "Настройки"
+        : "Ещё →";
+    if (menu?.authorButtons?.some((b) => b.text === next)) {
+      await authorClick(++navigationId, next);
+      return authorClick(id / 10, label, depth + 1);
+    }
+  }
+  expect(
+    data,
+    `${label}: ${menu?.authorButtons?.map((b) => b.text).join(", ")}`,
+  ).toBeDefined();
   const payload = {
     update_id: id,
     callback_query: {
@@ -558,7 +575,6 @@ describe("author admin shared post and broadcast flow", () => {
     await authorClick(103, "Добавить кнопку");
     await authorMessage(104, "Открыть Inside");
     await authorMessage(105, "https://inside.test/material");
-    await authorMessage(106, "1");
     const post = (await rows())[0]!;
     expect(post.revision).toBe(2);
     expect(post.content).toMatchObject({
@@ -604,9 +620,9 @@ describe("author admin shared post and broadcast flow", () => {
     ).toBe(400);
     await authorClick(108, "Вернуться к посту");
     await authorClick(109, "Создать рассылку");
-    await authorClick(110, "Время отправки");
+    await authorClick(109.1, "Отправка");
+    await authorClick(110, "Запланировать");
     await authorMessage(111, "01.01.2099 12:00");
-    await authorClick(112, "Перейти к запуску");
     await authorClick(113, "Запустить рассылку");
     const before = await database
       .selectFrom("communication_broadcasts")
@@ -930,6 +946,8 @@ describe("Telegram-first funnel authoring with real persisted sessions", () => {
     await authorClick(105, "Сохранить общий блок");
     await authorClick(106, "Все воронки");
     await authorClick(107, "Создать воронку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(108, "Инженерная практика");
     await authorClick(109, "Первый ответ");
     await authorClick(110, "Добавить сохранённый пост");
@@ -1186,6 +1204,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Рассылки");
     await authorClick(102, "Создать рассылку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Анонс Docker");
     expect(await broadcastRows()).toHaveLength(0);
     expect((await sessionState()).broadcast?.parts).toEqual([]);
@@ -1203,7 +1223,6 @@ describe("contextual Telegram composition", () => {
     await authorMessage(111, "http://inside.test");
     expect(await lastAuthorText()).toContain("HTTPS");
     await authorMessage(112, "https://inside.test/materials/docker");
-    await authorMessage(113, "1");
     await authorClick(114, "Добавить в рассылку");
     const saved = (await broadcastRows())[0]!;
     expect(saved.state).toBe("draft");
@@ -1249,6 +1268,8 @@ describe("contextual Telegram composition", () => {
       await authorMessage(100, "/admin");
       await authorClick(101, "Рассылки");
       await authorClick(102, "Создать рассылку");
+      await authorMessage(++navigationId, "/cancel");
+      await authorClick(++navigationId, "Название");
       await authorMessage(103, "Медиа");
       await authorClick(104, "Создать сообщение");
       await authorMessage(105, "", { ...media, text: undefined });
@@ -1277,6 +1298,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Рассылки");
     await authorClick(102, "Создать рассылку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Проверка границ");
     await authorClick(104, "Создать сообщение");
     await authorMessage(105, "", { sticker: { file_id: "unsupported" } });
@@ -1313,6 +1336,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Воронки");
     await authorClick(102, "Создать воронку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Новая цепочка");
     await authorMessage(104, "/admin");
     await authorClick(105, "Воронки");
@@ -1393,6 +1418,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Рассылки");
     await authorClick(102, "Создать рассылку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Поиск");
     await authorClick(104, "Добавить сохранённый пост");
     await authorClick(105, "Найти пост");
@@ -1432,7 +1459,6 @@ describe("contextual Telegram composition", () => {
     await authorClick(109, "Добавить кнопку");
     await authorMessage(110, "Кнопка");
     await authorMessage(111, "https://inside.test");
-    await authorMessage(112, "1");
     await authorClick(113, "Добавить в рассылку");
     expect((await broadcastRows())[0]!.parts).toMatchObject([
       {
@@ -1455,6 +1481,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Рассылки");
     await authorClick(102, "Создать рассылку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Продолжение");
     await authorClick(104, "Создать сообщение");
     await authorMessage(105, "Незавершённый текст");
@@ -1476,13 +1504,12 @@ describe("contextual Telegram composition", () => {
     expect(await lastAuthorText()).toContain("устарело");
     await authorClick(112, "Продолжить сообщение");
     await authorMessage(113, "https://inside.test/resume");
-    await authorMessage(114, "2");
     await authorClick(115, "Добавить в рассылку");
     expect((await broadcastRows())[0]!.parts).toMatchObject([
       {
         content: {
           text: "Незавершённый текст",
-          buttons: [{ text: "Подробнее", row: 1 }],
+          buttons: [{ text: "Подробнее", row: 0 }],
         },
       },
     ]);
@@ -1515,6 +1542,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Воронки");
     await authorClick(102, "Создать воронку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Восстановление шага");
     await authorClick(104, "Шаги и задержки");
     await authorClick(105, "Добавить шаг");
@@ -1552,6 +1581,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Рассылки");
     await authorClick(102, "Создать рассылку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Конфликт");
     await authorClick(104, "Создать сообщение");
     await authorMessage(105, "Первая часть");
@@ -1613,6 +1644,8 @@ describe("contextual Telegram composition", () => {
     await authorMessage(100, "/admin");
     await authorClick(101, "Рассылки");
     await authorClick(102, "Создать рассылку");
+    await authorMessage(++navigationId, "/cancel");
+    await authorClick(++navigationId, "Название");
     await authorMessage(103, "Пустая");
     await authorClick(104, "Отменить рассылку");
     await authorClick(105, "Да, отменить");
@@ -1625,5 +1658,186 @@ describe("contextual Telegram composition", () => {
     await authorClick(109, "Добавить в рассылку");
     expect((await broadcastRows())[0]?.state).toBe("draft");
     expect((await broadcastRows())[0]?.scheduled_at).toBeNull();
+  });
+});
+
+describe("batch preparation and agent handoff", () => {
+  it("saves consecutive native broadcast messages once and shares the same draft with the agent API", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Рассылки");
+    await authorClick(102, "Создать рассылку");
+    await authorMessage(103, "Первый", {
+      entities: [{ type: "bold", offset: 0, length: 6 }],
+    });
+    await authorMessage(104, "", {
+      text: undefined,
+      photo: [{ file_id: "prepared-photo", width: 10, height: 10 }],
+      caption: "Фото",
+    });
+    await authorMessage(104, "", {
+      text: undefined,
+      photo: [{ file_id: "prepared-photo", width: 10, height: 10 }],
+      caption: "Фото",
+    });
+    await authorMessage(105, "", {
+      text: undefined,
+      sticker: { file_id: "unsupported" },
+    });
+    expect((await broadcastRows())[0]!.parts).toHaveLength(2);
+    await authorMessage(106, "", {
+      text: undefined,
+      voice: { file_id: "prepared-voice" },
+    });
+    await authorClick(107, "Готово");
+    expect((await sessionState()).actions.length).toBeLessThanOrEqual(6);
+    const b = (await sessionState()).broadcast!;
+    expect(b.parts).toHaveLength(3);
+    expect(b.audience).toEqual({ kind: "all" });
+    await authorClick(108, "Для агента");
+    expect(await lastAuthorText()).toContain(`broadcastId=${b.broadcastId}`);
+    expect(await lastAuthorText()).toContain("communications_broadcasts_read");
+    const read = await http({
+      ...request(),
+      operation: "broadcasts.read",
+      payload: { broadcastId: b.broadcastId },
+    });
+    expect(read.statusCode).toBe(200);
+    expect(read.json().broadcast.parts).toEqual(b.parts);
+    const save = await http({
+      ...request(),
+      operation: "broadcasts.save",
+      expectedRevision: b.revision,
+      payload: {
+        broadcastId: b.broadcastId,
+        parts: [...b.parts].reverse(),
+        audience: { kind: "all" },
+        scheduledAt: "2099-01-01T12:00:00Z",
+      },
+    });
+    expect(save.statusCode).toBe(200);
+    await authorMessage(109, "/admin");
+    await authorClick(110, "Рассылки");
+    await authorClick(111, "Первый · Черновик");
+    expect((await sessionState()).broadcast!.parts).toEqual(
+      [...b.parts].reverse(),
+    );
+    expect((await broadcastRows())[0]!.audience_snapshot_id).toBeNull();
+    expect(
+      await database
+        .selectFrom("communication_deliveries")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
+    await authorClick(112, "Добавить сообщения");
+    authorization.result = "denied";
+    await authorMessage(113, "Не сохранять");
+    expect((await broadcastRows())[0]!.parts).toHaveLength(3);
+  });
+
+  it("prepares a funnel first, then assigns individual delays preserving native content and IDs for the agent", async () => {
+    await seedLink();
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Воронки");
+    await authorClick(102, "Создать воронку");
+    await authorMessage(103, "Вход");
+    await authorMessage(104, "Урок");
+    await authorMessage(105, "Предложение");
+    await authorClick(106, "Готово");
+    const prepared = (await sessionState()).funnelAuthor!.funnel!;
+    expect(prepared.entryResponse.parts).toHaveLength(3);
+    await authorClick(107, "Сообщения и отправка");
+    await authorClick(108, "2. При входе · 📝 Текст · Урок");
+    await authorClick(109, "Когда отправить");
+    await authorMessage(110, "20 минут");
+    await authorClick(111, "2. При входе · 📝 Текст · Предложение");
+    await authorClick(112, "Когда отправить");
+    await authorMessage(113, "1 день");
+    await authorClick(114, "К воронке");
+    await authorClick(115, "Для агента");
+    expect(await lastAuthorText()).toContain(`funnelId=${prepared.funnelId}`);
+    const read = await http({
+      ...request(),
+      operation: "funnels.read",
+      payload: { funnelId: prepared.funnelId },
+    });
+    expect(read.statusCode).toBe(200);
+    const saved = read.json().funnel as FunnelSnapshot;
+    expect(saved.entryResponse.parts).toEqual([
+      prepared.entryResponse.parts[0],
+    ]);
+    expect(saved.steps.map((s) => s.delaySeconds)).toEqual([1200, 86400]);
+    expect(saved.steps.flatMap((s) => s.parts)).toEqual(
+      prepared.entryResponse.parts.slice(1),
+    );
+    expect(saved.publishedRevision).toBeNull();
+    const response = await http({
+      ...request(),
+      operation: "funnels.save",
+      expectedRevision: saved.revision,
+      payload: {
+        funnelId: saved.funnelId,
+        name: saved.name,
+        isDefault: saved.isDefault,
+        sources: saved.sources,
+        entryResponse: saved.entryResponse,
+        steps: saved.steps.map((s) => ({ ...s, delaySeconds: 3600 })),
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    await authorMessage(116, "/admin");
+    await authorClick(117, "Воронки");
+    await authorClick(118, "Вход · Черновик");
+    expect(
+      (await sessionState()).funnelAuthor!.funnel!.steps.map(
+        (s) => s.delaySeconds,
+      ),
+    ).toEqual([3600, 3600]);
+  });
+
+  it("persists an edit target before dispatch, replaces navigation in place and preserves previews", async () => {
+    await seedLink();
+    const sent: CommunicationMessage[] = [];
+    let time = Date.now() + 1000;
+    const worker = new AuthorDelivery(
+      database,
+      { ...config, deliveryMode: "live" },
+      authorization,
+      {
+        send: async (message) => {
+          const row = await database
+            .selectFrom("communication_author_outbox")
+            .selectAll()
+            .where("state", "=", "sending")
+            .executeTakeFirstOrThrow();
+          expect(row.message).toEqual(message);
+          sent.push(message);
+          return {
+            kind: "delivered",
+            providerMessageId: message.editMessageId ?? String(sent.length),
+          };
+        },
+      },
+    );
+    const deliver = () => worker.processAvailable(new Date((time += 2000)));
+    await authorMessage(100, "/admin");
+    await deliver();
+    await authorClick(101, "Рассылки");
+    await deliver();
+    expect(sent[1]!.editMessageId).toBe("1");
+    await authorClick(102, "Создать рассылку");
+    await deliver();
+    await authorMessage(103, "Сообщение");
+    await deliver();
+    await authorClick(104, "Готово");
+    await deliver();
+    await authorClick(105, "Сообщения и порядок");
+    await deliver();
+    await authorClick(106, "1. 📝 Текст · Сообщение");
+    await deliver();
+    await deliver();
+    expect(sent.at(-2)!.content.text).toBe("Сообщение");
+    expect(sent.at(-2)!.authorMenu).toBeUndefined();
+    expect(sent.at(-1)!.editMessageId).toBeUndefined();
   });
 });

@@ -1,3 +1,4 @@
+import { authorAgentTask } from "./author-agent-task.js";
 import {
   drafts,
   retainFunnelDraft,
@@ -37,8 +38,9 @@ export interface AuthorFunnelState {
   dirty?: boolean;
   target?: "entry" | "intro" | string;
   replacePartId?: string;
-  prompt?: "name" | "delay" | "source-name" | "source-code";
+  prompt?: "name" | "delay" | "source-name" | "source-code" | "part-delay";
   sourceName?: string;
+  timingPartId?: string;
 }
 const back: Buttons = [["К воронке", { kind: "f:show" }]];
 const root: Buttons = [
@@ -71,6 +73,27 @@ export class AuthorFunnels {
   ) {
     return authorRequest(c.accountRef, operation, payload, revision);
   }
+  appendPrepared(c: Context, content: TemplateContent) {
+    const s = this.state(c);
+    const f = s.funnel!;
+    if (f.lifecycle === "archived")
+      throw new CommunicationsError("revision_conflict");
+    if (f.entryResponse.parts.length >= 100)
+      throw new CommunicationsError("unsupported_content");
+    s.funnel = {
+      ...f,
+      name:
+        !f.entryResponse.parts.length && f.name === "Новая воронка"
+          ? content.text.slice(0, 80) || messageLabel(content)
+          : f.name,
+      entryResponse: {
+        ...f.entryResponse,
+        parts: [...f.entryResponse.parts, { partId: randomUUID(), content }],
+      },
+    };
+    s.target = "entry";
+    s.dirty = true;
+  }
   private async show(c: Context, reply: Reply): Promise<void> {
     const s = this.state(c);
     s.prompt = undefined;
@@ -78,62 +101,73 @@ export class AuthorFunnels {
     if (!f) return this.perform(c, { kind: "f:list" }, reply);
     const editable = f.lifecycle !== "archived";
     return reply(
-      `${f.name}\n${names[f.lifecycle]} · версия ${f.revision}${s.dirty ? " · есть несохранённые изменения" : ""}\nОбычный /start: ${f.isDefault ? "эта воронка после публикации" : "другая воронка"}\nПервый ответ: ${f.entryResponse.parts.length} сообщений\n${f.steps
-        .slice(0, 20)
-        .map(
-          (step, i) =>
-            `${i + 1}. Через ${formatFunnelDelay(step.delaySeconds)} после предыдущего · ${step.parts.length} сообщений`,
-        )
-        .join("\n")}\nИсточников: ${f.sources.length}`,
+      `${f.name}\n${names[f.lifecycle]}${s.dirty ? " · есть правки" : ""}\nСообщений: ${f.entryResponse.parts.length + f.steps.reduce((n, step) => n + step.parts.length, 0)} · шагов с задержкой: ${f.steps.length}\nСначала подготовьте сообщения, затем настройте порядок, кнопки и задержки. Публикация — отдельное подтверждение.`,
       [
         ...(await compositionButtons(c, f.funnelId)),
+        ["Сообщения и отправка", { kind: "f:messages" }],
         ...(editable
           ? ([
-              ["Название", { kind: "f:name" }],
-              ["Первый ответ", { kind: "f:parts", id: "entry" }],
-              ["Шаги и задержки", { kind: "f:steps" }],
-              ["Источники", { kind: "f:sources" }],
+              ["Добавить сообщения", { kind: "batch:funnel" }],
+              ["Для агента", { kind: "f:agent" }],
               [
-                f.isDefault ? "Убрать выбор для /start" : "Выбрать для /start",
-                { kind: "f:default" },
-              ],
-              ["Сохранить черновик", { kind: "f:save" }],
-              ["Проверить публикацию", { kind: "f:preview" }],
-            ] as Buttons)
-          : []),
-        ...(!s.dirty && f.publishedRevision !== null
-          ? ([
-              ...(f.lifecycle === "published"
-                ? ([
-                    ["Приостановить", { kind: "f:life", value: "pause" }],
-                  ] as Buttons)
-                : []),
-              ...(f.lifecycle === "paused"
-                ? ([
-                    ["Продолжить", { kind: "f:life", value: "resume" }],
-                  ] as Buttons)
-                : []),
-              [
-                f.lifecycle === "archived" ? "Восстановить" : "В архив",
-                {
-                  kind: "f:life",
-                  value: f.lifecycle === "archived" ? "restore" : "archive",
-                },
+                s.dirty ? "Сохранить черновик" : "Проверить публикацию",
+                { kind: s.dirty ? "f:save" : "f:preview" },
               ],
             ] as Buttons)
           : []),
-        ...(s.dirty
-          ? [
-              ["Отказаться от правок", { kind: "f:discard" }] as [
-                string,
-                Action,
-              ],
-            ]
-          : []),
-        ["Общий вводный блок", { kind: "f:intro" }],
-        ...root,
+        ["Настройки", { kind: "f:settings" }],
+        ["Все воронки", { kind: "f:list" }],
       ],
     );
+  }
+
+  private async settings(c: Context, reply: Reply): Promise<void> {
+    const s = this.state(c),
+      f = s.funnel!;
+    const editable = f.lifecycle !== "archived";
+    return reply(`Настройки · ${f.name}`, [
+      ...(await compositionButtons(c, f.funnelId)),
+      ...(editable
+        ? ([
+            ["Название", { kind: "f:name" }],
+            ["Первый ответ", { kind: "f:parts", id: "entry" }],
+            ["Шаги и задержки", { kind: "f:steps" }],
+            ["Источники", { kind: "f:sources" }],
+            [
+              f.isDefault ? "Убрать выбор для /start" : "Выбрать для /start",
+              { kind: "f:default" },
+            ],
+            ["Сохранить черновик", { kind: "f:save" }],
+            ["Проверить публикацию", { kind: "f:preview" }],
+          ] as Buttons)
+        : []),
+      ...(!s.dirty && f.publishedRevision !== null
+        ? ([
+            ...(f.lifecycle === "published"
+              ? ([
+                  ["Приостановить", { kind: "f:life", value: "pause" }],
+                ] as Buttons)
+              : []),
+            ...(f.lifecycle === "paused"
+              ? ([
+                  ["Продолжить", { kind: "f:life", value: "resume" }],
+                ] as Buttons)
+              : []),
+            [
+              f.lifecycle === "archived" ? "Восстановить" : "В архив",
+              {
+                kind: "f:life",
+                value: f.lifecycle === "archived" ? "restore" : "archive",
+              },
+            ],
+          ] as Buttons)
+        : []),
+      ...(s.dirty
+        ? [["Отказаться от правок", { kind: "f:discard" }] as [string, Action]]
+        : []),
+      ["Общий вводный блок", { kind: "f:intro" }],
+      ...root,
+    ]);
   }
   private parts(s: AuthorFunnelState): readonly MessagePart[] {
     if (s.target === "intro") return s.intro?.parts ?? [];
@@ -276,6 +310,85 @@ export class AuthorFunnels {
     }
   }
   private async perform(c: Context, a: Action, reply: Reply): Promise<void> {
+    if (a.kind === "f:settings") return this.settings(c, reply);
+    if (a.kind === "f:messages") {
+      const f = this.state(c).funnel!;
+      const messages = [
+        ...f.entryResponse.parts.map((p) => ({
+          p,
+          target: "entry",
+          when: "При входе",
+        })),
+        ...f.steps.flatMap((step) =>
+          step.parts.map((p) => ({
+            p,
+            target: step.stepId,
+            when: `Через ${formatFunnelDelay(step.delaySeconds)}`,
+          })),
+        ),
+      ];
+      const offset = Number(a.value ?? 0);
+      return reply(
+        `${f.name} · сообщения\nЗадержка шага отсчитывается после предыдущего шага. Выберите сообщение для настройки.`,
+        [
+          ...messages
+            .slice(offset, offset + 5)
+            .map(({ p, target, when }, i): [string, Action] => [
+              `${offset + i + 1}. ${when} · ${messageLabel(p.content, 25)}`,
+              { kind: "f:message", id: p.partId, value: target },
+            ]),
+          ...(offset > 0
+            ? [
+                [
+                  "Предыдущие",
+                  { kind: "f:messages", value: String(offset - 5) },
+                ] as [string, Action],
+              ]
+            : []),
+          ...(messages.length > offset + 5
+            ? [
+                [
+                  "Следующие",
+                  { kind: "f:messages", value: String(offset + 5) },
+                ] as [string, Action],
+              ]
+            : []),
+          ["Добавить сообщения", { kind: "batch:funnel" }],
+          ...back,
+        ],
+      );
+    }
+    if (a.kind === "f:message") {
+      this.state(c).target = a.value;
+      return this.perform(c, { kind: "f:part", id: a.id }, reply);
+    }
+    if (a.kind === "f:agent") {
+      if (this.state(c).dirty) {
+        await this.perform(c, { kind: "f:save", value: "quiet" }, reply);
+        if (this.state(c).dirty) return;
+      }
+      const f = this.state(c).funnel!;
+      c.state.freshMenu = true;
+      return reply(authorAgentTask("funnels", f.funnelId, f.name), back);
+    }
+    if (a.kind === "f:timing") {
+      const s = this.state(c);
+      s.timingPartId = a.id;
+      s.prompt = "part-delay";
+      return reply(
+        "Когда отправить это сообщение? Пришлите задержку: например, 20 минут или 1 день. Она отсчитывается после предыдущего шага; для первого отложенного шага — после входа. Новое отложенное сообщение добавится в конец цепочки.",
+        [["Сразу при входе", { kind: "f:timing-entry", id: a.id }], ...back],
+      );
+    }
+    if (a.kind === "f:timing-entry") {
+      if (!(await this.moveTimedPart(c, a.id!, null)))
+        return reply(
+          "Это сообщение уже публиковалось в другом шаге. Его перенос изменил бы историю отправок. Добавьте новое сообщение в нужный шаг; задержку существующего шага можно менять.",
+          back,
+        );
+      return this.perform(c, { kind: "f:messages" }, reply);
+    }
+
     const s = this.state(c);
     c.state.prompt = undefined;
     s.prompt = undefined;
@@ -429,6 +542,11 @@ export class AuthorFunnels {
             "Изменить сообщение и кнопки",
             { kind: "compose:edit-funnel", id: part.partId },
           ],
+          ...(s.target !== "intro"
+            ? ([
+                ["Когда отправить", { kind: "f:timing", id: part.partId }],
+              ] as Buttons)
+            : []),
           ["Заменить из сохранённых", { kind: "f:posts", value: part.partId }],
           ...(index > 0
             ? ([
@@ -696,6 +814,7 @@ export class AuthorFunnels {
       const result = await this.funnels.execute(request, c.tx);
       if ("funnel" in result) s.funnel = result.funnel;
       s.dirty = false;
+      if (a.value === "quiet") return;
       return this.show(c, reply);
     }
     if (a.kind === "f:preview" || a.kind === "f:publish") {
@@ -776,11 +895,93 @@ export class AuthorFunnels {
     }
     return this.show(c, reply);
   }
+  private async moveTimedPart(
+    c: Context,
+    partId: string,
+    delaySeconds: number | null,
+  ) {
+    const s = this.state(c),
+      f = s.funnel!;
+    if (f.lifecycle === "archived")
+      throw new CommunicationsError("revision_conflict");
+    const source = f.steps.find((step) =>
+      step.parts.some((p) => p.partId === partId),
+    );
+    const part =
+      source?.parts.find((p) => p.partId === partId) ??
+      f.entryResponse.parts.find((p) => p.partId === partId);
+    if (!part) throw new CommunicationsError("revision_conflict");
+    if (delaySeconds === null && !source) {
+      s.prompt = undefined;
+      s.timingPartId = undefined;
+      return true;
+    }
+    if (!(delaySeconds !== null && source?.parts.length === 1)) {
+      const historical = await c.tx
+        .selectFrom("communication_step_ids")
+        .select("part_ids")
+        .where("funnel_id", "=", f.funnelId)
+        .execute();
+      if (
+        historical.some((step) => (step.part_ids as string[]).includes(partId))
+      )
+        return false;
+    }
+    if (delaySeconds !== null && !source && f.entryResponse.parts.length === 1)
+      throw new CommunicationsError("malformed");
+    if (delaySeconds !== null && source?.parts.length === 1)
+      s.funnel = {
+        ...f,
+        steps: f.steps.map((step) =>
+          step.stepId === source.stepId ? { ...step, delaySeconds } : step,
+        ),
+      };
+    else {
+      const entry = f.entryResponse.parts.filter((p) => p.partId !== partId);
+      const steps = f.steps
+        .map((step) => ({
+          ...step,
+          parts: step.parts.filter((p) => p.partId !== partId),
+        }))
+        .filter((step) => step.parts.length);
+      s.funnel = {
+        ...f,
+        entryResponse: {
+          ...f.entryResponse,
+          parts: delaySeconds === null ? [...entry, part] : entry,
+        },
+        steps:
+          delaySeconds === null
+            ? steps
+            : [...steps, { stepId: randomUUID(), delaySeconds, parts: [part] }],
+      };
+    }
+    s.prompt = undefined;
+    s.timingPartId = undefined;
+    s.dirty = true;
+    return true;
+  }
   async answer(c: Context, reply: Reply): Promise<void> {
     const s = this.state(c);
     const f = s.funnel;
     const text = c.input.text.trim();
     if (!f) return reply("Откройте воронку заново.", root);
+    if (s.prompt === "part-delay") {
+      const delay = parseFunnelDelay(text);
+      if (delay === undefined)
+        return reply("Введите задержку: например, 20 минут или 1 день.", back);
+      if (s.target === "entry" && f.entryResponse.parts.length === 1)
+        return reply(
+          "Оставьте хотя бы одно сообщение при входе. Остальные можно перенести в отложенные шаги.",
+          back,
+        );
+      if (!(await this.moveTimedPart(c, s.timingPartId!, delay)))
+        return reply(
+          "Это сообщение уже публиковалось в другом шаге. Добавьте новое сообщение в нужный шаг; задержку существующего шага можно менять.",
+          back,
+        );
+      return this.perform(c, { kind: "f:messages" }, reply);
+    }
     if (s.prompt === "name" || s.prompt === "source-name") {
       if (!text || text.length > 128)
         return reply("Нужно от 1 до 128 символов.", back);
@@ -836,7 +1037,10 @@ export class AuthorFunnels {
 }
 
 export function parseFunnelDelay(value: string): number | undefined {
-  const match = /^(\d+)\s*(с|сек|мин|м|ч|час|д|дн)?$/iu.exec(value.trim());
+  const match =
+    /^(\d+)\s*(с|сек(?:унда|унды|унд)?|мин(?:ута|уты|ут)?|м|ч|час(?:а|ов)?|д|дн(?:я|ей)?|день)?$/iu.exec(
+      value.trim(),
+    );
   if (!match) return undefined;
   const factors: Record<string, number> = {
     с: 1,
@@ -849,7 +1053,15 @@ export function parseFunnelDelay(value: string): number | undefined {
     дн: 86400,
   };
   const seconds =
-    Number(match[1]) * (factors[match[2]?.toLowerCase() ?? "с"] ?? 1);
+    Number(match[1]) *
+    (factors[match[2]?.toLowerCase() ?? "с"] ??
+      (match[2]?.startsWith("мин")
+        ? 60
+        : match[2]?.startsWith("час")
+          ? 3600
+          : match[2]?.startsWith("д")
+            ? 86400
+            : 1));
   return Number.isSafeInteger(seconds) && seconds <= 2147483647
     ? seconds
     : undefined;

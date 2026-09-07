@@ -1,6 +1,7 @@
 import {
   validateAuthorButtonUrl,
   appendAuthorButton,
+  nextAuthorButtonRow,
 } from "./author-button.js";
 import type { Action, Context } from "./author-admin.js";
 import { authorRequest } from "./author-request.js";
@@ -222,12 +223,13 @@ export class AuthorComposer {
           cancel,
         );
       }
-      s.buttonUrl = text;
-      s.prompt = "button-row";
-      return reply(
-        "Введите номер ряда от 1 до 20. Кнопки одного ряда стоят рядом.",
-        cancel,
+      s.content = appendAuthorButton(
+        s.content!,
+        s.buttonTitle!,
+        text,
+        nextAuthorButtonRow(s.content!),
       );
+      return this.show(c, reply, true);
     }
     if (s.prompt === "button-row" && s.content) {
       if (!/^([1-9]|1[0-9]|20)$/.test(text))
