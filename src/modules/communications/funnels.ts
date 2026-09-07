@@ -1,3 +1,7 @@
+import {
+  AUTHOR_CONTENT_VALIDATION,
+  type AuthorContentValidation,
+} from "./author-content-validation.js";
 import { previewFunnel, type FunnelPreview } from "./funnel-preview.js";
 import { deliveryOwnerPredicate } from "./communication-queries.js";
 import { applyBroadcast, type BroadcastResult } from "./broadcasts.js";
@@ -63,6 +67,8 @@ export class Funnels {
     @Inject(AUTHOR_AUTHORIZATION)
     private readonly authorization: AuthorAuthorization,
     @Inject(CLOCK) private readonly clock: Clock,
+    @Inject(AUTHOR_CONTENT_VALIDATION)
+    private readonly contentValidation: AuthorContentValidation,
   ) {}
   async execute(
     request: CommunicationsRequest,
@@ -452,6 +458,20 @@ export class Funnels {
         .executeTakeFirst();
       if (!publication) throw new CommunicationsError("not_found");
       draft = publication.snapshot as FunnelDraft;
+      // Validate the immutable historical snapshot under the definition lock. Receipts and
+      // expectedRevision were checked first, so replay never re-publishes changed content.
+      const validation = await this.contentValidation.validate(
+        { kind: "account", accountRef: actor },
+        [draft.entryResponse, ...draft.steps].flatMap((step) => step.parts),
+      );
+      if (validation.status !== "ok")
+        throw new CommunicationsError(
+          validation.status === "denied"
+            ? "forbidden"
+            : "authorization_unavailable",
+        );
+      if (validation.targetErrors.length)
+        throw new CommunicationsError("unsupported_content");
     }
     const previous = existing.published as FunnelDraft | null;
     const intro = await tx
