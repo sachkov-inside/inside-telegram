@@ -1,4 +1,3 @@
-import { authorAgentTask } from "./author-agent-task.js";
 import {
   drafts,
   retainFunnelDraft,
@@ -108,7 +107,6 @@ export class AuthorFunnels {
         ...(editable
           ? ([
               ["Добавить сообщения", { kind: "batch:funnel" }],
-              ["Для агента", { kind: "f:agent" }],
               [
                 s.dirty ? "Сохранить черновик" : "Проверить публикацию",
                 { kind: s.dirty ? "f:save" : "f:preview" },
@@ -361,15 +359,6 @@ export class AuthorFunnels {
     if (a.kind === "f:message") {
       this.state(c).target = a.value;
       return this.perform(c, { kind: "f:part", id: a.id }, reply);
-    }
-    if (a.kind === "f:agent") {
-      if (this.state(c).dirty) {
-        await this.perform(c, { kind: "f:save", value: "quiet" }, reply);
-        if (this.state(c).dirty) return;
-      }
-      const f = this.state(c).funnel!;
-      c.state.freshMenu = true;
-      return reply(authorAgentTask("funnels", f.funnelId, f.name), back);
     }
     if (a.kind === "f:timing") {
       const s = this.state(c);
@@ -814,7 +803,6 @@ export class AuthorFunnels {
       const result = await this.funnels.execute(request, c.tx);
       if ("funnel" in result) s.funnel = result.funnel;
       s.dirty = false;
-      if (a.value === "quiet") return;
       return this.show(c, reply);
     }
     if (a.kind === "f:preview" || a.kind === "f:publish") {

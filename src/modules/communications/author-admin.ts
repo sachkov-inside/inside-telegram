@@ -1,4 +1,3 @@
-import { authorAgentTask } from "./author-agent-task.js";
 import {
   validateAuthorButtonUrl,
   appendAuthorButton,
@@ -481,7 +480,6 @@ export class AuthorAdmin {
                 { kind: b.parts.length ? "parts" : "batch:broadcast" },
               ],
               ["Отправка", { kind: "send-options" }],
-              ["Для агента", { kind: "agent:broadcast" }],
               ...(b.parts.length
                 ? [
                     ["Добавить сообщения", { kind: "batch:broadcast" }] as [
@@ -600,22 +598,6 @@ export class AuthorAdmin {
       if (kind === "funnel")
         return this.authorFunnels.act(c, { kind: "f:save" }, reply);
       return this.broadcast(c);
-    }
-    if (a.kind === "agent:broadcast") {
-      const b = c.state.broadcast!;
-      if (!b.parts.length || !b.revision)
-        return reply("Сначала подготовьте хотя бы одно сообщение.", [
-          ["Добавить сообщения", { kind: "batch:broadcast" }],
-        ]);
-      c.state.freshMenu = true;
-      return reply(
-        authorAgentTask(
-          "broadcasts",
-          b.broadcastId,
-          c.state.broadcastName ?? "Рассылка",
-        ),
-        [["К рассылке", { kind: "read-broadcast", id: b.broadcastId }]],
-      );
     }
     if (a.kind === "send-options")
       return reply(

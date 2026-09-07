@@ -399,7 +399,7 @@ to continue. No separate library post or UUID entry is required.
 
 Broadcast parts are immediately saved in the canonical provider draft. «Готово» saves a prepared
 funnel through `funnels.save`; incomplete funnel work remains in the private scratch checkpoint.
-The compact card leads to messages, timing and «Для агента». Less frequent actions use «Ещё →» or
+The compact card leads to messages and timing. Less frequent actions use «Ещё →» or
 «Настройки». Message lists page five at a time; select an item for its preview, editing, ordering or
 removal. HTTPS buttons ask only for title and URL; new buttons occupy the next available row. Old
 persisted row-input prompts remain recoverable, but no new interaction requests a row number.
@@ -415,19 +415,17 @@ one entry message remains. Moving a never-published part keeps its ID and native
 part cannot move to another block because this would violate delivery identity; changing a single-part
 step's delay remains supported. Preparing content and saving a draft never publishes it.
 
-«Для агента» supplies a copyable task containing the exact canonical broadcast/funnel ID and existing
-Platform MCP read/save tool names. Dirty funnels save first. The agent needs an authenticated Platform
-MCP connection as the same Account with `communications:manage`; bot token possession is not access.
-The workflow is: read the draft, preserve native text/entities/fileId/part IDs, apply the owner's timing,
-buttons and ordering with the current expectedRevision and a new operationId, then show the result.
-A replay retains operationId; a conflict requires rereading and reconciling, never overwriting unseen
-changes. Funnel preview checks the prepared definition. Publication and launch require a separate
-explicit owner instruction. Reopening the bot draft reads the same provider data after agent changes.
-The button creates a handoff task; it does not itself connect an agent or execute MCP operations.
+The owner works with an agent directly from the terminal. Telegram does not contain an agent button
+or generate a handoff task. After «Готово» (or «Сохранить черновик» for later manual funnel edits),
+the agent can list/read the canonical drafts through the existing authenticated Platform MCP/API
+as the same Account with `communications:manage`. Bot token possession is not management access.
+The agent preserves native text/entities/fileId/part IDs and saves timing, buttons or order using
+the current expectedRevision and a new operationId. Replays keep operationId; conflicts require
+rereading and reconciling. Publication and launch need an explicit owner instruction. Reopening the
+bot draft reads the same provider data after agent changes.
 
 Navigation edits the latest successfully delivered author menu in place, scoped by bot, Account,
-Telegram identity and chat. The target message ID commits before external I/O. Native previews and
-agent handoff text get a new message. A definitive Telegram edit rejection can send a replacement;
+Telegram identity and chat. The target message ID commits before external I/O. Native previews get a new message. A definitive Telegram edit rejection can send a replacement;
 unknown transport results never trigger an automatic resend. Permission rechecks and update receipts
 remain in force for every click and reply.
 

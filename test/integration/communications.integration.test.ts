@@ -1661,7 +1661,7 @@ describe("contextual Telegram composition", () => {
   });
 });
 
-describe("batch preparation and agent handoff", () => {
+describe("batch preparation and terminal agent access", () => {
   it("saves consecutive native broadcast messages once and shares the same draft with the agent API", async () => {
     await seedLink();
     await authorMessage(100, "/admin");
@@ -1694,9 +1694,6 @@ describe("batch preparation and agent handoff", () => {
     const b = (await sessionState()).broadcast!;
     expect(b.parts).toHaveLength(3);
     expect(b.audience).toEqual({ kind: "all" });
-    await authorClick(108, "Для агента");
-    expect(await lastAuthorText()).toContain(`broadcastId=${b.broadcastId}`);
-    expect(await lastAuthorText()).toContain("communications_broadcasts_read");
     const read = await http({
       ...request(),
       operation: "broadcasts.read",
@@ -1754,8 +1751,7 @@ describe("batch preparation and agent handoff", () => {
     await authorClick(112, "Когда отправить");
     await authorMessage(113, "1 день");
     await authorClick(114, "К воронке");
-    await authorClick(115, "Для агента");
-    expect(await lastAuthorText()).toContain(`funnelId=${prepared.funnelId}`);
+    await authorClick(115, "Сохранить черновик");
     const read = await http({
       ...request(),
       operation: "funnels.read",
