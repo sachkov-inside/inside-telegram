@@ -109,5 +109,22 @@ export async function restoreComposition(c: Context, id: string) {
     .where("destination_id", "=", id)
     .executeTakeFirst();
   if (!pending) throw new CommunicationsError("not_found");
-  c.state = pending.state as State;
+  const composer = (pending.state as State).composing;
+  if (!composer) throw new CommunicationsError("not_found");
+  const d = composer.destination;
+  if (d.kind === "broadcast") {
+    if (c.state.broadcast?.broadcastId !== d.id)
+      throw new CommunicationsError("not_found");
+  } else {
+    const f = c.state.funnelAuthor;
+    if (
+      !f ||
+      (d.target === "intro" ? f.intro?.introId : f.funnel?.funnelId) !== d.id
+    )
+      throw new CommunicationsError("not_found");
+    f.target = d.target;
+    f.prompt = undefined;
+  }
+  c.state.prompt = undefined;
+  c.state.composing = composer;
 }

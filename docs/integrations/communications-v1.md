@@ -403,6 +403,9 @@ The pending message, exact destination and partial button input are checkpointed
 the destination offers «Продолжить сообщение» and «Отменить добавление». `/admin` and stale buttons
 do not delete pending input. Successful attachment or explicit cancellation removes the checkpoint;
 a rejected mutation rolls back to a savepoint so a revision conflict preserves the candidate.
+Recovery restores only the candidate and its selected block, preserving later destination edits.
+The candidate carries its original provider revision; restoring it never silently rebases a write.
+Library recovery retains the search and page even before a post has been selected.
 
 «Добавить сохранённый пост» is an optional path through paged, owner-scoped search by text or media
 type. Results show type and an excerpt; choosing one displays the frozen native snapshot before

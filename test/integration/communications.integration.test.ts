@@ -1406,6 +1406,14 @@ describe("contextual Telegram composition", () => {
       (a) => a.kind === "compose:choose",
     );
     expect(second).toHaveLength(3);
+    await authorMessage(107.1, "/admin");
+    await authorClick(107.2, "Рассылки");
+    await authorClick(107.3, "Поиск · Черновик");
+    await authorClick(107.4, "Продолжить сообщение");
+    expect(
+      (await sessionState()).actions.filter((a) => a.kind === "compose:choose"),
+    ).toEqual(second);
+    expect((await sessionState()).composing!.query).toBe("Docker");
     expect(new Set([...first, ...second].map((a) => a.id)).size).toBe(13);
     const selected = await communications.execute({
       ...request(),
@@ -1455,7 +1463,10 @@ describe("contextual Telegram composition", () => {
     await authorMessage(108, "/admin");
     await authorClick(109, "Рассылки");
     await authorClick(110, "Продолжение · Черновик");
+    await authorClick(110.1, "Название");
+    await authorMessage(110.2, "Новое название");
     await authorClick(111, "Продолжить сообщение");
+    expect((await sessionState()).broadcastName).toBe("Новое название");
     expect((await sessionState()).composing).toMatchObject({
       prompt: "button-url",
       buttonTitle: "Подробнее",
@@ -1485,8 +1496,11 @@ describe("contextual Telegram composition", () => {
     await authorMessage(117, "Отменяемый текст");
     await authorMessage(118, "/admin");
     await authorClick(119, "Рассылки");
-    await authorClick(120, "Продолжение · Черновик");
+    await authorClick(120, "Новое название · Черновик");
+    await authorClick(120.1, "Название");
+    await authorMessage(120.2, "Название после отмены");
     await authorClick(121, "Отменить добавление");
+    expect((await sessionState()).broadcastName).toBe("Название после отмены");
     expect((await broadcastRows())[0]!.parts).toHaveLength(1);
     expect(
       await database
@@ -1511,7 +1525,12 @@ describe("contextual Telegram composition", () => {
     await authorMessage(109, "/admin");
     await authorClick(110, "Воронки");
     await authorClick(111, "Восстановление шага · есть правки");
+    await authorClick(111.1, "Название");
+    await authorMessage(111.2, "Изменённая воронка");
     await authorClick(112, "Продолжить сообщение");
+    expect((await sessionState()).funnelAuthor!.funnel!.name).toBe(
+      "Изменённая воронка",
+    );
     expect((await sessionState()).composing!.destination).toEqual(destination);
     await authorClick(113, "Добавить в блок");
     expect(
@@ -1569,6 +1588,24 @@ describe("contextual Telegram composition", () => {
     expect((await broadcastRows())[0]!.parts).toMatchObject([
       { content: { text: "Версия с сайта" } },
     ]);
+    await authorClick(110, "Рассылки");
+    await authorClick(111, "Конфликт · Черновик");
+    await authorClick(112, "Продолжить сообщение");
+    await authorClick(113, "Добавить в рассылку");
+    expect(await lastAuthorText()).toContain("изменились");
+    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+    await authorClick(114, "Рассылки");
+    await authorClick(115, "Конфликт · Черновик");
+    await authorClick(116, "Отменить добавление");
+    expect((await sessionState()).broadcast!.parts[0]!.content.text).toBe(
+      "Версия с сайта",
+    );
+    expect(
+      await database
+        .selectFrom("communication_author_compositions")
+        .selectAll()
+        .execute(),
+    ).toHaveLength(0);
   });
 
   it("cancels an empty draft and copies a cancelled broadcast without arming its schedule", async () => {

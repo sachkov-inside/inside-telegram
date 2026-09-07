@@ -481,6 +481,8 @@ export class AuthorAdmin {
         destination = {
           kind: "funnel",
           id,
+          expectedRevision: (f.target === "intro" ? f.intro! : f.funnel!)
+            .revision,
           target: f.target,
           partId: a.id && a.kind === "compose:edit-funnel" ? a.id : a.value,
         };
@@ -490,6 +492,7 @@ export class AuthorAdmin {
         destination = {
           kind: "broadcast",
           id: b.broadcastId,
+          expectedRevision: b.revision,
           partId: a.id ?? c.state.replacePart?.partId,
         };
       }
@@ -914,6 +917,7 @@ export class AuthorAdmin {
         throw new CommunicationsError("revision_conflict");
       if (result.kind === "accepted") {
         if (
+          b.revision !== d.expectedRevision ||
           b.audienceSnapshotId ||
           !["draft", "scheduled", "paused"].includes(b.state)
         )

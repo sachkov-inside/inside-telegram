@@ -12,9 +12,10 @@ import {
 } from "./communications-contract.js";
 import { messageLabel, previewAuthorMessage } from "./author-message-view.js";
 
-export type MessageDestination =
+export type MessageDestination = { expectedRevision: number } & (
   | { kind: "broadcast"; id: string; partId?: string }
-  | { kind: "funnel"; id: string; target: string; partId?: string };
+  | { kind: "funnel"; id: string; target: string; partId?: string }
+);
 export interface ComposerState {
   destination: MessageDestination;
   content?: TemplateContent;
@@ -22,6 +23,7 @@ export interface ComposerState {
   buttonTitle?: string;
   buttonUrl?: string;
   query?: string;
+  libraryCursor?: string;
 }
 type Reply = (text: string, buttons?: [string, Action][]) => Promise<void>;
 export type ComposerResult =
@@ -68,6 +70,7 @@ export class AuthorComposer {
       "button-row": "Введите номер ряда от 1 до 20.",
     };
     if (s.prompt) return reply(prompts[s.prompt], cancel);
+    if (!s.content) return this.library(c, reply, s.libraryCursor);
     return this.show(c, reply, true);
   }
   private async show(c: Context, reply: Reply, native = false) {
@@ -100,6 +103,7 @@ export class AuthorComposer {
   async library(c: Context, reply: Reply, cursor?: string) {
     const s = c.state.composing!;
     s.prompt = undefined;
+    s.libraryCursor = cursor;
     const list = await this.posts.list(
       authorRequest(c.accountRef, "templates.list", cursor ? { cursor } : {}),
       c.tx,

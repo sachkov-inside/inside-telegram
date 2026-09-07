@@ -169,13 +169,20 @@ export class AuthorFunnels {
   ) {
     const s = this.state(c);
     const id = s.target === "intro" ? s.intro?.introId : s.funnel?.funnelId;
-    if (
-      id !== destination.id ||
-      s.target !== destination.target ||
-      (s.funnel?.lifecycle === "archived" && s.target !== "intro")
-    )
+    if (id !== destination.id || s.target !== destination.target)
       throw new CommunicationsError("revision_conflict");
+    const missingStep =
+      s.target !== "intro" &&
+      s.target !== "entry" &&
+      !s.funnel?.steps.some((step) => step.stepId === s.target);
     if (content) {
+      if (
+        missingStep ||
+        (s.target === "intro" ? s.intro!.revision : s.funnel!.revision) !==
+          destination.expectedRevision ||
+        (s.funnel?.lifecycle === "archived" && s.target !== "intro")
+      )
+        throw new CommunicationsError("revision_conflict");
       const parts = this.parts(s);
       if (
         destination.partId &&
@@ -198,6 +205,7 @@ export class AuthorFunnels {
       );
     }
     s.replacePartId = undefined;
+    if (missingStep) return this.show(c, reply);
     return this.partsMenu(c, reply);
   }
   private async partsMenu(c: Context, reply: Reply, offset = 0): Promise<void> {
