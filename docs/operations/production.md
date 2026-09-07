@@ -2,7 +2,7 @@
 
 Комплект из #22 запускает один процесс HTTP и его фоновые обработчики. Platform остаётся
 единственным владельцем решений о доступе. Операционный запуск и общая пользовательская проверка
-сходятся в sachkov-inside/platform#244; этот документ не объявляет её завершённой.
+сходятся в #45 и sachkov-inside/platform#355; этот документ не объявляет её завершённой.
 
 ## Подготовка
 
@@ -32,7 +32,26 @@ Database входит в резервную копию кластера pgBackRe
 - `PLATFORM_EVIDENCE_DELIVERY_URL` — HTTPS endpoint Platform
   `/integrations/telegram/v1/membership-evidence`.
 - `TELEGRAM_WEBHOOK_SECRET` — третье независимое случайное значение; его алфавит — base64url.
+- `TELEGRAM_MARKETING_ENABLED=false`: выпуск Membership/sign-in не включает рассылки и воронки.
 - Тексты welcome/link/status заполняются по-русски. Они предназначены для личного диалога с ботом.
+
+### Подготовка входа через бота
+
+До готовности обоих consumers оставьте `TELEGRAM_SIGN_IN_ENABLED=false`. Настройте
+`TELEGRAM_SIGN_IN_INTEGRATION_SECRET`: отдельный случайный base64url credential от 32 символов,
+отличный от linking/evidence/webhook secrets. Он совпадает с одноимённым secret Platform API и
+credential Telegram connector в Logto. Значение не передаётся браузеру и не попадает в журналы.
+
+Logto использует POST `/integrations/identity/v1/sign-in` для регистрации и
+`/integrations/identity/v1/sign-in/<requestRef>/status`, `/consume` для завершения проверки.
+Platform API использует `/integrations/identity/v1/sign-in/<requestRef>/account-link`.
+Base URL обоих клиентов — `https://<telegram-domain>`. Серверный callback Logto в Platform
+`/integrations/telegram/v1/sign-in/linked-identity` настраивается на стороне Platform.
+
+После совместной подготовки Logto, Platform и provider включите sign-in и перезапустите
+единственный app. Отключение — `TELEGRAM_SIGN_IN_ENABLED=false` с перезапуском; не удаляйте
+sign-in subjects или связи. Уже открытые запросы окончательно истекают через пять минут.
+Реальное подтверждение входа и Membership проверяются совместно в #45 и Platform #355.
 
 ## Сборка и запуск
 
@@ -55,18 +74,23 @@ payloads не входят в image. Запишите image id, commit и вре
 Установите `TELEGRAM_IMAGE` в `compose.env` в точный полученный image id (`sha256:…`), чтобы повтор
 не зависел от перемещаемого тега. Доставьте Compose в `/opt/inside/telegram/compose.yaml`.
 
-Команды выполняются на VPS. Сначала проверяется конфигурация без печати раскрытых секретов:
+Команды выполняются на VPS. Сохраните host-owned `/etc/inside/telegram/compose.override.yaml`,
+если он существует: текущий production использует его для Telegram transport через relay.
+Не заменяйте его шаблоном и не выводите разрешённую Compose-конфигурацию с секретами.
+Перед обновлением сверяйте transport и обе версии конфигурации с deployment record.
+Следующие команды требуют override и включают его во все операции, в том числе migration и recovery;
+на текущем relay-host отсутствие файла — повод остановиться и восстановить конфигурацию.
+Для нового host без relay нужен отдельный проверенный transport-план; команды ниже относятся к текущему production.
 
 ```bash
-docker compose --env-file /etc/inside/telegram/compose.env \
-  -f /opt/inside/telegram/compose.yaml config --quiet
-docker compose --env-file /etc/inside/telegram/compose.env \
-  -f /opt/inside/telegram/compose.yaml stop app
-docker compose --env-file /etc/inside/telegram/compose.env \
-  -f /opt/inside/telegram/compose.yaml --profile operations \
-  run --rm --interactive=false migrate
-docker compose --env-file /etc/inside/telegram/compose.env \
-  -f /opt/inside/telegram/compose.yaml up --detach --no-build --wait app
+test -f /etc/inside/telegram/compose.override.yaml || exit 1
+telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
+  -f /opt/inside/telegram/compose.yaml
+  -f /etc/inside/telegram/compose.override.yaml)
+"${telegram_compose[@]}" config --quiet
+"${telegram_compose[@]}" stop app
+"${telegram_compose[@]}" --profile operations run --rm --interactive=false migrate
+"${telegram_compose[@]}" up --detach --no-build --wait app
 ```
 
 При ошибке migration или readiness остановитесь и сохраните диагностику без секретов. Старые
@@ -80,7 +104,8 @@ rollback и downgrade migrations не выполняются; повтор то�
 
 Возьмите `infra/production/telegram.caddy.example`, замените hostname на отдельный production
 домен с DNS на VPS и при необходимости loopback port. Проверьте Caddy config перед reload.
-Наружу принимаются только POST webhook и identity-linking routes; секреты проверяет приложение.
+Наружу принимаются только POST webhook, identity-linking и sign-in routes из точного allowlist;
+секреты проверяет приложение. Reference занимает один сегмент пути; вложенные пути не допускаются.
 Остальные пути дают `404`, порт приложения доступен только на `127.0.0.1`. Caddy access logging
 для этого сайта не включается: URL подтверждения содержит opaque transaction reference.
 
@@ -103,7 +128,8 @@ boundary и доступ к мигрированным таблицам собс
 Это basic readiness, а не доказательство живого reconciliation или пользовательского связывания.
 Потеря upstream не превращается в fresh positive Membership Evidence.
 
-Проверьте отказ `401` на обоих POST endpoints без credentials, `404` на постороннем пути и отсутствие
+Проверьте отказ `401` на каждом разрешённом POST endpoint без credentials, `404` на GET тех же
+путей, постороннем и вложенном пути, а также отсутствие
 открытого внешнего порта. Затем владелец выполняет обычный `/start` и связывание из authenticated
 Platform session. Проверяются сохранённая привязка, подтверждение членства и evidence на Platform.
 Проверки реального исключения/возврата участника требуют отдельного согласованного тестового субъекта;
@@ -119,5 +145,5 @@ Platform session. Проверяются сохранённая привязка
 
 После переключения единственного рабочего кластера поднимите app, проверьте readiness/webhook,
 дождитесь нового reconciliation и подтвердите Platform flow. Старые positive observations не
-продлеваются только из-за restore. В #244 запишите время восстановления и актуальность данных;
+продлеваются только из-за restore. В #45 запишите время восстановления и актуальность данных;
 RPO/RTO относятся к реальной проверке, а не наличию этого runbook.
