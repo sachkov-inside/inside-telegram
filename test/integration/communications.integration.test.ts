@@ -1795,6 +1795,79 @@ describe("batch preparation and agent handoff", () => {
     ).toEqual([3600, 3600]);
   });
 
+  it.each(["scheduled", "paused"] as const)(
+    "does not change armed %s timing until a separate confirmation",
+    async (state) => {
+      await seedLink();
+      await authorMessage(100, "/admin");
+      await authorClick(101, "Рассылки");
+      await authorClick(102, "Создать рассылку");
+      await authorMessage(103, "Время");
+      await authorClick(104, "Готово");
+      const b = (await sessionState()).broadcast!;
+      const future = new Date("2099-01-01T12:00:00Z");
+      await database
+        .updateTable("communication_broadcasts")
+        .set({ state, scheduled_at: future })
+        .where("broadcast_id", "=", b.broadcastId)
+        .execute();
+      await authorClick(105, "Обновить статус");
+      await authorClick(106, "Отправка");
+      await authorClick(107, "Сейчас");
+      expect((await broadcastRows())[0]!.scheduled_at).toEqual(future);
+      expect((await broadcastRows())[0]!.revision).toBe(b.revision);
+      await authorClick(108, "Назад");
+      await authorClick(109, "Отправка");
+      await authorClick(110, "Запланировать");
+      await authorMessage(111, "02.01.2099 12:00");
+      expect((await broadcastRows())[0]!.scheduled_at).toEqual(future);
+      await authorClick(112, "Подтвердить время отправки");
+      expect((await broadcastRows())[0]!.scheduled_at).toEqual(
+        new Date("2099-01-02T09:00:00Z"),
+      );
+      expect((await broadcastRows())[0]!.state).toBe(state);
+    },
+  );
+
+  it("starts a new menu after an unknown edit so a late completion cannot overwrite it", async () => {
+    await seedLink();
+    const sent: CommunicationMessage[] = [];
+    const worker = new AuthorDelivery(
+      database,
+      { ...config, deliveryMode: "live" },
+      authorization,
+      {
+        send: async (message) => {
+          sent.push(message);
+          return sent.length === 2
+            ? { kind: "transport_unknown" }
+            : { kind: "delivered", providerMessageId: String(sent.length) };
+        },
+      },
+    );
+    const time = Date.now() + 1000;
+    await authorMessage(100, "/admin");
+    await worker.processAvailable(new Date(time));
+    const stale = await authorClick(101, "Рассылки");
+    await worker.processAvailable(new Date(time + 2000));
+    expect(sent[1]!.editMessageId).toBe("1");
+    // The author retries an old visible button after the edit response was lost.
+    await app
+      .get(AuthorAdmin)
+      .handle({ ...stale, updateId: "1020" });
+    await worker.processAvailable(new Date(time + 4000));
+    expect(sent[2]!.editMessageId).toBeUndefined();
+    // A late edit of message 1 cannot modify the newly sent message 3.
+    expect(sent[2]!.authorMenu).toBe(true);
+    expect(
+      await database
+        .selectFrom("communication_author_outbox")
+        .selectAll()
+        .where("state", "=", "unknown")
+        .execute(),
+    ).toHaveLength(1);
+  });
+
   it("persists an edit target before dispatch, replaces navigation in place and preserves previews", async () => {
     await seedLink();
     const sent: CommunicationMessage[] = [];

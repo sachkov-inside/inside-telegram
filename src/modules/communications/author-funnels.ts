@@ -1039,7 +1039,7 @@ export class AuthorFunnels {
 export function parseFunnelDelay(value: string): number | undefined {
   const match =
     /^(\d+)\s*(с|сек(?:унда|унды|унд)?|мин(?:ута|уты|ут)?|м|ч|час(?:а|ов)?|д|дн(?:я|ей)?|день)?$/iu.exec(
-      value.trim(),
+      value.trim().toLowerCase(),
     );
   if (!match) return undefined;
   const factors: Record<string, number> = {

@@ -65,6 +65,7 @@ export type State = {
 
   composing?: ComposerState;
   broadcastName?: string;
+  pendingSchedule?: string | null;
   libraryQuery?: string;
   token: string;
   actions: Action[];
@@ -520,6 +521,18 @@ export class AuthorAdmin {
       ],
     );
   }
+  private async confirmSchedule(c: Context, date: string | null) {
+    const b = c.state.broadcast!;
+    c.state.pendingSchedule = date;
+    return this.reply(
+      c,
+      `Изменить время рассылки «${c.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}. Кому: всем доступным подписчикам.\nНовое время: ${date ? new Date(date).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " · Москва" : "сразу"}.${b.state === "paused" ? " Рассылка останется на паузе до команды «Продолжить»." : " После подтверждения рассылка будет отправлена в это время."}`,
+      [
+        ["Подтвердить время отправки", { kind: "apply-schedule" }],
+        ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
+      ],
+    );
+  }
   private async saveBroadcast(c: Context, render = true) {
     const b = c.state.broadcast!;
     if (!b.parts.length && b.revision === 0) {
@@ -608,7 +621,8 @@ export class AuthorAdmin {
         [
           ["Сейчас", { kind: "send-now" }],
           ["Запланировать", { kind: "schedule" }],
-          ...(c.state.broadcast!.scheduledAt
+          ...(c.state.broadcast!.state === "draft" &&
+          c.state.broadcast!.scheduledAt
             ? [
                 ["Подтвердить отправку", { kind: "confirm-launch" }] as [
                   string,
@@ -622,7 +636,17 @@ export class AuthorAdmin {
           ],
         ],
       );
+    if (a.kind === "apply-schedule") {
+      if (c.state.pendingSchedule === undefined)
+        throw new CommunicationsError("revision_conflict");
+      c.state.broadcast!.scheduledAt = c.state.pendingSchedule;
+      c.state.broadcast!.audience = { kind: "all" };
+      c.state.pendingSchedule = undefined;
+      return this.saveBroadcast(c);
+    }
     if (a.kind === "send-now") {
+      if (c.state.broadcast!.state !== "draft")
+        return this.confirmSchedule(c, null);
       c.state.broadcast!.audience = { kind: "all" };
       c.state.broadcast!.scheduledAt = null;
       await this.saveBroadcast(c, false);
@@ -1254,8 +1278,10 @@ export class AuthorAdmin {
           c,
           "Нужна будущая дата ДД.ММ.ГГГГ ЧЧ:ММ по Москве или слово «сразу».",
         );
-      state.broadcast.scheduledAt = date;
       state.prompt = undefined;
+      if (state.broadcast.state !== "draft")
+        return this.confirmSchedule(c, date);
+      state.broadcast.scheduledAt = date;
       await this.saveBroadcast(c, false);
       return this.perform(c, { kind: "confirm-launch" });
     }

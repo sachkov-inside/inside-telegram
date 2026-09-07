@@ -239,16 +239,17 @@ export class AuthorDelivery {
       if (message.authorMenu && message.editMenu && !message.editMessageId) {
         const previous = await tx
           .selectFrom("communication_author_outbox")
-          .select(["message", "provider_message_id"])
+          .select(["message", "provider_message_id", "state"])
           .where("bot_identity", "=", row.bot_identity)
           .where("account_ref", "=", row.account_ref)
           .where("telegram_identity_ref", "=", row.telegram_identity_ref)
           .where("telegram_user_id", "=", row.telegram_user_id)
-          .where("state", "=", "delivered")
+          .where("sequence_id", "<", row.sequence_id)
           .orderBy("sequence_id", "desc")
           .executeTakeFirst();
         if (
-          (previous?.message as CommunicationMessage | undefined)?.authorMenu &&
+          previous?.state === "delivered" &&
+          (previous.message as CommunicationMessage)?.authorMenu &&
           previous?.provider_message_id
         )
           row.message = {
