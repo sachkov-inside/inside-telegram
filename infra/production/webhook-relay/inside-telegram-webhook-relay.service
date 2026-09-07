@@ -1,0 +1,23 @@
+[Unit]
+Description=Inside Telegram webhook TLS passthrough to the application host
+Requires=inside-telegram-webhook-relay.socket
+After=network-online.target inside-telegram-webhook-relay.socket
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/inside-webhook-relay/origin.env
+ExecStart=/usr/lib/systemd/systemd-socket-proxyd --connections-max=80 ${TELEGRAM_WEBHOOK_ORIGIN}
+DynamicUser=yes
+NoNewPrivileges=yes
+PrivateTmp=yes
+ProtectSystem=strict
+ProtectHome=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+CapabilityBoundingSet=
+MemoryMax=64M
+TasksMax=16
+Restart=on-failure
+RestartSec=2

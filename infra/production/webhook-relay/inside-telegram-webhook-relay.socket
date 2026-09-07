@@ -1,0 +1,12 @@
+[Unit]
+Description=Inside Telegram webhook TLS passthrough listener
+
+[Socket]
+ListenStream=0.0.0.0:88
+NoDelay=true
+KeepAlive=true
+KeepAliveTimeSec=30
+Backlog=128
+
+[Install]
+WantedBy=sockets.target
