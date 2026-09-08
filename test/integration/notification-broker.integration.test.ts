@@ -1,3 +1,9 @@
+import { reserveTelegramSlot } from "../../src/modules/outbound/telegram-transport-slots.js";
+import { createServer } from "node:http";
+import { NotificationWorker } from "../../src/operations/notification-worker.js";
+import { loadApplicationConfig } from "../../src/config/application-config.js";
+import { systemClock } from "../../src/modules/identity-linking/clock.js";
+import { seedNotificationRecipient } from "../support/notification-recipient.js";
 import { randomUUID } from "node:crypto";
 import { connect, type ChannelModel, type ConfirmChannel } from "amqplib";
 import { sql } from "kysely";
@@ -157,7 +163,7 @@ beforeAll(async () => {
   await ch.close();
 }, 30000);
 beforeEach(async () => {
-  await sql`truncate notification_attempts, notification_commands, notification_deliveries, notification_result_outbox, notification_quarantine cascade`.execute(
+  await sql`truncate telegram_transport_fairness, notification_attempts, notification_commands, notification_deliveries, notification_result_outbox, notification_quarantine cascade`.execute(
     db,
   );
   const admin = await connection();
@@ -176,6 +182,197 @@ afterAll(async () => {
   await db.destroy();
 }, 30000);
 describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
+  it("runtime worker delivers both lanes under sustained backlog and delayed HTTP preflight", async () => {
+    await sql`truncate platform_links, link_transactions, bot_contacts, telegram_transport_slots cascade`.execute(
+      db,
+    );
+    const now = new Date();
+    const commands = Array.from({ length: 32 }, (_, i) => {
+      const c = command(i < 24 ? "subscription" : "material");
+      c.binding.accountRef = `synthetic-account-${i}`;
+      c.binding.telegramIdentityRef = `synthetic-identity-${i}`;
+      c.text = `${c.content.category}:${i}`;
+      return c;
+    });
+    for (const c of commands) {
+      c.issuedAt = now.toISOString();
+      c.notAfter = new Date(now.getTime() + 600000).toISOString();
+    }
+    for (const [i, c] of commands.entries())
+      await seedNotificationRecipient(db, c, now, String(10001 + i));
+    const authorizations: unknown[] = [];
+    const server = createServer(async (req, res) => {
+      const chunks: Buffer[] = [];
+      for await (const chunk of req) chunks.push(Buffer.from(chunk));
+      const request = JSON.parse(Buffer.concat(chunks).toString());
+      authorizations.push(request);
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      res.setHeader("content-type", "application/json");
+      res.end(
+        JSON.stringify({
+          ...request,
+          status: "allowed",
+          permitRef: randomUUID(),
+          validUntil: new Date(Date.now() + 4900).toISOString(),
+        }),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    if (!address || typeof address === "string")
+      throw new Error("No HTTP test endpoint");
+    const config = loadApplicationConfig({
+      DATABASE_URL: process.env.DATABASE_URL!,
+      TELEGRAM_BOT_IDENTITY: "inside",
+      TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
+      TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook",
+      PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
+      TELEGRAM_WELCOME_TEXT: "synthetic",
+      TELEGRAM_LINK_RECEIPT_TEXT: "synthetic",
+      TELEGRAM_LINKED_MEMBER_TEXT: "synthetic",
+      TELEGRAM_LINKED_NON_MEMBER_TEXT: "synthetic",
+      TELEGRAM_LINKED_UNAVAILABLE_TEXT: "synthetic",
+      TELEGRAM_NOTIFICATIONS_ENABLED: "true",
+      NOTIFICATION_AMQP_URL: url(users.provider),
+      NOTIFICATION_AUTHORIZE_URL: `http://127.0.0.1:${address.port}/internal/notifications/dispatch/authorize`,
+      NOTIFICATION_AUTHORIZE_SECRET: "a".repeat(32),
+      NOTIFICATION_QUARANTINE_KEY: "b".repeat(64),
+      TELEGRAM_DELIVERY_MODE: "live",
+      TELEGRAM_BOT_TOKEN: "synthetic-never-passed-to-real-adapter",
+    });
+    const sent: string[] = [];
+    const worker = new NotificationWorker(
+      config,
+      db,
+      {
+        sendText: async (message) => {
+          sent.push(message.text);
+          return { kind: "delivered", providerMessageId: String(sent.length) };
+        },
+        editText: async () => {
+          throw new Error("unused");
+        },
+      },
+      systemClock,
+    );
+    try {
+      worker.onApplicationBootstrap();
+      const producer = await connection(users.producer);
+      const ch = await producer.createConfirmChannel();
+      for (const c of commands) await publish(ch, c);
+      let general = 0;
+      let running: Promise<void> | undefined;
+      const traffic = setInterval(() => {
+        if (running) return;
+        running = db
+          .transaction()
+          .execute((tx) =>
+            reserveTelegramSlot(tx, "inside", `general:${general}`, new Date()),
+          )
+          .then((granted) => {
+            if (granted) general++;
+          })
+          .finally(() => {
+            running = undefined;
+          });
+      }, 30);
+      try {
+        await expect
+          .poll(
+            () => sent.filter((text) => text.startsWith("material:")).length,
+            { timeout: 10000 },
+          )
+          .toBeGreaterThanOrEqual(3);
+        expect(
+          sent.filter((text) => text.startsWith("subscription:")).length,
+        ).toBeGreaterThanOrEqual(3);
+        expect(general).toBeGreaterThan(0);
+        expect(
+          await db
+            .selectFrom("notification_commands")
+            .select("operation_id")
+            .where("category", "=", "subscription")
+            .where("state", "=", "accepted")
+            .execute(),
+        ).not.toHaveLength(0);
+      } finally {
+        clearInterval(traffic);
+        await running;
+      }
+      await expect
+        .poll(() => sent.length, { timeout: 15000 })
+        .toBe(commands.length);
+      await expect
+        .poll(
+          async () =>
+            (
+              await db
+                .selectFrom("notification_result_outbox")
+                .selectAll()
+                .where("published_at", "is", null)
+                .execute()
+            ).length,
+        )
+        .toBe(0);
+      expect(authorizations.length).toBeGreaterThanOrEqual(2);
+      expect(
+        (
+          await db.selectFrom("notification_commands").selectAll().execute()
+        ).map((c) => c.state),
+      ).toEqual(Array.from({ length: commands.length }, () => "sent"));
+    } finally {
+      await worker.onModuleDestroy();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  }, 30000);
+
+  it("blocked subscription ingestion respects prefetch while material lane still commits", async () => {
+    const c = await connection(users.producer);
+    const ch = await c.createConfirmChannel();
+    let subscriptionInFlight = 0;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => {
+      release = resolve;
+    });
+    await start({
+      receive: async (bytes, envelope, category) => {
+        if (category === "subscription") {
+          subscriptionInFlight++;
+          await held;
+        }
+        return provider.receive(bytes, envelope, category);
+      },
+    });
+    try {
+      for (let i = 0; i < 8; i++) await publish(ch, command());
+      const material = command("material");
+      await publish(ch, material);
+      await expect
+        .poll(async () =>
+          Boolean(
+            await db
+              .selectFrom("notification_commands")
+              .select("operation_id")
+              .where("operation_id", "=", material.operationId)
+              .executeTakeFirst(),
+          ),
+        )
+        .toBe(true);
+      expect(subscriptionInFlight).toBe(2);
+    } finally {
+      release();
+    }
+    await expect
+      .poll(
+        async () =>
+          (await db.selectFrom("notification_commands").selectAll().execute())
+            .length,
+      )
+      .toBe(9);
+  });
+
   it("consumes both durable lanes, acknowledges after inbox and replays accepted result while Platform is offline", async () => {
     const p = await connection(users.producer);
     const ch = await p.createConfirmChannel();

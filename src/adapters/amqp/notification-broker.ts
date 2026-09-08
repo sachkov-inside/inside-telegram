@@ -18,6 +18,7 @@ export class NotificationBroker {
   private consumers: Channel[] = [];
   private pending = new Set<Promise<void>>();
   private healthy = false;
+  private closing = false;
   private publishTail: Promise<void> = Promise.resolve();
   private returned = false;
   constructor(
@@ -31,7 +32,10 @@ export class NotificationBroker {
   }
   async open(): Promise<void> {
     await this.close();
-    const connection = await connect(this.url, { timeout: 5000 });
+    this.closing = false;
+    const endpoint = new URL(this.url);
+    endpoint.searchParams.set("heartbeat", "10");
+    const connection = await connect(endpoint.toString(), { timeout: 5000 });
     this.connection = connection;
     connection.on("error", () => this.fail());
     connection.on("close", () => this.fail());
@@ -125,9 +129,10 @@ export class NotificationBroker {
   }
   private fail() {
     this.healthy = false;
-    this.alert();
+    if (!this.closing) this.alert();
   }
   async close(): Promise<void> {
+    this.closing = true;
     this.healthy = false;
     const connection = this.connection;
     this.connection = undefined;

@@ -5,6 +5,11 @@ import type {
 } from "./notification-contract.js";
 type Timestamp = ColumnType<Date, Date, Date>;
 export interface NotificationTables {
+  telegram_transport_fairness: {
+    bot_identity: string;
+    cursor: number;
+    general_waiting_until: Timestamp;
+  };
   notification_deliveries: {
     delivery_ref: string;
     latest_operation: string;

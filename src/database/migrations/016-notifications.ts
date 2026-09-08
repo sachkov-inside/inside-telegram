@@ -2,7 +2,11 @@ import { sql, type Kysely } from "kysely";
 import type { Migration } from "kysely/migration";
 export const notificationsMigration: Migration = {
   async up(db: Kysely<unknown>) {
-    await sql`create table notification_deliveries (
+    await sql`create table telegram_transport_fairness (
+      bot_identity text primary key, cursor integer not null default 0,
+      general_waiting_until timestamptz not null
+    );
+    create table notification_deliveries (
       delivery_ref uuid primary key, latest_operation uuid not null, result_revision integer not null default 0
     );
     create table notification_commands (
@@ -30,7 +34,7 @@ export const notificationsMigration: Migration = {
     );`.execute(db);
   },
   async down(db: Kysely<unknown>) {
-    await sql`drop table notification_quarantine, notification_result_outbox, notification_attempts, notification_commands, notification_deliveries`.execute(
+    await sql`drop table if exists telegram_transport_fairness; drop table notification_quarantine, notification_result_outbox, notification_attempts, notification_commands, notification_deliveries`.execute(
       db,
     );
   },

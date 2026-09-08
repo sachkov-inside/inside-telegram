@@ -3,7 +3,7 @@ import {
   Injectable,
   Logger,
   type OnApplicationBootstrap,
-  type OnApplicationShutdown,
+  type OnModuleDestroy,
 } from "@nestjs/common";
 import {
   APPLICATION_CONFIG,
@@ -20,7 +20,7 @@ import {
 import { CLOCK, type Clock } from "../modules/identity-linking/clock.js";
 @Injectable()
 export class NotificationWorker
-  implements OnApplicationBootstrap, OnApplicationShutdown
+  implements OnApplicationBootstrap, OnModuleDestroy
 {
   private readonly logger = new Logger(NotificationWorker.name);
   private broker?: NotificationBroker;
@@ -100,7 +100,7 @@ export class NotificationWorker
       });
     this.cycles.set(name, cycle);
   }
-  async onApplicationShutdown() {
+  async onModuleDestroy() {
     this.stopping = true;
     clearInterval(this.timer);
     await Promise.allSettled(this.cycles.values());

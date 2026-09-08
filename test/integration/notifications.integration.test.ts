@@ -1,3 +1,4 @@
+import { seedNotificationRecipient } from "../support/notification-recipient.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { randomUUID } from "node:crypto";
@@ -106,52 +107,9 @@ async function result(c: NotificationCommand) {
   ).result;
 }
 async function linked(c: NotificationCommand) {
-  const now = clock.now(),
-    ref = randomUUID(),
-    user = "10001";
-  await db
-    .insertInto("link_transactions")
-    .values({
-      link_transaction_ref: ref,
-      account_ref: c.binding.accountRef,
-      token_digest: "x".repeat(43),
-      return_correlation: "synthetic",
-      expires_at: new Date(now.getTime() + 600000),
-      state: "linked",
-      registered_at: now,
-      bot_identity: "inside",
-      candidate_telegram_user_id: user,
-      received_at: now,
-      confirmed_at: now,
-    })
-    .execute();
-  await db
-    .insertInto("platform_links")
-    .values({
-      telegram_identity_ref: c.binding.telegramIdentityRef,
-      account_ref: c.binding.accountRef,
-      bot_identity: "inside",
-      telegram_user_id: user,
-      link_transaction_ref: ref,
-      linked_at: now,
-      evidence_version: 0,
-      last_membership_observation_at: null,
-      last_membership_observation_update_id: null,
-    })
-    .execute();
-  await db
-    .insertInto("bot_contacts")
-    .values({
-      bot_identity: "inside",
-      telegram_user_id: user,
-      private_chat_id: user,
-      contactability: "reachable",
-      first_started_at: now,
-      last_started_at: now,
-      updated_at: now,
-    })
-    .execute();
+  await seedNotificationRecipient(db, c, clock.now());
 }
+
 function advance(ms: number) {
   clock.value = new Date(clock.value.getTime() + ms);
 }
@@ -163,7 +121,7 @@ afterAll(async () => {
   await db2.destroy();
 });
 beforeEach(async () => {
-  await sql`truncate notification_attempts, notification_commands, notification_deliveries, notification_result_outbox, notification_quarantine,
+  await sql`truncate telegram_transport_fairness, notification_attempts, notification_commands, notification_deliveries, notification_result_outbox, notification_quarantine,
     platform_links, link_transactions, bot_contacts, telegram_transport_slots cascade`.execute(
     db,
   );
@@ -180,6 +138,30 @@ beforeEach(async () => {
   });
 });
 describe("Notification provider with real PostgreSQL and synthetic external facets", () => {
+  it("material gets its durable turn even when every attempt misses the old wall-clock window", async () => {
+    await receive(command());
+    await receive(command("material"));
+    let material = 0;
+    for (let i = 0; i < 12; i++) {
+      for (const purpose of ["subscription", "material"] as const) {
+        const granted = await db
+          .transaction()
+          .execute((tx) =>
+            reserveTelegramSlot(
+              tx,
+              "inside",
+              `${purpose}:${i}`,
+              clock.now(),
+              purpose,
+            ),
+          );
+        if (granted && purpose === "material") material++;
+      }
+      advance(160);
+    }
+    expect(material).toBe(4);
+  });
+
   it("real process death at I/O leaves a durable started barrier after restart", async () => {
     const c = command();
     await linked(c);
