@@ -9,6 +9,8 @@ export interface NotificationTables {
     bot_identity: string;
     cursor: number;
     general_waiting_until: Timestamp;
+    subscription_waiting_until: Timestamp;
+    material_waiting_until: Timestamp;
   };
   notification_deliveries: {
     delivery_ref: string;

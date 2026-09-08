@@ -20,31 +20,31 @@ export async function reserveTelegramSlot(
       bot_identity: bot,
       cursor: 0,
       general_waiting_until: new Date(0),
+      subscription_waiting_until: new Date(0),
+      material_waiting_until: new Date(0),
     })
     .onConflict((c) => c.column("bot_identity").doNothing())
     .execute();
-  if (purpose === "general")
-    await tx
-      .updateTable("telegram_transport_fairness")
-      .set({ general_waiting_until: new Date(now.getTime() + 1000) })
-      .where("bot_identity", "=", bot)
-      .execute();
+  const waitingColumn = `${purpose}_waiting_until` as const;
+  await tx
+    .updateTable("telegram_transport_fairness")
+    .set({
+      [waitingColumn]: new Date(
+        now.getTime() + (purpose === "general" ? 1000 : 10000),
+      ),
+    })
+    .where("bot_identity", "=", bot)
+    .execute();
   const fairness = await tx
     .selectFrom("telegram_transport_fairness")
     .selectAll()
     .where("bot_identity", "=", bot)
     .executeTakeFirstOrThrow();
-  const pending = await tx
-    .selectFrom("notification_commands")
-    .select("category")
-    .distinct()
-    .where("bot_identity", "=", bot)
-    .where("state", "in", ["accepted", "retrying"])
-    .where("available_at", "<=", now)
-    .execute();
-  const active = new Set(pending.map((r) => r.category));
-  active.add(purpose);
-  if (fairness.general_waiting_until > now) active.add("general");
+  // Only a sender that reached capacity admission can reserve a turn. Durable backlog alone
+  // must not block other senders when Notifications are disabled or the worker has died.
+  const active = new Set<string>();
+  for (const category of ["general", "subscription", "material"] as const)
+    if (fairness[`${category}_waiting_until`] > now) active.add(category);
   const turns = [
     "subscription",
     "subscription",
@@ -90,7 +90,7 @@ export async function reserveTelegramSlot(
     .updateTable("telegram_transport_fairness")
     .set({
       cursor: (selected + 1) % turns.length,
-      ...(purpose === "general" ? { general_waiting_until: new Date(0) } : {}),
+      [waitingColumn]: new Date(0),
     })
     .where("bot_identity", "=", bot)
     .execute();

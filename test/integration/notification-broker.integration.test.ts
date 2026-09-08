@@ -179,6 +179,9 @@ afterAll(async () => {
   for (const c of connections) await c.close().catch(() => undefined);
   await api(`vhosts/${vhost}`, "DELETE");
   for (const u of Object.values(users)) await api(`users/${u}`, "DELETE");
+  await sql`truncate telegram_transport_fairness, notification_attempts, notification_commands, notification_deliveries, notification_result_outbox, notification_quarantine cascade`.execute(
+    db,
+  );
   await db.destroy();
 }, 30000);
 describe("real RabbitMQ consumer, confirms, permissions and limits", () => {

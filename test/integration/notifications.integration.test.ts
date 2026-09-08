@@ -117,6 +117,9 @@ beforeAll(async () => {
   await migrateToLatest(db);
 });
 afterAll(async () => {
+  await sql`truncate telegram_transport_fairness, notification_attempts, notification_commands, notification_deliveries, notification_result_outbox, notification_quarantine cascade`.execute(
+    db,
+  );
   await db.destroy();
   await db2.destroy();
 });
@@ -138,6 +141,44 @@ beforeEach(async () => {
   });
 });
 describe("Notification provider with real PostgreSQL and synthetic external facets", () => {
+  it("disabled or crashed notification workers cannot strand existing traffic behind durable backlog", async () => {
+    await receive(command());
+    await receive(command("material"));
+    expect(
+      await db
+        .transaction()
+        .execute((tx) =>
+          reserveTelegramSlot(tx, "inside", "general-1", clock.now()),
+        ),
+    ).toBe(true);
+    expect(
+      await db
+        .transaction()
+        .execute((tx) =>
+          reserveTelegramSlot(
+            tx,
+            "inside",
+            "material-1",
+            clock.now(),
+            "material",
+          ),
+        ),
+    ).toBe(false);
+    advance(10001);
+    expect(
+      await db
+        .transaction()
+        .execute((tx) =>
+          reserveTelegramSlot(tx, "inside", "general-2", clock.now()),
+        ),
+    ).toBe(true);
+    expect(
+      (await db.selectFrom("notification_commands").selectAll().execute()).map(
+        (c) => c.state,
+      ),
+    ).toEqual(["accepted", "accepted"]);
+  });
+
   it("material gets its durable turn even when every attempt misses the old wall-clock window", async () => {
     await receive(command());
     await receive(command("material"));

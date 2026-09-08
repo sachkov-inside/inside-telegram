@@ -4,7 +4,8 @@ export const notificationsMigration: Migration = {
   async up(db: Kysely<unknown>) {
     await sql`create table telegram_transport_fairness (
       bot_identity text primary key, cursor integer not null default 0,
-      general_waiting_until timestamptz not null
+      general_waiting_until timestamptz not null,
+      subscription_waiting_until timestamptz not null, material_waiting_until timestamptz not null
     );
     create table notification_deliveries (
       delivery_ref uuid primary key, latest_operation uuid not null, result_revision integer not null default 0

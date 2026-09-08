@@ -165,10 +165,12 @@ export class NotificationProvider {
       .orderBy("available_at")
       .limit(limit)
       .execute();
-    for (const row of due) await this.dispatch(row);
+    for (const row of due) {
+      if (await this.dispatch(row)) break;
+    }
   }
 
-  private async dispatch(row: CommandRow): Promise<void> {
+  private async dispatch(row: CommandRow): Promise<boolean> {
     const c = row.command;
     const request: DispatchRequest = {
       contractVersion: "inside.notification-dispatch.v1",
@@ -288,7 +290,7 @@ export class NotificationProvider {
           c.content.category,
         ))
       )
-        return;
+        return { waiting: true };
       const now = this.clock.now();
       if (until <= now.getTime() || Date.parse(c.notAfter) <= now.getTime())
         return;
@@ -311,7 +313,8 @@ export class NotificationProvider {
       });
       return { chatId: contact.private_chat_id, validUntil: until };
     });
-    if (!started) return;
+    if (!started) return false;
+    if ("waiting" in started) return true;
     // Commit/lock latency must not turn an expired permit into an external call.
     if (this.clock.now().getTime() >= started.validUntil) {
       await this.db.transaction().execute(async (tx) => {
@@ -331,7 +334,7 @@ export class NotificationProvider {
           reason: "expired",
         });
       });
-      return;
+      return false;
     }
     let outcome: TelegramDeliveryResult;
     try {
@@ -348,6 +351,7 @@ export class NotificationProvider {
       row.payload_digest,
       outcome,
     );
+    return false;
   }
 
   // Internal provider evidence only. No public recovery endpoint can manufacture a retry permit.
