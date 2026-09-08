@@ -1,0 +1,94 @@
+{
+  "vhosts": [
+    {
+      "name": "/inside-notifications"
+    }
+  ],
+  "exchanges": [
+    {
+      "name": "inside.notifications.telegram.v1",
+      "vhost": "/inside-notifications",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    },
+    {
+      "name": "inside.results.telegram.v1",
+      "vhost": "/inside-notifications",
+      "type": "topic",
+      "durable": true,
+      "auto_delete": false,
+      "internal": false,
+      "arguments": {}
+    }
+  ],
+  "queues": [
+    {
+      "name": "telegram.notifications.subscription.v1",
+      "vhost": "/inside-notifications",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": -1,
+        "x-overflow": "reject-publish",
+        "x-max-length": 10000,
+        "x-max-length-bytes": 16777216
+      }
+    },
+    {
+      "name": "telegram.notifications.material.v1",
+      "vhost": "/inside-notifications",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": -1,
+        "x-overflow": "reject-publish",
+        "x-max-length": 10000,
+        "x-max-length-bytes": 16777216
+      }
+    },
+    {
+      "name": "platform.notification-results.telegram.v1",
+      "vhost": "/inside-notifications",
+      "durable": true,
+      "auto_delete": false,
+      "arguments": {
+        "x-queue-type": "quorum",
+        "x-delivery-limit": -1,
+        "x-overflow": "reject-publish",
+        "x-max-length": 10000,
+        "x-max-length-bytes": 16777216
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "source": "inside.notifications.telegram.v1",
+      "vhost": "/inside-notifications",
+      "destination": "telegram.notifications.subscription.v1",
+      "destination_type": "queue",
+      "routing_key": "subscription",
+      "arguments": {}
+    },
+    {
+      "source": "inside.notifications.telegram.v1",
+      "vhost": "/inside-notifications",
+      "destination": "telegram.notifications.material.v1",
+      "destination_type": "queue",
+      "routing_key": "material",
+      "arguments": {}
+    },
+    {
+      "source": "inside.results.telegram.v1",
+      "vhost": "/inside-notifications",
+      "destination": "platform.notification-results.telegram.v1",
+      "destination_type": "queue",
+      "routing_key": "delivery.result",
+      "arguments": {}
+    }
+  ]
+}

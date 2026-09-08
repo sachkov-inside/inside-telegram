@@ -22,7 +22,7 @@
     "format:check": "prettier --check .",
     "guardrails": "node scripts/check-architecture.mjs",
     "infra:down": "docker compose down",
-    "infra:up": "docker compose up -d --wait postgres",
+    "infra:up": "docker compose up -d --wait postgres rabbitmq",
     "owner:recover-identity": "tsx src/operations/recover-identity-link.ts",
     "lint": "eslint .",
     "start": "node dist/main.js",
@@ -34,15 +34,16 @@
     "@nestjs/common": "12.0.1",
     "@nestjs/core": "12.0.1",
     "@nestjs/platform-fastify": "12.0.1",
+    "ajv": "8.20.0",
+    "ajv-formats": "3.0.1",
+    "amqplib": "2.0.1",
     "dotenv": "17.4.2",
     "fastify": "5.12.1",
     "grammy": "1.46.0",
     "kysely": "0.29.5",
     "pg": "8.23.0",
     "reflect-metadata": "0.2.2",
-    "rxjs": "7.8.2",
-    "ajv": "8.20.0",
-    "ajv-formats": "3.0.1"
+    "rxjs": "7.8.2"
   },
   "devDependencies": {
     "@eslint/js": "10.0.1",

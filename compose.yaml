@@ -1,6 +1,17 @@
 name: inside-telegram
 
 services:
+  rabbitmq:
+    image: rabbitmq:4.3-management-alpine
+    ports:
+      - "127.0.0.1:5673:5672"
+      - "127.0.0.1:15673:15672"
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+
   postgres:
     image: postgres:18.4-alpine
     environment:

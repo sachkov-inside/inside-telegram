@@ -7,10 +7,29 @@ export async function reserveTelegramSlot(
   bot: string,
   chat: string,
   now: Date,
+  purpose: "general" | "subscription" | "material" = "general",
 ): Promise<boolean> {
   await sql`select pg_advisory_xact_lock(hashtextextended(${`telegram-transport:${bot}`}, 0))`.execute(
     tx,
   );
+  // Two service slots, one material slot, one existing-traffic slot per 160ms.
+  // Idle reservations are borrowed; an active category cannot be starved by another worker.
+  const reserved = (
+    ["subscription", "subscription", "material", "general"] as const
+  )[Math.floor(now.getTime() / 40) % 4]!;
+  if (reserved !== purpose && reserved !== "general") {
+    const demand = await tx
+      .selectFrom("notification_commands")
+      .select("operation_id")
+      .where("bot_identity", "=", bot)
+      .where("category", "=", reserved)
+      .where("state", "in", ["accepted", "retrying"])
+      .where("available_at", "<=", now)
+      .limit(1)
+      .executeTakeFirst();
+    if (demand) return false;
+  }
+  if (reserved === "general" && purpose !== "general") return false;
   const lanes = [
     { lane: "global", delay: 40 },
     { lane: `chat:${chat}`, delay: 1000 },

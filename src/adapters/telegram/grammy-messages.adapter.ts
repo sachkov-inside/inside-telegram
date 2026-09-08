@@ -11,7 +11,7 @@ export class GrammyMessagesAdapter implements TelegramMessages {
   private readonly api: TelegramApi;
 
   constructor(token: string, api?: TelegramApi) {
-    this.api = api ?? new Api(token);
+    this.api = api ?? new Api(token, { timeoutSeconds: 10 });
   }
 
   async sendText(

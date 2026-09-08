@@ -8,3 +8,4 @@ pnpm-lock.yaml
 # Pinned protocol corpora are byte-identical to their source manifests.
 docs/contracts/billing-v1/
 docs/contracts/notifications-v1/
+src/modules/notifications/contracts/
