@@ -1,0 +1,31 @@
+{
+  "bundleVersion": "inside.billing-integration.v1",
+  "status": "proposed-local-contract",
+  "sourceRepository": "sachkov-inside/workspace",
+  "sourceCommit": "e161320d74176f8154b20f5c469846fbdc1773e6",
+  "approval": "Workspace PR151 merged after owner approval on 2026-09-08. Raw source text retains pre-merge proposal wording; this metadata records adoption.",
+  "importedAt": "2026-09-08",
+  "artifacts": {
+    "schema.json": {
+      "sha256": "3106356f946d5cdf5ae6593ec042eb5a300dffed0d0941beb036d60254836435"
+    },
+    "fixtures.json": {
+      "sha256": "97f6c5ac7558015416cb089b4830563000aab3490bca373993813457565ed95c"
+    },
+    "scenarios.json": {
+      "sha256": "236528431f33804977a731c83adc5cc8fbaf81793f26c4704c918b48c969d12c"
+    },
+    "sources/subscription-access-v1.txt": {
+      "sha256": "b2ba5e77e670886645409c713c40a4941958816714a8885c1660dbf60ae9968c",
+      "sourcePath": "docs/contracts/subscription-access-v1.md"
+    },
+    "sources/subscription-billing-v1.txt": {
+      "sha256": "19e708964e9a90b61fb01ac48b0b573ec3815487960810c4c942869e871b9140",
+      "sourcePath": "product/subscription-billing-v1.md"
+    },
+    "protocol.md": {
+      "sha256": "68a9f7cb05ad59bed827d9a36d1e2d10abbc18bbd76f29c0efc82245b663b0c1"
+    }
+  },
+  "consumerHandoff": "Telegram #54 copies protocol.md, schema.json, fixtures.json, scenarios.json, manifest.json and sources/ byte-for-byte from merged Platform #403; consumer metadata records the Platform commit. protocol.md contains the normative semantics with no repository-specific relative navigation."
+}

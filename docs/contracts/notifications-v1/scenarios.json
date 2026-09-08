@@ -1,0 +1,342 @@
+{
+  "proof": "Normative runtime requirements; schema tests do not execute these state transitions.",
+  "scenarios": [
+    {
+      "name": "billing-to-two-channels",
+      "implementationTickets": [
+        "platform#410",
+        "platform#436",
+        "inside-telegram#56",
+        "platform#438"
+      ],
+      "steps": [
+        {
+          "fixture": "billing-event"
+        },
+        {
+          "action": "prepare Telegram and email deliveries for current verified recipient"
+        },
+        {
+          "fixture": "subscription-telegram"
+        },
+        {
+          "fixture": "allowed"
+        },
+        {
+          "fixture": "sent-result"
+        }
+      ],
+      "expected": "Email and Telegram have independent Delivery; one Notification; payment and access unchanged by channel failure."
+    },
+    {
+      "name": "material-to-two-channels",
+      "implementationTickets": [
+        "platform#437",
+        "platform#436",
+        "inside-telegram#56",
+        "platform#438"
+      ],
+      "steps": [
+        {
+          "fixture": "material-event"
+        },
+        {
+          "action": "snapshot opted-in eligible audience at event time and current access"
+        },
+        {
+          "fixture": "material-telegram"
+        },
+        {
+          "fixture": "material-email"
+        }
+      ],
+      "expected": "One Notification per publication occurrence and Account; distinct channel deliveries; no protected body or access token."
+    },
+    {
+      "name": "outbox-confirm-loss",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "commit source+outbox; broker persists; confirm lost; restart relay"
+        }
+      ],
+      "expected": "Replay same messageId; one receipt and one notification per recipient."
+    },
+    {
+      "name": "inbox-ack-loss",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "commit inbox; lose ack; redeliver"
+        }
+      ],
+      "expected": "Existing payload matches; ack and resume durable job; do not create another delivery."
+    },
+    {
+      "name": "payload-conflict",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "reuse messageId or operationId with altered text/binding"
+        }
+      ],
+      "expected": "Durable conflict/quarantine; no current payload overwritten and no send."
+    },
+    {
+      "name": "publisher-authority",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "Telegram principal publishes billing event or sender selects another channel result"
+        }
+      ],
+      "expected": "Broker ACL rejects; body field cannot authenticate publisher; no receipt creates authority."
+    },
+    {
+      "name": "freshness",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "cancel reminder or unpublish material before authorize"
+        }
+      ],
+      "expected": "Denied/suppressed; no send; payment and publication facts unchanged."
+    },
+    {
+      "name": "access-and-opt-out",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "disable material channel or revoke access after audience expansion before authorize"
+        }
+      ],
+      "expected": "Denied; no service-purpose fallback; late opt-in does not backfill."
+    },
+    {
+      "name": "link-race",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "unlink or replace verified binding before authorize"
+        }
+      ],
+      "expected": "Binding conflict suppresses old recipient; never auto-retarget unknown or sent notification."
+    },
+    {
+      "name": "unknown-send",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "commit started; provider may accept; lose response; expire lease; acquire new permit"
+        }
+      ],
+      "expected": "Unknown persists; no automatic second send across workers, revisions, restart or channel rebinding."
+    },
+    {
+      "name": "late-success",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "record unknown; later receive verified success for same attempt; old result arrives last"
+        }
+      ],
+      "expected": "Source ledger advances to sent; higher resultRevision wins; old/different attempt cannot overwrite; no resend."
+    },
+    {
+      "name": "result-outage",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "commit sent+result outbox; RabbitMQ unavailable; caller sees accepted"
+        }
+      ],
+      "expected": "Result outbox retries; replay original command returns evidence; status lag never sends again."
+    },
+    {
+      "name": "permit-expiry",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "allowed permit expires before started"
+        }
+      ],
+      "expected": "No I/O; new authorize ID/attempt may permit first send only while ledger not_started and command valid."
+    },
+    {
+      "name": "command-refresh",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "command deadline expires without started; producer asks to refresh revision"
+        }
+      ],
+      "expected": "Receiver must prove no started attempt under Delivery lock before accepting higher revision; old queued revision suppressed."
+    },
+    {
+      "name": "definitive-rejection",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "Bot API returns known 429; persist not_sent; retry_after passes"
+        }
+      ],
+      "expected": "Same Delivery, new attempt with fresh permit; shared bot capacity defers all send paths; within deadline."
+    },
+    {
+      "name": "audience-restart",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "crash during material audience expansion; account opts in after publication"
+        }
+      ],
+      "expected": "Checkpoint resumes bounded batches; uniqueness prevents duplicates; later opt-in/account creation excluded."
+    },
+    {
+      "name": "material-republication",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "edit published material; unpublish and republish; add same Material to Series"
+        }
+      ],
+      "expected": "No new first-publication occurrence or automatic second announcement."
+    },
+    {
+      "name": "backlog-expiry",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "RabbitMQ unavailable past command deadline or 24h material event lifetime"
+        }
+      ],
+      "expected": "Expired command suppressed; source may issue safe refreshed revision only if current and proven not_started; old material event suppressed."
+    },
+    {
+      "name": "fairness",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "large material audience and existing broadcast while billing commands arrive continuously"
+        }
+      ],
+      "expected": "Separate bounded lanes reserve service capacity and nonzero content share under shared bot/chat limits."
+    },
+    {
+      "name": "poison-and-overflow",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "invalid version enters queue or max length reached"
+        }
+      ],
+      "expected": "Quarantine durably before poison ack; no requeue loop; reject-publish retains producer outbox and alerts."
+    },
+    {
+      "name": "community-separate",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "notification disabled while a finite community grant expires"
+        }
+      ],
+      "expected": "Community reconciliation still enforces expiry; notification state does not grant/revoke access."
+    },
+    {
+      "name": "provider-offline",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "action": "Platform authorize unavailable or provider blocked"
+        }
+      ],
+      "expected": "No I/O without permit; bounded retries to deadline or failed unreachable recipient; no change to billing/access."
+    },
+    {
+      "name": "post-start-result-attempt-correlation",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56",
+        "platform#438"
+      ],
+      "steps": [
+        {
+          "fixture": "unknown-result"
+        },
+        {
+          "fixture": "retry-other-attempt",
+          "expected": "Reject/quarantine when not matched to the known current attempt; shape alone is valid."
+        },
+        {
+          "fixture": "retry-result",
+          "expected": "Accept only with same attempt not_sent evidence and newer resultRevision."
+        },
+        {
+          "fixture": "failed-known-attempt",
+          "expected": "Alternative branch: same attempt definitive failure settles unknown; use newer resultRevision."
+        }
+      ],
+      "expected": "Result carries attemptRef; null allowed only for pre-start retry/failure. Mismatched attempt or missing post-start evidence never clears unknown."
+    }
+  ]
+}

@@ -1,0 +1,605 @@
+[
+  {
+    "name": "finite-community-grant",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": true
+  },
+  {
+    "name": "lifetime-community-grant",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "lifetime"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": true
+  },
+  {
+    "name": "community-revoke",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000010",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 2,
+      "access": {
+        "kind": "denied"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": true
+  },
+  {
+    "name": "community-status-query",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.status",
+      "operationId": "00000000-0000-4000-8000-000000000001"
+    },
+    "valid": true
+  },
+  {
+    "name": "community-applied",
+    "definition": "communityResponse",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.result",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "status": "applied",
+      "observedMembership": "member",
+      "updatedAt": "2026-09-08T09:00:05Z"
+    },
+    "valid": true
+  },
+  {
+    "name": "applied-community-contradiction",
+    "definition": "communityResponse",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.result",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "status": "applied",
+      "observedMembership": "not_member",
+      "updatedAt": "2026-09-08T09:00:05Z"
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown-community-result",
+    "definition": "communityResponse",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.result",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "status": "unknown",
+      "observedMembership": "unknown",
+      "updatedAt": "2026-09-08T09:00:05Z"
+    },
+    "valid": true
+  },
+  {
+    "name": "missing-finite-deadline",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "lifetime-with-deadline",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "lifetime",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "unknown-major",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v2",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "raw-recipient-forbidden",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003",
+      "chatId": 12345
+    },
+    "valid": false
+  },
+  {
+    "name": "binding-username-forbidden",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1,
+        "username": "someone"
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "revision-zero",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 0,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "non-integer-revision",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1.5,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "2026-09-08T09:00:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid-date",
+    "definition": "communityRequest",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.set",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "entitlementRevision": 1,
+      "access": {
+        "kind": "finite",
+        "validUntil": "2026-10-08T09:00:00Z"
+      },
+      "issuedAt": "tomorrow",
+      "correlationRef": "00000000-0000-4000-8000-000000000003"
+    },
+    "valid": false
+  },
+  {
+    "name": "notification-send",
+    "definition": "notificationRequest",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.send",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "noticeRef": "00000000-0000-4000-8000-000000000005",
+      "noticeRevision": 1,
+      "kind": "renewal_reminder",
+      "text": "Следующее списание: 2 000 ₽, 8 октября. Управление — в кабинете Inside.",
+      "issuedAt": "2026-10-05T09:00:00Z",
+      "notAfter": "2026-10-05T09:10:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000006"
+    },
+    "valid": true
+  },
+  {
+    "name": "notification-status",
+    "definition": "notificationRequest",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.status",
+      "operationId": "00000000-0000-4000-8000-000000000004"
+    },
+    "valid": true
+  },
+  {
+    "name": "notification-sent",
+    "definition": "notificationResponse",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.result",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "noticeRef": "00000000-0000-4000-8000-000000000005",
+      "status": "sent",
+      "updatedAt": "2026-10-05T09:00:05Z"
+    },
+    "valid": true
+  },
+  {
+    "name": "marketing-kind-forbidden",
+    "definition": "notificationRequest",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.send",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "noticeRef": "00000000-0000-4000-8000-000000000005",
+      "noticeRevision": 1,
+      "kind": "campaign",
+      "text": "Следующее списание: 2 000 ₽, 8 октября. Управление — в кабинете Inside.",
+      "issuedAt": "2026-10-05T09:00:00Z",
+      "notAfter": "2026-10-05T09:10:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000006"
+    },
+    "valid": false
+  },
+  {
+    "name": "arbitrary-url-forbidden",
+    "definition": "notificationRequest",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.send",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "noticeRef": "00000000-0000-4000-8000-000000000005",
+      "noticeRevision": 1,
+      "kind": "renewal_reminder",
+      "text": "Следующее списание: 2 000 ₽, 8 октября. Управление — в кабинете Inside.",
+      "issuedAt": "2026-10-05T09:00:00Z",
+      "notAfter": "2026-10-05T09:10:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000006",
+      "url": "https://example.invalid"
+    },
+    "valid": false
+  },
+  {
+    "name": "bank-token-forbidden",
+    "definition": "notificationRequest",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.send",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "noticeRef": "00000000-0000-4000-8000-000000000005",
+      "noticeRevision": 1,
+      "kind": "renewal_reminder",
+      "text": "Следующее списание: 2 000 ₽, 8 октября. Управление — в кабинете Inside.",
+      "issuedAt": "2026-10-05T09:00:00Z",
+      "notAfter": "2026-10-05T09:10:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000006",
+      "RebillId": "secret"
+    },
+    "valid": false
+  },
+  {
+    "name": "empty-notice-forbidden",
+    "definition": "notificationRequest",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.send",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "binding": {
+        "accountRef": "account-fixture-a",
+        "telegramIdentityRef": "telegram-fixture-a",
+        "linkRef": "00000000-0000-4000-8000-000000000002",
+        "linkRevision": 1
+      },
+      "noticeRef": "00000000-0000-4000-8000-000000000005",
+      "noticeRevision": 1,
+      "kind": "renewal_reminder",
+      "text": "",
+      "issuedAt": "2026-10-05T09:00:00Z",
+      "notAfter": "2026-10-05T09:10:00Z",
+      "correlationRef": "00000000-0000-4000-8000-000000000006"
+    },
+    "valid": false
+  },
+  {
+    "name": "authorize-dispatch",
+    "definition": "authorizationRequest",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.authorize",
+      "operationId": "00000000-0000-4000-8000-000000000007",
+      "dispatchId": "00000000-0000-4000-8000-000000000004",
+      "dispatchContractVersion": "inside.billing-notification.v1",
+      "attemptId": "00000000-0000-4000-8000-000000000008",
+      "effectRef": "00000000-0000-4000-8000-000000000004",
+      "effect": "notice.send",
+      "payloadDigest": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+    },
+    "valid": true
+  },
+  {
+    "name": "allow-dispatch",
+    "definition": "authorizationResponse",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.result",
+      "operationId": "00000000-0000-4000-8000-000000000007",
+      "dispatchId": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000008",
+      "decision": {
+        "status": "allowed",
+        "permitRef": "00000000-0000-4000-8000-000000000009",
+        "validUntil": "2026-10-05T09:00:05Z"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "deny-stale-dispatch",
+    "definition": "authorizationResponse",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.result",
+      "operationId": "00000000-0000-4000-8000-000000000007",
+      "dispatchId": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000008",
+      "decision": {
+        "status": "denied",
+        "reason": "superseded"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "unavailable-dispatch",
+    "definition": "authorizationResponse",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.result",
+      "operationId": "00000000-0000-4000-8000-000000000007",
+      "dispatchId": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000008",
+      "decision": {
+        "status": "unavailable"
+      }
+    },
+    "valid": true
+  },
+  {
+    "name": "permission-without-deadline",
+    "definition": "authorizationResponse",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.result",
+      "operationId": "00000000-0000-4000-8000-000000000007",
+      "dispatchId": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000008",
+      "decision": {
+        "status": "allowed",
+        "permitRef": "00000000-0000-4000-8000-000000000009"
+      }
+    },
+    "valid": false
+  },
+  {
+    "name": "invalid-digest",
+    "definition": "authorizationRequest",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.authorize",
+      "operationId": "00000000-0000-4000-8000-000000000007",
+      "dispatchId": "00000000-0000-4000-8000-000000000004",
+      "dispatchContractVersion": "inside.billing-notification.v1",
+      "attemptId": "00000000-0000-4000-8000-000000000008",
+      "effectRef": "00000000-0000-4000-8000-000000000004",
+      "effect": "notice.send",
+      "payloadDigest": "not-a-digest"
+    },
+    "valid": false
+  },
+  {
+    "name": "entitlement-operation-conflict",
+    "definition": "communityResponse",
+    "value": {
+      "contractVersion": "inside.community-entitlement.v1",
+      "operation": "entitlement.error",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "error": "operation_conflict"
+    },
+    "valid": true
+  },
+  {
+    "name": "notification-operation-conflict",
+    "definition": "notificationResponse",
+    "value": {
+      "contractVersion": "inside.billing-notification.v1",
+      "operation": "notification.error",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "error": "operation_conflict"
+    },
+    "valid": true
+  },
+  {
+    "name": "dispatch-operation-conflict",
+    "definition": "authorizationResponse",
+    "value": {
+      "contractVersion": "inside.billing-dispatch.v1",
+      "operation": "dispatch.error",
+      "operationId": "00000000-0000-4000-8000-000000000001",
+      "error": "operation_conflict"
+    },
+    "valid": true
+  }
+]

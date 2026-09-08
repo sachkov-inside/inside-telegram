@@ -1,0 +1,26 @@
+{
+  "bundleVersion": "inside.notifications.v1",
+  "status": "candidate-contract",
+  "sourceRepository": "sachkov-inside/workspace",
+  "sourceCommit": "3b05f3e1da9bcf9a983c9eaade02189b324ef360",
+  "sourceStatus": "candidate-unmerged",
+  "approval": "Owner approved RabbitMQ and billing/material sources in chat on 2026-09-08. Detailed artifacts await PR review/merge. First-publication/opt-in defaults remain explicitly proposed in source.",
+  "artifacts": {
+    "schema.json": {
+      "sha256": "1c47fa116436dec8be1b9d9d22f3f47e70a456ae1c4cf2615ce4a89b65a5d4a1"
+    },
+    "fixtures.json": {
+      "sha256": "947c808b3007ff3e7eb34a89380937099982a734f43905c6674d2fc759dc9961"
+    },
+    "scenarios.json": {
+      "sha256": "cf8afccf5c4c3f6584500844b86cb814d539243d40e25a8c07a663295692a8f2"
+    },
+    "protocol.md": {
+      "sha256": "29f8a5e29baaa4cf6b1ed35dc7f28d67370ba4fec231562bbbe31466be3be453"
+    },
+    "sources/notifications-v1.txt": {
+      "sha256": "fcab3264751974c85db52fff5aca829890aa6e08c2f658bddd31c319cfd8c76e",
+      "sourcePath": "docs/specifications/notifications-v1.md"
+    }
+  }
+}
