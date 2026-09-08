@@ -153,6 +153,9 @@ backoff 1, 5, 30 секунд, максимум три автоматическ�
 Result `inside.notification-result.v1` публикуется из отдельного outbox в той же транзакции, что
 status/receipt. `operationId` — исходная команда, `payloadDigest` — её hash; messageId — конкретное
 событие результата. `resultRevision` монотонна для Delivery через все command revisions.
+Для retrying/failed поле attemptRef обязательно: null допускается только если внешний вызов
+не начинался; после started указывается точная attemptRef, включая доказанный 429/отказ.
+Проекция не может принять null или чужую attempt как разрешение unknown.
 Received result сверяется с known delivery/channel/command/digest; чужой channel/attempt/unknown
 operation уходит в quarantine. Запоздалый result старой command revision не может заменить latest
 command; но late success своей started attempt требуется операторской сверке, не теряется молча.

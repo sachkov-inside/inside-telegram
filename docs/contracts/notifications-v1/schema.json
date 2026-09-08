@@ -463,7 +463,8 @@
         "recordedAt",
         "state",
         "reason",
-        "nextAttemptAt"
+        "nextAttemptAt",
+        "attemptRef"
       ],
       "properties": {
         "contractVersion": {
@@ -510,6 +511,16 @@
         },
         "nextAttemptAt": {
           "$ref": "#/definitions/instant"
+        },
+        "attemptRef": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/id"
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       }
     },
@@ -651,7 +662,8 @@
         "channel",
         "recordedAt",
         "state",
-        "reason"
+        "reason",
+        "attemptRef"
       ],
       "properties": {
         "contractVersion": {
@@ -694,6 +706,16 @@
             "recipient_unreachable",
             "provider_rejected",
             "retry_exhausted"
+          ]
+        },
+        "attemptRef": {
+          "anyOf": [
+            {
+              "$ref": "#/definitions/id"
+            },
+            {
+              "type": "null"
+            }
           ]
         }
       }

@@ -1,6 +1,6 @@
 {
   "sourceRepository": "sachkov-inside/platform",
-  "sourceCommit": "23e74b39bea243239fee51d437c8272b8c37871d",
+  "sourceCommit": "97bda213f0ad33b7a74ef457b37e6b6d4bdd67c3",
   "sourceStatus": "candidate-unmerged",
   "sourceIssue": "https://github.com/sachkov-inside/platform/issues/434",
   "acceptance": "Merge Workspace #152, Platform #434, then Telegram #54; compare exact artifact bytes before each handoff."

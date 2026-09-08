@@ -7,16 +7,16 @@
   "approval": "Owner approved RabbitMQ and billing/material sources in chat on 2026-09-08. Detailed artifacts await PR review/merge. First-publication/opt-in defaults remain explicitly proposed in source.",
   "artifacts": {
     "schema.json": {
-      "sha256": "7c7505168dc38ae6d0d67720e962583fc8700f901a0082175594fa4631fa2873"
+      "sha256": "1c47fa116436dec8be1b9d9d22f3f47e70a456ae1c4cf2615ce4a89b65a5d4a1"
     },
     "fixtures.json": {
-      "sha256": "fbe88d0e60fba509126396dfc4320eb9ce27b1682315f8c45d33ebf54c98fcb4"
+      "sha256": "947c808b3007ff3e7eb34a89380937099982a734f43905c6674d2fc759dc9961"
     },
     "scenarios.json": {
-      "sha256": "996a434ac889408a621faaabc8e34fc9172788f47a59dc4ee73e6fc42ac899f7"
+      "sha256": "cf8afccf5c4c3f6584500844b86cb814d539243d40e25a8c07a663295692a8f2"
     },
     "protocol.md": {
-      "sha256": "02e0997c7c128565d62a07fabd14fd2913119cd5bc43331fa02c6dde5bff24c9"
+      "sha256": "29f8a5e29baaa4cf6b1ed35dc7f28d67370ba4fec231562bbbe31466be3be453"
     },
     "sources/notifications-v1.txt": {
       "sha256": "fcab3264751974c85db52fff5aca829890aa6e08c2f658bddd31c319cfd8c76e",

@@ -209,12 +209,13 @@
       "deliveryRef": "00000000-0000-4000-8000-000000000006",
       "commandRevision": 1,
       "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
-      "resultRevision": 2,
+      "resultRevision": 3,
       "channel": "telegram",
       "recordedAt": "2026-09-08T12:00:00Z",
       "state": "retrying",
       "reason": "rate_limited",
-      "nextAttemptAt": "2026-09-08T12:00:30Z"
+      "nextAttemptAt": "2026-09-08T12:00:30Z",
+      "attemptRef": "00000000-0000-4000-8000-000000000016"
     }
   },
   {
@@ -270,7 +271,8 @@
       "channel": "telegram",
       "recordedAt": "2026-09-08T12:00:00Z",
       "state": "failed",
-      "reason": "recipient_unreachable"
+      "reason": "recipient_unreachable",
+      "attemptRef": null
     }
   },
   {
@@ -741,6 +743,93 @@
       "channel": "telegram",
       "recordedAt": "2026-09-08T12:00:00Z",
       "state": "sent"
+    }
+  },
+  {
+    "name": "failed-known-attempt",
+    "definition": "failedResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000091",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 3,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "failed",
+      "reason": "provider_rejected",
+      "attemptRef": "00000000-0000-4000-8000-000000000016"
+    }
+  },
+  {
+    "name": "retry-other-attempt",
+    "definition": "retryResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000090",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 3,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "retrying",
+      "reason": "rate_limited",
+      "nextAttemptAt": "2026-09-08T12:00:30Z",
+      "attemptRef": "00000000-0000-4000-8000-000000000099"
+    }
+  },
+  {
+    "name": "retry-without-attempt-evidence",
+    "definition": "retryResult",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000040",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 2,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "retrying",
+      "reason": "rate_limited",
+      "nextAttemptAt": "2026-09-08T12:00:30Z"
+    }
+  },
+  {
+    "name": "email-subject-header-injection",
+    "definition": "emailDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000011",
+      "notificationRef": "00000000-0000-4000-8000-000000000009",
+      "deliveryRef": "00000000-0000-4000-8000-000000000012",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000003",
+      "content": {
+        "category": "material",
+        "kind": "material_published"
+      },
+      "templateRef": "new-material",
+      "templateRevision": 1,
+      "text": "Новый материал: https://inside.example/materials/example",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "email",
+        "accountRef": "account-example",
+        "contactRef": "00000000-0000-4000-8000-000000000013",
+        "contactRevision": 1
+      },
+      "subject": "Title\r\nBcc: forbidden@example.test"
     }
   }
 ]

@@ -311,6 +311,32 @@
         }
       ],
       "expected": "No I/O without permit; bounded retries to deadline or failed unreachable recipient; no change to billing/access."
+    },
+    {
+      "name": "post-start-result-attempt-correlation",
+      "implementationTickets": [
+        "platform#436",
+        "inside-telegram#56",
+        "platform#438"
+      ],
+      "steps": [
+        {
+          "fixture": "unknown-result"
+        },
+        {
+          "fixture": "retry-other-attempt",
+          "expected": "Reject/quarantine when not matched to the known current attempt; shape alone is valid."
+        },
+        {
+          "fixture": "retry-result",
+          "expected": "Accept only with same attempt not_sent evidence and newer resultRevision."
+        },
+        {
+          "fixture": "failed-known-attempt",
+          "expected": "Alternative branch: same attempt definitive failure settles unknown; use newer resultRevision."
+        }
+      ],
+      "expected": "Result carries attemptRef; null allowed only for pre-start retry/failure. Mismatched attempt or missing post-start evidence never clears unknown."
     }
   ]
 }
