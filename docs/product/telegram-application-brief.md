@@ -133,3 +133,12 @@ backup/recovery и enablement получают отдельную owner-approved
 сохраняется отдельно; изменение исходного поста требует явной замены в воронке. Platform остаётся
 источником прав автора и проверки доступности материалов. Точный транспорт и ограничения
 описаны в [интеграции коммуникаций](../integrations/communications-v1.md#funnel-author-menu-38).
+
+## Общие уведомления и community entitlement
+
+[Provider specification](../specifications/community-and-notifications-v1.md) добавляет адресные
+сообщения подписки и новых материалов через RabbitMQ/Platform Notifications. Настройки категории
+материалов и аудитория принадлежат Platform; техническая contactability по `/start` не включает
+эту категорию. Telegram хранит результат отправки и проверяет получателя. Общие bot limits
+используются вместе с существующими воронками/рассылками. Community grant/revoke остаются
+отдельными действиями. Это target contract #54, runtime реализуется #55/#56.

@@ -1,0 +1,521 @@
+{
+  "status": "Normative expected outcomes; runtime execution belongs to implementation tickets.",
+  "scenarios": [
+    {
+      "name": "grant-revoke-replay",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "receive",
+          "fixture": "community-revoke"
+        },
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        }
+      ],
+      "expected": {
+        "entitlementRevision": 2,
+        "desiredAccess": "denied",
+        "oldEffect": "superseded",
+        "newAdmission": false
+      }
+    },
+    {
+      "name": "same-operation-changed-payload",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "receive",
+          "fixture": "lifetime-community-grant"
+        }
+      ],
+      "expected": {
+        "error": "operation_conflict",
+        "entitlementRevision": 1,
+        "secondExternalEffect": false
+      }
+    },
+    {
+      "name": "same-operation-retry-after-lost-ack",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "drop-response"
+        },
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        }
+      ],
+      "expected": {
+        "sameOperation": true,
+        "inboxRows": 1,
+        "effectQueues": 1
+      }
+    },
+    {
+      "name": "equal-revision-new-operation-different-access",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "receive-new-operation",
+          "fixture": "lifetime-community-grant"
+        }
+      ],
+      "expected": {
+        "error": "revision_conflict",
+        "secondExternalEffect": false
+      }
+    },
+    {
+      "name": "unlink-during-queued-grant",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "unlink",
+          "linkRevision": 2
+        },
+        {
+          "event": "authorize-grant"
+        }
+      ],
+      "expected": {
+        "dispatch": "denied",
+        "reason": "binding_conflict",
+        "newAdmission": false,
+        "paidMaterialsRemain": true
+      }
+    },
+    {
+      "name": "old-identity-revoke-after-unlink",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "applied-grant",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "unlink",
+          "linkRevision": 2
+        },
+        {
+          "event": "queue-old-identity-revoke"
+        },
+        {
+          "event": "verify-historical-owner-no-transfer"
+        },
+        {
+          "event": "authorize-revoke"
+        }
+      ],
+      "expected": {
+        "dispatch": "allowed",
+        "oldIdentityAdmission": false,
+        "paidMaterialsRemain": true
+      }
+    },
+    {
+      "name": "expired-finite-grant-before-send",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "clock",
+          "now": "2026-10-08T09:00:00Z"
+        },
+        {
+          "event": "authorize-grant"
+        }
+      ],
+      "expected": {
+        "dispatch": "denied",
+        "reason": "expired",
+        "newAdmission": false
+      }
+    },
+    {
+      "name": "foreign-join-request",
+      "implementationTickets": [
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "waiting-for-join",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "join-request",
+          "identity": "telegram-fixture-foreign"
+        }
+      ],
+      "expected": {
+        "approveChatJoinRequest": false,
+        "intendedRecipientApplied": false
+      }
+    },
+    {
+      "name": "community-api-unknown",
+      "implementationTickets": [
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "send-community-operation"
+        },
+        {
+          "event": "timeout-after-send"
+        },
+        {
+          "event": "getChatMember",
+          "membership": "not_member"
+        }
+      ],
+      "expected": {
+        "grantApplied": false,
+        "reconcileBeforeNextMutation": true
+      }
+    },
+    {
+      "name": "reminder-cancelled-in-queue",
+      "implementationTickets": [
+        "platform#410",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "notification-send"
+        },
+        {
+          "event": "subscription-cancelled"
+        },
+        {
+          "event": "authorize-dispatch",
+          "fixture": "authorize-dispatch"
+        }
+      ],
+      "expected": {
+        "dispatch": "denied",
+        "reason": "superseded",
+        "notice": "suppressed",
+        "sendMessageCalls": 0
+      }
+    },
+    {
+      "name": "contact-changed-in-queue",
+      "implementationTickets": [
+        "platform#410",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "notification-send"
+        },
+        {
+          "event": "unlink",
+          "linkRevision": 2
+        },
+        {
+          "event": "authorize-dispatch",
+          "fixture": "authorize-dispatch"
+        }
+      ],
+      "expected": {
+        "dispatch": "denied",
+        "reason": "binding_conflict",
+        "sendMessageCalls": 0
+      }
+    },
+    {
+      "name": "authorization-unavailable",
+      "implementationTickets": [
+        "inside-telegram#55",
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "event": "authorize-dispatch",
+          "fixture": "authorize-dispatch"
+        },
+        {
+          "event": "response",
+          "fixture": "unavailable-dispatch"
+        }
+      ],
+      "expected": {
+        "externalCalls": 0,
+        "terminalSuccess": false,
+        "retryAuthorizationWithinDeadline": true
+      }
+    },
+    {
+      "name": "lost-send-response",
+      "implementationTickets": [
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "notification-send"
+        },
+        {
+          "event": "preflight-allowed-and-provider-started-durably-recorded"
+        },
+        {
+          "event": "sendMessage"
+        },
+        {
+          "event": "timeout-after-send"
+        },
+        {
+          "event": "process-restart"
+        }
+      ],
+      "expected": {
+        "notice": "unknown",
+        "automaticResend": false,
+        "operatorResolutionRequired": true
+      }
+    },
+    {
+      "name": "expired-dispatch-permit",
+      "implementationTickets": [
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "event": "response",
+          "fixture": "allow-dispatch"
+        },
+        {
+          "event": "clock",
+          "now": "2026-10-05T09:00:05Z"
+        }
+      ],
+      "expected": {
+        "externalCalls": 0,
+        "renewPermitBeforeDispatch": true
+      }
+    },
+    {
+      "name": "new-inside-join-cannot-create-legacy",
+      "implementationTickets": [
+        "platform#404"
+      ],
+      "steps": [
+        {
+          "event": "new-inside-account-confirmed-nonlegacy"
+        },
+        {
+          "event": "paid-community-join"
+        },
+        {
+          "event": "paid-period-expired"
+        },
+        {
+          "event": "positive-telegram-evidence"
+        }
+      ],
+      "expected": {
+        "legacyGrantCreated": false,
+        "materialsAllowed": false
+      }
+    },
+    {
+      "name": "refund-independent-lifetime",
+      "implementationTickets": [
+        "platform#404",
+        "platform#409"
+      ],
+      "steps": [
+        {
+          "event": "manual-lifetime-grant"
+        },
+        {
+          "event": "paid-period-grant"
+        },
+        {
+          "event": "full-refund-confirmed"
+        }
+      ],
+      "expected": {
+        "manualLifetimeRemains": true,
+        "automaticAccessRevoke": false
+      }
+    },
+    {
+      "name": "unknown-tribute-recurring",
+      "implementationTickets": [
+        "platform#404",
+        "platform#407"
+      ],
+      "steps": [
+        {
+          "event": "legacy-source-incomplete"
+        },
+        {
+          "event": "request-new-checkout"
+        }
+      ],
+      "expected": {
+        "bankInitCalls": 0,
+        "reason": "legacy_review_required",
+        "confirmedLegacyAccessRemains": true
+      }
+    },
+    {
+      "name": "confirmed-payment-before-grant-projection",
+      "implementationTickets": [
+        "platform#404",
+        "platform#407"
+      ],
+      "steps": [
+        {
+          "event": "bank-confirmed"
+        },
+        {
+          "event": "billing-transaction-committed"
+        },
+        {
+          "event": "projector-crash"
+        },
+        {
+          "event": "projector-replay-twice"
+        }
+      ],
+      "expected": {
+        "paidPeriods": 1,
+        "paidGrants": 1,
+        "receiptAndEventAtomic": true,
+        "bankChargeRepeated": false
+      }
+    },
+    {
+      "name": "expired-permit-crash-before-started",
+      "implementationTickets": [
+        "inside-telegram#56"
+      ],
+      "steps": [
+        {
+          "event": "receive",
+          "fixture": "notification-send"
+        },
+        {
+          "event": "preflight-allowed"
+        },
+        {
+          "event": "crash-before-started"
+        },
+        {
+          "event": "permit-expires"
+        },
+        {
+          "event": "restart-with-same-effectRef"
+        },
+        {
+          "event": "new-preflight-after-local-not-started-proof"
+        }
+      ],
+      "expected": {
+        "sendMessageCalls": 1,
+        "effectRows": 1,
+        "platformQueriesProviderStatus": false
+      }
+    },
+    {
+      "name": "rejoin-under-same-entitlement",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "applied-grant",
+          "fixture": "finite-community-grant"
+        },
+        {
+          "event": "member-left"
+        },
+        {
+          "event": "new-verified-join-request-new-effectRef"
+        },
+        {
+          "event": "preflight-community-approve-join"
+        }
+      ],
+      "expected": {
+        "entitlementRevision": 1,
+        "approvalAllowed": true,
+        "secondPaidPeriod": false
+      }
+    },
+    {
+      "name": "old-expired-grant-with-new-lifetime",
+      "implementationTickets": [
+        "platform#415",
+        "inside-telegram#55"
+      ],
+      "steps": [
+        {
+          "event": "finite-grant-expired"
+        },
+        {
+          "event": "manual-lifetime-grant"
+        },
+        {
+          "event": "preflight-community-ensure-absence-for-old-grant"
+        }
+      ],
+      "expected": {
+        "removalAllowed": false,
+        "manualLifetimeRemains": true
+      }
+    }
+  ]
+}

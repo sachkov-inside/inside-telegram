@@ -1,0 +1,954 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://inside.example/contracts/notifications-v1/schema.json",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/billingEvent"
+    },
+    {
+      "$ref": "#/definitions/materialEvent"
+    },
+    {
+      "$ref": "#/definitions/telegramDelivery"
+    },
+    {
+      "$ref": "#/definitions/emailDelivery"
+    },
+    {
+      "$ref": "#/definitions/acceptedResult"
+    },
+    {
+      "$ref": "#/definitions/retryResult"
+    },
+    {
+      "$ref": "#/definitions/sentResult"
+    },
+    {
+      "$ref": "#/definitions/unknownResult"
+    },
+    {
+      "$ref": "#/definitions/failedResult"
+    },
+    {
+      "$ref": "#/definitions/suppressedResult"
+    },
+    {
+      "$ref": "#/definitions/authorizeRequest"
+    },
+    {
+      "$ref": "#/definitions/allowed"
+    },
+    {
+      "$ref": "#/definitions/denied"
+    },
+    {
+      "$ref": "#/definitions/dispatchError"
+    }
+  ],
+  "definitions": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "ref": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "instant": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "digest": {
+      "type": "string",
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "kind": {
+      "type": "string",
+      "enum": [
+        "renewal_reminder",
+        "payment_succeeded",
+        "payment_failed",
+        "renewal_cancelled",
+        "access_expired",
+        "refund_resolved"
+      ]
+    },
+    "bindingTelegram": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "accountRef",
+        "telegramIdentityRef",
+        "linkRef",
+        "linkRevision"
+      ],
+      "properties": {
+        "channel": {
+          "const": "telegram"
+        },
+        "accountRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "telegramIdentityRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "linkRef": {
+          "$ref": "#/definitions/id"
+        },
+        "linkRevision": {
+          "$ref": "#/definitions/revision"
+        }
+      }
+    },
+    "bindingEmail": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "channel",
+        "accountRef",
+        "contactRef",
+        "contactRevision"
+      ],
+      "properties": {
+        "channel": {
+          "const": "email"
+        },
+        "accountRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "contactRef": {
+          "$ref": "#/definitions/id"
+        },
+        "contactRevision": {
+          "$ref": "#/definitions/revision"
+        }
+      }
+    },
+    "billingEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "sourceRef",
+        "occurrenceRef",
+        "sourceRevision",
+        "occurredAt",
+        "notAfter",
+        "eventType",
+        "accountRef",
+        "kind"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-event.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "sourceRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "occurrenceRef": {
+          "$ref": "#/definitions/id"
+        },
+        "sourceRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "occurredAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "notAfter": {
+          "$ref": "#/definitions/instant"
+        },
+        "eventType": {
+          "const": "billing.notice-ready"
+        },
+        "accountRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "kind": {
+          "$ref": "#/definitions/kind"
+        }
+      }
+    },
+    "materialEvent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "sourceRef",
+        "occurrenceRef",
+        "sourceRevision",
+        "occurredAt",
+        "notAfter",
+        "eventType"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-event.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "sourceRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "occurrenceRef": {
+          "$ref": "#/definitions/id"
+        },
+        "sourceRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "occurredAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "notAfter": {
+          "$ref": "#/definitions/instant"
+        },
+        "eventType": {
+          "const": "material.published"
+        }
+      }
+    },
+    "subscriptionContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "kind"
+      ],
+      "properties": {
+        "category": {
+          "const": "subscription"
+        },
+        "kind": {
+          "$ref": "#/definitions/kind"
+        }
+      }
+    },
+    "materialContent": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "category",
+        "kind"
+      ],
+      "properties": {
+        "category": {
+          "const": "material"
+        },
+        "kind": {
+          "const": "material_published"
+        }
+      }
+    },
+    "telegramDelivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operationId",
+        "notificationRef",
+        "deliveryRef",
+        "commandRevision",
+        "sourceEventId",
+        "content",
+        "templateRef",
+        "templateRevision",
+        "text",
+        "issuedAt",
+        "notAfter",
+        "binding"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-delivery.v1"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "notificationRef": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "sourceEventId": {
+          "$ref": "#/definitions/id"
+        },
+        "content": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/subscriptionContent"
+            },
+            {
+              "$ref": "#/definitions/materialContent"
+            }
+          ]
+        },
+        "templateRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "templateRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "issuedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "notAfter": {
+          "$ref": "#/definitions/instant"
+        },
+        "binding": {
+          "$ref": "#/definitions/bindingTelegram"
+        }
+      }
+    },
+    "emailDelivery": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operationId",
+        "notificationRef",
+        "deliveryRef",
+        "commandRevision",
+        "sourceEventId",
+        "content",
+        "templateRef",
+        "templateRevision",
+        "text",
+        "issuedAt",
+        "notAfter",
+        "binding",
+        "subject"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-delivery.v1"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "notificationRef": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "sourceEventId": {
+          "$ref": "#/definitions/id"
+        },
+        "content": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/subscriptionContent"
+            },
+            {
+              "$ref": "#/definitions/materialContent"
+            }
+          ]
+        },
+        "templateRef": {
+          "$ref": "#/definitions/ref"
+        },
+        "templateRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "issuedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "notAfter": {
+          "$ref": "#/definitions/instant"
+        },
+        "binding": {
+          "$ref": "#/definitions/bindingEmail"
+        },
+        "subject": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "^[^\\r\\n]*$"
+        }
+      }
+    },
+    "acceptedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "operationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "resultRevision",
+        "channel",
+        "recordedAt",
+        "state"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-result.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "resultRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "telegram",
+            "email"
+          ]
+        },
+        "recordedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "state": {
+          "const": "accepted"
+        }
+      }
+    },
+    "retryResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "operationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "resultRevision",
+        "channel",
+        "recordedAt",
+        "state",
+        "reason",
+        "nextAttemptAt"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-result.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "resultRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "telegram",
+            "email"
+          ]
+        },
+        "recordedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "state": {
+          "const": "retrying"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "source_unavailable",
+            "rate_limited",
+            "provider_unavailable"
+          ]
+        },
+        "nextAttemptAt": {
+          "$ref": "#/definitions/instant"
+        }
+      }
+    },
+    "sentResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "operationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "resultRevision",
+        "channel",
+        "recordedAt",
+        "state",
+        "attemptRef",
+        "receiptRef"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-result.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "resultRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "telegram",
+            "email"
+          ]
+        },
+        "recordedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "state": {
+          "const": "sent"
+        },
+        "attemptRef": {
+          "$ref": "#/definitions/id"
+        },
+        "receiptRef": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "unknownResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "operationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "resultRevision",
+        "channel",
+        "recordedAt",
+        "state",
+        "attemptRef",
+        "reason"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-result.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "resultRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "telegram",
+            "email"
+          ]
+        },
+        "recordedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "state": {
+          "const": "unknown"
+        },
+        "attemptRef": {
+          "$ref": "#/definitions/id"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "lost_response",
+            "interrupted_attempt"
+          ]
+        }
+      }
+    },
+    "failedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "operationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "resultRevision",
+        "channel",
+        "recordedAt",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-result.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "resultRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "telegram",
+            "email"
+          ]
+        },
+        "recordedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "state": {
+          "const": "failed"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "recipient_unreachable",
+            "provider_rejected",
+            "retry_exhausted"
+          ]
+        }
+      }
+    },
+    "suppressedResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "messageId",
+        "operationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "resultRevision",
+        "channel",
+        "recordedAt",
+        "state",
+        "reason"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-result.v1"
+        },
+        "messageId": {
+          "$ref": "#/definitions/id"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "resultRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "channel": {
+          "type": "string",
+          "enum": [
+            "telegram",
+            "email"
+          ]
+        },
+        "recordedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "state": {
+          "const": "suppressed"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "expired",
+            "superseded",
+            "preference_disabled",
+            "source_unavailable",
+            "access_denied",
+            "binding_conflict"
+          ]
+        }
+      }
+    },
+    "authorizeRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operationId",
+        "deliveryOperationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "attemptRef"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-dispatch.v1"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryOperationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "attemptRef": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "allowed": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operationId",
+        "deliveryOperationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "attemptRef",
+        "status",
+        "permitRef",
+        "validUntil"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-dispatch.v1"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryOperationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "attemptRef": {
+          "$ref": "#/definitions/id"
+        },
+        "status": {
+          "const": "allowed"
+        },
+        "permitRef": {
+          "$ref": "#/definitions/id"
+        },
+        "validUntil": {
+          "$ref": "#/definitions/instant"
+        }
+      }
+    },
+    "denied": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operationId",
+        "deliveryOperationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "attemptRef",
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-dispatch.v1"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryOperationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "attemptRef": {
+          "$ref": "#/definitions/id"
+        },
+        "status": {
+          "const": "denied"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "expired",
+            "superseded",
+            "preference_disabled",
+            "access_denied",
+            "binding_conflict",
+            "not_found",
+            "payload_conflict"
+          ]
+        }
+      }
+    },
+    "dispatchError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operationId",
+        "deliveryOperationId",
+        "deliveryRef",
+        "commandRevision",
+        "payloadDigest",
+        "attemptRef",
+        "status",
+        "code"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.notification-dispatch.v1"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryOperationId": {
+          "$ref": "#/definitions/id"
+        },
+        "deliveryRef": {
+          "$ref": "#/definitions/id"
+        },
+        "commandRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        },
+        "attemptRef": {
+          "$ref": "#/definitions/id"
+        },
+        "status": {
+          "const": "error"
+        },
+        "code": {
+          "type": "string",
+          "enum": [
+            "malformed",
+            "unauthorized",
+            "unsupported_contract",
+            "operation_conflict",
+            "unavailable"
+          ]
+        }
+      }
+    }
+  }
+}

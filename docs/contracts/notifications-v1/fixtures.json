@@ -1,0 +1,746 @@
+[
+  {
+    "name": "billing-event",
+    "definition": "billingEvent",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "notice-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 1,
+      "occurredAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "eventType": "billing.notice-ready",
+      "accountRef": "account-example",
+      "kind": "payment_succeeded"
+    }
+  },
+  {
+    "name": "material-event",
+    "definition": "materialEvent",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "00000000-0000-4000-8000-000000000003",
+      "sourceRef": "material-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 1,
+      "occurredAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-09T12:00:00Z",
+      "eventType": "material.published"
+    }
+  },
+  {
+    "name": "subscription-telegram",
+    "definition": "telegramDelivery",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "material-telegram",
+    "definition": "telegramDelivery",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000008",
+      "notificationRef": "00000000-0000-4000-8000-000000000009",
+      "deliveryRef": "00000000-0000-4000-8000-000000000010",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000003",
+      "content": {
+        "category": "material",
+        "kind": "material_published"
+      },
+      "templateRef": "new-material",
+      "templateRevision": 1,
+      "text": "Новый материал: https://inside.example/materials/example",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "material-email",
+    "definition": "emailDelivery",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000011",
+      "notificationRef": "00000000-0000-4000-8000-000000000009",
+      "deliveryRef": "00000000-0000-4000-8000-000000000012",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000003",
+      "content": {
+        "category": "material",
+        "kind": "material_published"
+      },
+      "templateRef": "new-material",
+      "templateRevision": 1,
+      "text": "Новый материал: https://inside.example/materials/example",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "email",
+        "accountRef": "account-example",
+        "contactRef": "00000000-0000-4000-8000-000000000013",
+        "contactRevision": 1
+      },
+      "subject": "Новый материал Inside"
+    }
+  },
+  {
+    "name": "accepted-result",
+    "definition": "acceptedResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000014",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 1,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "accepted"
+    }
+  },
+  {
+    "name": "authorize",
+    "definition": "authorizeRequest",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-dispatch.v1",
+      "operationId": "00000000-0000-4000-8000-000000000015",
+      "deliveryOperationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "attemptRef": "00000000-0000-4000-8000-000000000016"
+    }
+  },
+  {
+    "name": "allowed",
+    "definition": "allowed",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-dispatch.v1",
+      "operationId": "00000000-0000-4000-8000-000000000015",
+      "deliveryOperationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "attemptRef": "00000000-0000-4000-8000-000000000016",
+      "status": "allowed",
+      "permitRef": "00000000-0000-4000-8000-000000000017",
+      "validUntil": "2026-09-08T12:00:05Z"
+    }
+  },
+  {
+    "name": "denied",
+    "definition": "denied",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-dispatch.v1",
+      "operationId": "00000000-0000-4000-8000-000000000015",
+      "deliveryOperationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "attemptRef": "00000000-0000-4000-8000-000000000016",
+      "status": "denied",
+      "reason": "preference_disabled"
+    }
+  },
+  {
+    "name": "unavailable",
+    "definition": "dispatchError",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-dispatch.v1",
+      "operationId": "00000000-0000-4000-8000-000000000015",
+      "deliveryOperationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "attemptRef": "00000000-0000-4000-8000-000000000016",
+      "status": "error",
+      "code": "unavailable"
+    }
+  },
+  {
+    "name": "retry-result",
+    "definition": "retryResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000040",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 2,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "retrying",
+      "reason": "rate_limited",
+      "nextAttemptAt": "2026-09-08T12:00:30Z"
+    }
+  },
+  {
+    "name": "sent-result",
+    "definition": "sentResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000041",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 2,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "sent",
+      "attemptRef": "00000000-0000-4000-8000-000000000016",
+      "receiptRef": "00000000-0000-4000-8000-000000000018"
+    }
+  },
+  {
+    "name": "unknown-result",
+    "definition": "unknownResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000042",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 2,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "unknown",
+      "attemptRef": "00000000-0000-4000-8000-000000000016",
+      "reason": "lost_response"
+    }
+  },
+  {
+    "name": "failed-result",
+    "definition": "failedResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000043",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 2,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "failed",
+      "reason": "recipient_unreachable"
+    }
+  },
+  {
+    "name": "suppressed-result",
+    "definition": "suppressedResult",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000044",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 2,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "suppressed",
+      "reason": "expired"
+    }
+  },
+  {
+    "name": "unknown-major",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v2",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "unknown-category",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "marketing",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "wrong-kind-for-category",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "material",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "raw-chat-id",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      },
+      "chatId": 123
+    }
+  },
+  {
+    "name": "raw-email",
+    "definition": "emailDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000011",
+      "notificationRef": "00000000-0000-4000-8000-000000000009",
+      "deliveryRef": "00000000-0000-4000-8000-000000000012",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000003",
+      "content": {
+        "category": "material",
+        "kind": "material_published"
+      },
+      "templateRef": "new-material",
+      "templateRevision": 1,
+      "text": "Новый материал: https://inside.example/materials/example",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "email",
+        "accountRef": "account-example",
+        "contactRef": "00000000-0000-4000-8000-000000000013",
+        "contactRevision": 1
+      },
+      "subject": "Новый материал Inside",
+      "email": "person@example.test"
+    }
+  },
+  {
+    "name": "empty-text",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "oversize-text",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "zero-revision",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 0,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
+    "name": "unsafe-integer",
+    "definition": "materialEvent",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "00000000-0000-4000-8000-000000000003",
+      "sourceRef": "material-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 9007199254740992,
+      "occurredAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-09T12:00:00Z",
+      "eventType": "material.published"
+    }
+  },
+  {
+    "name": "bad-date",
+    "definition": "materialEvent",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "00000000-0000-4000-8000-000000000003",
+      "sourceRef": "material-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 1,
+      "occurredAt": "yesterday",
+      "notAfter": "2026-09-09T12:00:00Z",
+      "eventType": "material.published"
+    }
+  },
+  {
+    "name": "bad-uuid",
+    "definition": "materialEvent",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "id",
+      "sourceRef": "material-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 1,
+      "occurredAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-09T12:00:00Z",
+      "eventType": "material.published"
+    }
+  },
+  {
+    "name": "unknown-event",
+    "definition": "billingEvent",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "notice-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 1,
+      "occurredAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "eventType": "billing.raw-webhook",
+      "accountRef": "account-example",
+      "kind": "payment_succeeded"
+    }
+  },
+  {
+    "name": "bank-token",
+    "definition": "billingEvent",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-event.v1",
+      "messageId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "notice-example",
+      "occurrenceRef": "00000000-0000-4000-8000-000000000002",
+      "sourceRevision": 1,
+      "occurredAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "eventType": "billing.notice-ready",
+      "accountRef": "account-example",
+      "kind": "payment_succeeded",
+      "RebillId": "synthetic-forbidden"
+    }
+  },
+  {
+    "name": "unknown-result-state",
+    "definition": "acceptedResult",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000014",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 1,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "read"
+    }
+  },
+  {
+    "name": "accepted-is-not-receipt",
+    "definition": "acceptedResult",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000014",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 1,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "accepted",
+      "receiptRef": "00000000-0000-4000-8000-000000000018"
+    }
+  },
+  {
+    "name": "bad-digest",
+    "definition": "authorizeRequest",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-dispatch.v1",
+      "operationId": "00000000-0000-4000-8000-000000000015",
+      "deliveryOperationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "123",
+      "attemptRef": "00000000-0000-4000-8000-000000000016"
+    }
+  },
+  {
+    "name": "unknown-error",
+    "definition": "dispatchError",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-dispatch.v1",
+      "operationId": "00000000-0000-4000-8000-000000000015",
+      "deliveryOperationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "attemptRef": "00000000-0000-4000-8000-000000000016",
+      "status": "error",
+      "code": "bank_failed"
+    }
+  },
+  {
+    "name": "missing-link-revision",
+    "definition": "telegramDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "notificationRef": "00000000-0000-4000-8000-000000000005",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "payment_succeeded"
+      },
+      "templateRef": "subscription-success",
+      "templateRevision": 1,
+      "text": "Оплата получена. Подписка: https://inside.example/account/billing",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007"
+      }
+    }
+  },
+  {
+    "name": "missing-email-subject",
+    "definition": "emailDelivery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000011",
+      "notificationRef": "00000000-0000-4000-8000-000000000009",
+      "deliveryRef": "00000000-0000-4000-8000-000000000012",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000003",
+      "content": {
+        "category": "material",
+        "kind": "material_published"
+      },
+      "templateRef": "new-material",
+      "templateRevision": 1,
+      "text": "Новый материал: https://inside.example/materials/example",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "email",
+        "accountRef": "account-example",
+        "contactRef": "00000000-0000-4000-8000-000000000013",
+        "contactRevision": 1
+      }
+    }
+  },
+  {
+    "name": "sent-without-evidence",
+    "definition": "sentResult",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.notification-result.v1",
+      "messageId": "00000000-0000-4000-8000-000000000014",
+      "operationId": "00000000-0000-4000-8000-000000000004",
+      "deliveryRef": "00000000-0000-4000-8000-000000000006",
+      "commandRevision": 1,
+      "payloadDigest": "0d3907be316ac2e243aa9133fffd5b822c1ab9db2a4791bc0a9dee01f5829387",
+      "resultRevision": 1,
+      "channel": "telegram",
+      "recordedAt": "2026-09-08T12:00:00Z",
+      "state": "sent"
+    }
+  }
+]

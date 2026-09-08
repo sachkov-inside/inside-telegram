@@ -62,3 +62,8 @@ entry history, delivery statistics and opaque tracking token/hit ledgers. Physic
 paging semantics and safe redirect configuration live in
 [communications v1](docs/integrations/communications-v1.md#broadcast-operations-and-analytics).
 Platform owns the UI/MCP and redirect consumer; hits identify a delivery link, never the viewer.
+
+**Notification Delivery**:
+Адресная доставка определённого Platform Notification по Telegram подтверждённому получателю.
+Она имеет собственный результат и не определяет оплату, право доступа или результат другого канала.
+_Avoid_: Broadcast, Funnel Step, MembershipEntitlement, прочтение

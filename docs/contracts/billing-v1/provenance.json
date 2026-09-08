@@ -1,0 +1,6 @@
+{
+  "sourceRepository": "sachkov-inside/platform",
+  "sourceCommit": "1fdcf11017e16690a95aa12a830492d1aaf0b6cd",
+  "sourceStatus": "merged",
+  "scope": "Immutable #403 corpus; notification portion superseded by notifications-v1, community remains v1."
+}
