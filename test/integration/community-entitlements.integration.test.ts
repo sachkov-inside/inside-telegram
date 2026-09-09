@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 
 import { beforeAll, beforeEach, afterAll, describe, expect, it } from "vitest";
 
+import { NestFactory } from "@nestjs/core";
+import type { INestApplicationContext } from "@nestjs/common";
+
+import { AppModule } from "../../src/app.module.js";
+import type { ApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
 import {
@@ -16,6 +21,9 @@ import type {
   DispatchDenialReason,
 } from "../../src/modules/community/community-contract.js";
 import fixtures from "../../docs/contracts/billing-v1/fixtures.json" with { type: "json" };
+import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
+import { TelegramWebhook } from "../../src/modules/webhook/telegram-webhook.js";
+import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 import { FakeCommunityChat } from "../support/community-chat.js";
 import {
   seedCommunityBinding,
@@ -1053,7 +1061,7 @@ describe("handing the invite to its own contact", () => {
     });
   });
 
-  it("reports an existing member and prepares admission when no link is ready", async () => {
+  it("reports an existing member and an admission still being prepared", async () => {
     const who = subject();
     await admit(who);
     await expect(provider(who).admissionFor(who.user)).resolves.toEqual({
@@ -1074,5 +1082,197 @@ describe("handing the invite to its own contact", () => {
     await expect(provider(waiting).admissionFor(waiting.user)).resolves.toEqual(
       { kind: "preparing" },
     );
+  });
+});
+
+describe("closing the admission path", () => {
+  it("does not report a denial applied while its link is still live", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+    expect((await desiredState(who)).invite_state).toBe("created");
+
+    // The right is revoked while the member never joined and the link still works.
+    await provider(who).handle(
+      command("community-revoke", who, {
+        binding: grant.binding,
+        entitlementRevision: 2,
+        access: { kind: "denied" },
+      }),
+    );
+    chat.mutation = { kind: "retryable", providerErrorCode: 503 };
+    await drain(who, 1);
+
+    expect((await desiredState(who)).status).not.toBe("applied");
+
+    chat.mutation = { kind: "succeeded" };
+    clock.value = new Date(clock.value.getTime() + 2000);
+    await drain(who);
+
+    // The first revoke was refused with 503, so the retry is the one that lands.
+    expect(chat.count("revoke_link")).toBe(2);
+    const state = await desiredState(who);
+    expect(state.invite_state).toBe("revoked");
+    expect(state.status).toBe("applied");
+  });
+
+  it("reconciliation opens removal work for a link left behind by a revoke", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+    await provider(who).handle(
+      command("community-revoke", who, {
+        binding: grant.binding,
+        entitlementRevision: 2,
+        access: { kind: "denied" },
+      }),
+    );
+    // Every effect is closed by hand, so only the sweep can notice the link.
+    await db
+      .updateTable("community_effects")
+      .set({ state: "completed", step: "done" })
+      .where("bot_identity", "=", who.bot)
+      .execute();
+    clock.value = new Date(clock.value.getTime() + 61_000);
+
+    await provider(who).reconcileDueStates();
+
+    expect(
+      (await effects(who)).some(
+        (row) =>
+          row.effect === "community.ensure_absence" && row.state === "pending",
+      ),
+    ).toBe(true);
+    expect((await desiredState(who)).status).not.toBe("applied");
+  });
+});
+
+describe("handing the link over in the private chat", () => {
+  const appConfig = (
+    communityMode: "disabled" | "live",
+    botIdentity: string,
+  ): ApplicationConfig => ({
+    marketingEnabled: false,
+    botIdentity,
+    canonicalChatId: CHAT,
+    databaseUrl: process.env.DATABASE_URL!,
+    deliveryMode: "disabled",
+    evidenceDeliveryMode: "disabled",
+    host: "127.0.0.1",
+    linkReceiptText: "Synthetic link receipt",
+    linkedMemberText: "Synthetic member status",
+    linkedNonMemberText: "Synthetic non-member status",
+    linkedUnavailableText: "Synthetic unavailable status",
+    communityMode,
+    communityReconciliationCadenceMilliseconds: 60_000,
+    communityTexts: {
+      invite: "Synthetic community invite",
+      preparing: "Synthetic community preparing",
+      member: "Synthetic community member",
+      unavailable: "Synthetic community unavailable",
+    },
+    membershipMode: "disabled",
+    membershipReconciliationCadenceMilliseconds: 240_000,
+    platformIntegrationSecret: "synthetic_platform_secret",
+    port: 3002,
+    webhookSecret: "synthetic_webhook_secret",
+    welcomeText: "Synthetic welcome",
+    workersEnabled: false,
+  });
+
+  /** Drives one subject to a stored, still-live link on the real clock. */
+  async function waitingWithLink(who: Subject): Promise<void> {
+    clock.value = new Date();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+  }
+
+  async function ask(
+    context: INestApplicationContext,
+    config: ApplicationConfig,
+    who: Subject,
+    updateId: number,
+  ): Promise<void> {
+    await context.get(TelegramWebhook).accept(config.webhookSecret, {
+      ...privateStartUpdate(updateId, Number(who.user), {
+        text: "/community",
+      }),
+    });
+    await context.get(TelegramUpdateProcessor).processAvailable();
+  }
+
+  async function replies(who: Subject) {
+    return db
+      .selectFrom("start_response_deliveries")
+      .select(["message_text", "private_chat_id", "state"])
+      .where("bot_identity", "=", who.bot)
+      .execute();
+  }
+
+  it("delivers the stored link to the contact who asked for it", async () => {
+    const who = { ...subject(), bot: "inside-handoff-live" };
+    const config = appConfig("live", who.bot);
+    const context = await NestFactory.createApplicationContext(
+      AppModule.register(config),
+      { logger: false },
+    );
+    try {
+      await waitingWithLink(who);
+
+      await ask(context, config, who, 8101);
+
+      const [reply] = await replies(who);
+      expect(reply?.message_text).toBe(
+        "Synthetic community invite\nhttps://t.me/+synthetic",
+      );
+      expect(reply?.private_chat_id).toBe(who.user);
+      expect(reply?.state).toBe("pending");
+      // Being handed the link is not membership.
+      expect((await desiredState(who)).status).toBe("waiting_for_join");
+    } finally {
+      await context.close();
+    }
+  });
+
+  it("stays silent while community effects are disabled", async () => {
+    const who = { ...subject(), bot: "inside-handoff-off" };
+    const config = appConfig("disabled", who.bot);
+    const context = await NestFactory.createApplicationContext(
+      AppModule.register(config),
+      { logger: false },
+    );
+    try {
+      await waitingWithLink(who);
+
+      await ask(context, config, who, 8102);
+
+      expect(await replies(who)).toHaveLength(0);
+    } finally {
+      await context.close();
+    }
   });
 });

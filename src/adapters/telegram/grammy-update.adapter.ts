@@ -130,42 +130,32 @@ export class GrammyUpdateAdapter {
         value: decision,
         callbackQueryId: update.callback_query.id,
       };
-    const admission = /^\/community(?:@[A-Za-z0-9_]+)?$/.test(
-      typeof update.message?.text === "string"
-        ? update.message.text.trim()
-        : "",
+    // The contact asks for their own admission; nobody else selects a recipient.
+    const admission = this.privateCommand(
+      /^\/community(?:@[A-Za-z0-9_]+)?$/,
+      botIdentity,
+      updateId,
+      update,
+      observedAt,
     );
     if (admission) {
-      // The contact asks for their own admission; nobody else selects a recipient.
-      const privateCommand = this.privateStart(
-        botIdentity,
-        updateId,
-        { ...update, message: { ...update.message!, text: "/start" } },
-        observedAt,
-      );
-      if (privateCommand)
-        return { kind: "community-request", value: privateCommand.contact };
+      return { kind: "community-request", value: admission.contact };
     }
-    const preference = /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/.exec(
-      typeof update.message?.text === "string"
-        ? update.message.text.trim()
-        : "",
+    const preference = this.privateCommand(
+      /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/,
+      botIdentity,
+      updateId,
+      update,
+      observedAt,
     );
     if (preference) {
-      const privateCommand = this.privateStart(
-        botIdentity,
-        updateId,
-        { ...update, message: { ...update.message!, text: "/start" } },
-        observedAt,
-      );
-      if (privateCommand)
-        return {
-          kind: "marketing_preference",
-          value: {
-            contact: privateCommand.contact,
-            enabled: preference[1] === "/resume",
-          },
-        };
+      return {
+        kind: "marketing_preference",
+        value: {
+          contact: preference.contact,
+          enabled: preference.match[1] === "/resume",
+        },
+      };
     }
     const start = this.privateStart(botIdentity, updateId, update, observedAt);
     if (start) {
@@ -206,6 +196,39 @@ export class GrammyUpdateAdapter {
     }
 
     return { kind: "ignored" };
+  }
+
+  /**
+   * Any private non-bot slash command is verified the same way `/start` is, so a
+   * new command never invents its own idea of a trusted sender.
+   */
+  private privateCommand(
+    pattern: RegExp,
+    botIdentity: string,
+    updateId: string,
+    update: Partial<Update>,
+    observedAt: Date,
+  ):
+    | {
+        readonly contact: VerifiedPrivateStart;
+        readonly match: RegExpExecArray;
+      }
+    | undefined {
+    const text =
+      typeof update.message?.text === "string"
+        ? update.message.text.trim()
+        : "";
+    const match = pattern.exec(text);
+    if (!match) {
+      return undefined;
+    }
+    const verified = this.privateStart(
+      botIdentity,
+      updateId,
+      { ...update, message: { ...update.message!, text: "/start" } },
+      observedAt,
+    );
+    return verified ? { contact: verified.contact, match } : undefined;
   }
 
   /** A join request identifies its own chat and requester; nothing else selects a recipient. */

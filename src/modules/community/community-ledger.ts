@@ -291,9 +291,15 @@ export function statusFor(
 ): CommunityStatus {
   const allows = accessAllows(desired.access, now);
   if (allows) return observed === "member" ? "applied" : "waiting_for_join";
-  if (observed !== "member")
-    return desired.access.kind === "finite" ? "expired" : "applied";
-  return desired.access.kind === "finite" ? "expired" : "accepted";
+  if (desired.access.kind === "finite") return "expired";
+  // An `applied` denial is confirmed absence *and* a closed admission path.
+  if (observed !== "member" && !openAdmissionPath(desired)) return "applied";
+  return "accepted";
+}
+
+/** A known bot-owned link still lets the identity queue for the chat. */
+export function openAdmissionPath(desired: DesiredRow): boolean {
+  return desired.invite_state === "created" && desired.invite_link !== null;
 }
 
 /**

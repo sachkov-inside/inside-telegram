@@ -32,6 +32,7 @@ import {
   nextAction,
   observedMembership,
   openAbsence,
+  openAdmissionPath,
   openEffect,
   resolveIdentity,
   reusableInvite,
@@ -433,52 +434,31 @@ export class CommunityProvider {
   }
 
   /**
-   * The stored link is handed only to its own intended contact, on that contact's
-   * own request. Handing it over is not membership and does not change status.
+   * Reads what the intended contact may be told about their own admission. It is
+   * a query: a contact's message never opens an effect, and handing over the link
+   * is not membership. Reconciliation is what makes a missing link appear.
    */
   async admissionFor(telegramUserId: string): Promise<CommunityAdmission> {
-    return this.db.transaction().execute(async (tx) => {
-      const link = await tx
-        .selectFrom("platform_links")
-        .select(["account_ref", "telegram_identity_ref"])
-        .where("bot_identity", "=", this.bot)
-        .where("telegram_user_id", "=", telegramUserId)
-        .executeTakeFirst();
-      if (!link) return { kind: "none" } as const;
-      await lockAccount(tx, this.bot, link.account_ref);
-      const desired = await tx
-        .selectFrom("community_desired_states")
-        .selectAll()
-        .where("bot_identity", "=", this.bot)
-        .where("account_ref", "=", link.account_ref)
-        .where("telegram_identity_ref", "=", link.telegram_identity_ref)
-        .forUpdate()
-        .executeTakeFirst();
-      const now = this.clock.now();
-      if (!desired || !accessAllows(desired.access, now))
-        return { kind: "none" } as const;
-      if (desired.observed_membership === "member")
-        return { kind: "member" } as const;
-      if (reusableInvite(desired, now) && desired.invite_link)
-        return { kind: "link", inviteLink: desired.invite_link } as const;
-      // No usable link yet: make sure admission work exists, then answer honestly.
-      const open = await tx
-        .selectFrom("community_effects")
-        .select("effect_ref")
-        .where("bot_identity", "=", this.bot)
-        .where("account_ref", "=", link.account_ref)
-        .where("state", "in", ["pending", "started", "unknown"])
-        .executeTakeFirst();
-      if (!open)
-        await openEffect(
-          tx,
-          this.bot,
-          this.clock,
-          targetOf(desired),
-          "community.ensure_admission",
-        );
-      return { kind: "preparing" } as const;
-    });
+    const link = await this.db
+      .selectFrom("platform_links")
+      .select(["account_ref", "telegram_identity_ref"])
+      .where("bot_identity", "=", this.bot)
+      .where("telegram_user_id", "=", telegramUserId)
+      .executeTakeFirst();
+    if (!link) return { kind: "none" };
+    const desired = await this.db
+      .selectFrom("community_desired_states")
+      .selectAll()
+      .where("bot_identity", "=", this.bot)
+      .where("account_ref", "=", link.account_ref)
+      .where("telegram_identity_ref", "=", link.telegram_identity_ref)
+      .executeTakeFirst();
+    const now = this.clock.now();
+    if (!desired || !accessAllows(desired.access, now)) return { kind: "none" };
+    if (desired.observed_membership === "member") return { kind: "member" };
+    if (reusableInvite(desired, now) && desired.invite_link)
+      return { kind: "link", inviteLink: desired.invite_link };
+    return { kind: "preparing" };
   }
 
   // ----------------------------------------------------------------- worker
@@ -1262,7 +1242,8 @@ export class CommunityProvider {
           targetOf(desired),
           "community.ensure_admission",
         );
-      if (!allows && observed === "member")
+      // A revoked right also has to close the admission path it left behind.
+      if (!allows && (observed === "member" || openAdmissionPath(desired)))
         await openAbsence(tx, this.bot, this.clock, desired);
     });
   }

@@ -169,7 +169,8 @@ and remaining Platform integration gates are in
   access to materials. Removing a historical identity requires our own historical binding and the
   absence of a transfer; a disputed identity is left to an operator.
 - The stored link is bound to its own revision and identity, and is handed out only by `/community`
-  in the intended contact's own private chat. Handing it over is not membership.
+  in the intended contact's own private chat, and only while community effects are enabled. Handing
+  it over is not membership, and the command never starts work of its own.
 - Reconciliation re-checks known desired states at least once a minute; an unusable bot or an
   unreachable Telegram becomes `unknown` instead of hiding behind an earlier `applied`.
 - `TELEGRAM_COMMUNITY_MODE=disabled` is the safe default. See

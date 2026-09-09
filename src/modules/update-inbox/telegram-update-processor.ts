@@ -120,7 +120,9 @@ export class TelegramUpdateProcessor {
         } else if (command.kind === "join-request") {
           await this.community.acceptJoinRequest(command.value);
         } else if (command.kind === "community-request") {
-          await this.answerAdmission(command.value);
+          // The command exists only while community effects are enabled.
+          if (this.config.communityMode === "live")
+            await this.answerAdmission(command.value);
         } else if (command.kind === "ignored") {
           const authorInput = translateAuthorInput(
             update.botIdentity,
@@ -160,14 +162,21 @@ export class TelegramUpdateProcessor {
   private async answerAdmission(contact: VerifiedPrivateStart): Promise<void> {
     const admission = await this.community.admissionFor(contact.telegramUserId);
     const texts = this.config.communityTexts;
-    const messageText =
-      admission.kind === "link"
-        ? `${texts.invite}\n${admission.inviteLink}`
-        : admission.kind === "member"
-          ? texts.member
-          : admission.kind === "preparing"
-            ? texts.preparing
-            : texts.unavailable;
+    let messageText: string;
+    switch (admission.kind) {
+      case "link":
+        messageText = `${texts.invite}\n${admission.inviteLink}`;
+        break;
+      case "member":
+        messageText = texts.member;
+        break;
+      case "preparing":
+        messageText = texts.preparing;
+        break;
+      case "none":
+        messageText = texts.unavailable;
+        break;
+    }
     await this.replies.enqueue({
       botIdentity: contact.botIdentity,
       telegramUserId: contact.telegramUserId,
