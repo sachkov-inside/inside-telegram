@@ -10,6 +10,9 @@ the authority for Accounts, permissions, entitlements, profiles, and every conte
 ## Working agreements
 
 - For product scope, read `docs/product/telegram-application-brief.md`.
+- For community entitlements from Platform, read
+  `docs/integrations/community-entitlements-v1.md`; its accepted contract is
+  `docs/specifications/community-and-notifications-v1.md`.
 - For author templates, communications API or Platform authorization, read
   `docs/integrations/communications-v1.md`.
 - For confirmed bootstrap stack, credentialed-proof gates, and unresolved setup decisions, read

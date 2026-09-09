@@ -151,6 +151,31 @@ and remaining Platform integration gates are in
   evidence delivery backlog. Telegram IDs, usernames, Account references, tokens, and secrets are
   never metric labels.
 
+## Community entitlements from Platform
+
+- `POST /integrations/platform/v1/community-entitlements` accepts the
+  `inside.community-entitlement.v1` command into a durable inbox before it acknowledges anything.
+  Its own service secret is required; without one the endpoint answers `401`.
+- One desired state per Account carries a monotonic entitlement revision. A lower revision never
+  moves it, the same revision with a different desired state is a conflict, and a retried command
+  after a lost acknowledgement returns the same durable result.
+- Admission creates a short-lived join-request invite and applies only observed membership. Joining
+  is approved solely for the intended verified identity in the canonical chat; a foreign or lapsed
+  request is declined locally and grants nothing.
+- Every external mutation takes a fresh dispatch permit, records its attempt before the call, and
+  leases the effect so no second worker repeats it. A lost response stays unknown until a fresh
+  observation, and a lost invite is never re-created before its bounded expiry.
+- Expiry, revocation and unlink cleanup end community membership without touching paid or manual
+  access to materials. Removing a historical identity requires our own historical binding and the
+  absence of a transfer; a disputed identity is left to an operator.
+- The stored link is bound to its own revision and identity, and is handed out only by `/community`
+  in the intended contact's own private chat, and only while community effects are enabled. Handing
+  it over is not membership, and the command never starts work of its own.
+- Reconciliation re-checks known desired states at least once a minute; an unusable bot or an
+  unreachable Telegram becomes `unknown` instead of hiding behind an earlier `applied`.
+- `TELEGRAM_COMMUNITY_MODE=disabled` is the safe default. See
+  [`docs/integrations/community-entitlements-v1.md`](docs/integrations/community-entitlements-v1.md).
+
 ## Durable documents
 
 - [`docs/product/telegram-application-brief.md`](docs/product/telegram-application-brief.md) —
@@ -164,6 +189,10 @@ and remaining Platform integration gates are in
   version compatibility, independent corpus provenance, and the redacted two-application proof.
 - [`docs/verification/credentialed-telegram-proof.md`](docs/verification/credentialed-telegram-proof.md)
   — owner wizard entry point and the still-pending real-credential evidence matrix.
+- [`docs/specifications/community-and-notifications-v1.md`](docs/specifications/community-and-notifications-v1.md)
+  — accepted provider contract for community admission and shared notifications.
+- [`docs/integrations/community-entitlements-v1.md`](docs/integrations/community-entitlements-v1.md)
+  — implemented endpoint, effect ledger, reconciliation and the limits of this delivery.
 - [`docs/operations/owner-identity-recovery.md`](docs/operations/owner-identity-recovery.md) —
   dry-run, exact-confirm transfer, immutable audit, and post-operation verification.
 - [Telegram Membership bridge v1 Specification](https://github.com/sachkov-inside/inside-telegram/issues/1)

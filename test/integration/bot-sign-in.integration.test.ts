@@ -38,6 +38,7 @@ import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram
 import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
 import { MembershipEvidenceProvider } from "../../src/modules/membership-evidence/membership-evidence-provider.js";
+import { CommunityProvider } from "../../src/modules/community/community-provider.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 
@@ -436,6 +437,7 @@ describe("bot sign-in provider", () => {
       claim.mockClear();
       const processor = new TelegramUpdateProcessor(
         inbox,
+        config,
         application.get(BotContacts),
         application.get(IdentityLinking),
         new RuntimeMetrics(),
@@ -449,6 +451,8 @@ describe("bot sign-in provider", () => {
         application.get(Communications),
         { handle: async () => false },
         application.get(MarketingEntry),
+        application.get(CommunityProvider),
+        application.get(StartResponseDeliveryQueue),
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);

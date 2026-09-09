@@ -14,7 +14,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { credentialsMatch } from "../../security/credentials.js";
+import { bearerMatches } from "../../security/credentials.js";
 import { Communications } from "./communications.js";
 import {
   COMMUNICATIONS_VERSION,
@@ -40,13 +40,7 @@ export class CommunicationsController {
     @Body() body: unknown,
   ) {
     try {
-      if (
-        !authorization?.startsWith("Bearer ") ||
-        !credentialsMatch(
-          authorization.slice(7),
-          this.config.platformIntegrationSecret,
-        )
-      )
+      if (!bearerMatches(authorization, this.config.platformIntegrationSecret))
         throw new CommunicationsError("unauthorized");
       if (!validRequest(body)) throw new CommunicationsError("malformed");
       return {

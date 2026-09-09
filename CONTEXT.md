@@ -67,3 +67,29 @@ Platform owns the UI/MCP and redirect consumer; hits identify a delivery link, n
 Адресная доставка определённого Platform Notification по Telegram подтверждённому получателю.
 Она имеет собственный результат и не определяет оплату, право доступа или результат другого канала.
 _Avoid_: Broadcast, Funnel Step, MembershipEntitlement, прочтение
+
+**CommunityEntitlement**:
+Platform's statement that one Account may take part in the Canonical Membership Chat, carried as a
+monotonic revision with denied, finite or lifetime access. It is Platform's decision, not our
+observation, and it is not a MembershipEvidence.
+_Avoid_: MembershipEntitlement, subscription, tariff
+
+**CommunityDesiredState**:
+The one CommunityEntitlement per Account this application is currently trying to make true in the
+canonical chat, together with what it last observed there.
+_Avoid_: Membership, roster entry, cached status
+
+**CommunityEffect**:
+One intended change in the canonical chat for one desired state: opening admission, approving a
+join, or ensuring absence. It records attempts; it never issues a right.
+_Avoid_: Job, task, command
+
+**DispatchPermit**:
+Platform's short-lived confirmation that a specific effect attempt is still current. It authorizes
+one attempt and is not a reservation of the outcome.
+_Avoid_: Lock, token, approval
+
+**AdmissionLink**:
+A short-lived bot-created join-request invite bound in our own database to one intended identity
+and desired revision. Holding it is not membership.
+_Avoid_: Invite, referral link, access link

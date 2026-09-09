@@ -15,7 +15,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { credentialsMatch } from "../../security/credentials.js";
+import { bearerMatches } from "../../security/credentials.js";
 import { BotSignIn, MalformedSignInRequestError } from "./bot-sign-in.js";
 
 import { SignInAccountLink } from "./sign-in-account-link.js";
@@ -124,14 +124,7 @@ export class BotSignInController {
   }
 
   private authenticate(authorization: string | undefined): void {
-    if (
-      !this.config.signInIntegrationSecret ||
-      !authorization?.startsWith("Bearer ") ||
-      !credentialsMatch(
-        authorization.slice(7),
-        this.config.signInIntegrationSecret,
-      )
-    )
+    if (!bearerMatches(authorization, this.config.signInIntegrationSecret))
       throw new UnauthorizedException();
   }
 }

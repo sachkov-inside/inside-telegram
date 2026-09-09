@@ -1,5 +1,6 @@
 import { Injectable } from "@nestjs/common";
 
+import type { CommunitySnapshot } from "../modules/community/community-provider.js";
 import type { ReconciliationBatchOutcome } from "../modules/membership-evidence/membership-reconciliation.js";
 
 type Counter =
@@ -32,6 +33,9 @@ const counterNames: readonly Counter[] = [
 ];
 
 type Gauge =
+  | "community_due"
+  | "community_effect_backlog"
+  | "community_oldest_due_seconds"
   | "evidence_delivery_backlog"
   | "reconciliation_due"
   | "reconciliation_oldest_due_seconds";
@@ -40,6 +44,9 @@ const gaugeNames: readonly Gauge[] = [
   "reconciliation_due",
   "reconciliation_oldest_due_seconds",
   "evidence_delivery_backlog",
+  "community_due",
+  "community_oldest_due_seconds",
+  "community_effect_backlog",
 ];
 
 @Injectable()
@@ -61,6 +68,16 @@ export class RuntimeMetrics {
       outcome.oldestDueAgeMs / 1000,
     );
     this.gauges.set("evidence_delivery_backlog", outcome.evidenceBacklog);
+  }
+
+  /** Community apply/reconcile lag is what makes an overdue right visible to an operator. */
+  recordCommunity(snapshot: CommunitySnapshot): void {
+    this.gauges.set("community_due", snapshot.dueStates);
+    this.gauges.set(
+      "community_oldest_due_seconds",
+      snapshot.oldestDueAgeMs / 1000,
+    );
+    this.gauges.set("community_effect_backlog", snapshot.effectBacklog);
   }
 
   render(): string {

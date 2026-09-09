@@ -1,0 +1,715 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "$id": "https://sachkov-inside.github.io/platform/contracts/billing-integration-v1.schema.json",
+  "title": "Inside billing integration v1 — proposed wire shape, no runtime enablement",
+  "oneOf": [
+    {
+      "$ref": "#/definitions/communityRequest"
+    },
+    {
+      "$ref": "#/definitions/communityResponse"
+    },
+    {
+      "$ref": "#/definitions/notificationRequest"
+    },
+    {
+      "$ref": "#/definitions/notificationResponse"
+    },
+    {
+      "$ref": "#/definitions/authorizationRequest"
+    },
+    {
+      "$ref": "#/definitions/authorizationResponse"
+    }
+  ],
+  "definitions": {
+    "id": {
+      "type": "string",
+      "format": "uuid"
+    },
+    "opaqueRef": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "instant": {
+      "type": "string",
+      "format": "date-time"
+    },
+    "revision": {
+      "type": "integer",
+      "minimum": 1,
+      "maximum": 9007199254740991
+    },
+    "digest": {
+      "type": "string",
+      "minLength": 64,
+      "maxLength": 64,
+      "pattern": "^[a-f0-9]{64}$"
+    },
+    "binding": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "accountRef",
+        "telegramIdentityRef",
+        "linkRef",
+        "linkRevision"
+      ],
+      "properties": {
+        "accountRef": {
+          "$ref": "#/definitions/opaqueRef"
+        },
+        "telegramIdentityRef": {
+          "$ref": "#/definitions/opaqueRef"
+        },
+        "linkRef": {
+          "$ref": "#/definitions/id"
+        },
+        "linkRevision": {
+          "$ref": "#/definitions/revision"
+        }
+      }
+    },
+    "access": {
+      "oneOf": [
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "denied"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind",
+            "validUntil"
+          ],
+          "properties": {
+            "kind": {
+              "const": "finite"
+            },
+            "validUntil": {
+              "$ref": "#/definitions/instant"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "kind"
+          ],
+          "properties": {
+            "kind": {
+              "const": "lifetime"
+            }
+          }
+        }
+      ]
+    },
+    "errorCode": {
+      "type": "string",
+      "enum": [
+        "unauthorized",
+        "unsupported_contract",
+        "malformed",
+        "not_found",
+        "operation_conflict",
+        "revision_conflict",
+        "binding_conflict",
+        "unavailable"
+      ]
+    },
+    "communitySet": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "binding",
+        "entitlementRevision",
+        "access",
+        "issuedAt",
+        "correlationRef"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.community-entitlement.v1"
+        },
+        "operation": {
+          "const": "entitlement.set"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "binding": {
+          "$ref": "#/definitions/binding"
+        },
+        "entitlementRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "access": {
+          "$ref": "#/definitions/access"
+        },
+        "issuedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "correlationRef": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "communityStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.community-entitlement.v1"
+        },
+        "operation": {
+          "const": "entitlement.status"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "communityRequest": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/communitySet"
+        },
+        {
+          "$ref": "#/definitions/communityStatus"
+        }
+      ]
+    },
+    "communityResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "binding",
+        "entitlementRevision",
+        "access",
+        "status",
+        "observedMembership",
+        "updatedAt"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.community-entitlement.v1"
+        },
+        "operation": {
+          "const": "entitlement.result"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "binding": {
+          "$ref": "#/definitions/binding"
+        },
+        "entitlementRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "access": {
+          "$ref": "#/definitions/access"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "waiting_for_join",
+            "applied",
+            "superseded",
+            "failed",
+            "unknown",
+            "expired"
+          ]
+        },
+        "observedMembership": {
+          "type": "string",
+          "enum": [
+            "member",
+            "not_member",
+            "unknown"
+          ]
+        },
+        "updatedAt": {
+          "$ref": "#/definitions/instant"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "applied"
+              }
+            }
+          },
+          "then": {
+            "oneOf": [
+              {
+                "properties": {
+                  "access": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "const": "denied"
+                      }
+                    }
+                  },
+                  "observedMembership": {
+                    "const": "not_member"
+                  }
+                }
+              },
+              {
+                "properties": {
+                  "access": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "finite",
+                          "lifetime"
+                        ]
+                      }
+                    }
+                  },
+                  "observedMembership": {
+                    "const": "member"
+                  }
+                }
+              }
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "status": {
+                "const": "expired"
+              }
+            }
+          },
+          "then": {
+            "properties": {
+              "access": {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "const": "finite"
+                  }
+                }
+              }
+            }
+          }
+        }
+      ]
+    },
+    "communityError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "error"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.community-entitlement.v1"
+        },
+        "operation": {
+          "const": "entitlement.error"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        }
+      }
+    },
+    "communityResponse": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/communityResult"
+        },
+        {
+          "$ref": "#/definitions/communityError"
+        }
+      ]
+    },
+    "notificationKind": {
+      "type": "string",
+      "enum": [
+        "renewal_reminder",
+        "payment_succeeded",
+        "payment_failed",
+        "renewal_cancelled",
+        "access_expired",
+        "refund_resolved"
+      ]
+    },
+    "notificationSend": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "binding",
+        "noticeRef",
+        "noticeRevision",
+        "kind",
+        "text",
+        "issuedAt",
+        "notAfter",
+        "correlationRef"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-notification.v1"
+        },
+        "operation": {
+          "const": "notification.send"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "binding": {
+          "$ref": "#/definitions/binding"
+        },
+        "noticeRef": {
+          "$ref": "#/definitions/id"
+        },
+        "noticeRevision": {
+          "$ref": "#/definitions/revision"
+        },
+        "kind": {
+          "$ref": "#/definitions/notificationKind"
+        },
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 3000
+        },
+        "issuedAt": {
+          "$ref": "#/definitions/instant"
+        },
+        "notAfter": {
+          "$ref": "#/definitions/instant"
+        },
+        "correlationRef": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "notificationStatus": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-notification.v1"
+        },
+        "operation": {
+          "const": "notification.status"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        }
+      }
+    },
+    "notificationRequest": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/notificationSend"
+        },
+        {
+          "$ref": "#/definitions/notificationStatus"
+        }
+      ]
+    },
+    "notificationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "noticeRef",
+        "status",
+        "updatedAt"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-notification.v1"
+        },
+        "operation": {
+          "const": "notification.result"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "noticeRef": {
+          "$ref": "#/definitions/id"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "accepted",
+            "sent",
+            "suppressed",
+            "failed",
+            "unknown"
+          ]
+        },
+        "updatedAt": {
+          "$ref": "#/definitions/instant"
+        }
+      }
+    },
+    "notificationError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "error"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-notification.v1"
+        },
+        "operation": {
+          "const": "notification.error"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        }
+      }
+    },
+    "notificationResponse": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/notificationResult"
+        },
+        {
+          "$ref": "#/definitions/notificationError"
+        }
+      ]
+    },
+    "authorizationRequest": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "dispatchId",
+        "dispatchContractVersion",
+        "attemptId",
+        "effectRef",
+        "effect",
+        "payloadDigest"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-dispatch.v1"
+        },
+        "operation": {
+          "const": "dispatch.authorize"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "dispatchId": {
+          "$ref": "#/definitions/id"
+        },
+        "dispatchContractVersion": {
+          "type": "string",
+          "enum": [
+            "inside.community-entitlement.v1",
+            "inside.billing-notification.v1"
+          ]
+        },
+        "attemptId": {
+          "$ref": "#/definitions/id"
+        },
+        "effectRef": {
+          "$ref": "#/definitions/id"
+        },
+        "effect": {
+          "type": "string",
+          "enum": [
+            "notice.send",
+            "community.ensure_admission",
+            "community.approve_join",
+            "community.ensure_absence"
+          ]
+        },
+        "payloadDigest": {
+          "$ref": "#/definitions/digest"
+        }
+      }
+    },
+    "permit": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "permitRef",
+        "validUntil"
+      ],
+      "properties": {
+        "status": {
+          "const": "allowed"
+        },
+        "permitRef": {
+          "$ref": "#/definitions/id"
+        },
+        "validUntil": {
+          "$ref": "#/definitions/instant"
+        }
+      }
+    },
+    "dispatchDenial": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "status",
+        "reason"
+      ],
+      "properties": {
+        "status": {
+          "const": "denied"
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "superseded",
+            "binding_conflict",
+            "expired",
+            "not_found",
+            "payload_conflict",
+            "effect_conflict"
+          ]
+        }
+      }
+    },
+    "authorizationResult": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "dispatchId",
+        "attemptId",
+        "decision"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-dispatch.v1"
+        },
+        "operation": {
+          "const": "dispatch.result"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "dispatchId": {
+          "$ref": "#/definitions/id"
+        },
+        "attemptId": {
+          "$ref": "#/definitions/id"
+        },
+        "decision": {
+          "oneOf": [
+            {
+              "$ref": "#/definitions/permit"
+            },
+            {
+              "$ref": "#/definitions/dispatchDenial"
+            },
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": [
+                "status"
+              ],
+              "properties": {
+                "status": {
+                  "const": "unavailable"
+                }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "authorizationError": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "contractVersion",
+        "operation",
+        "operationId",
+        "error"
+      ],
+      "properties": {
+        "contractVersion": {
+          "const": "inside.billing-dispatch.v1"
+        },
+        "operation": {
+          "const": "dispatch.error"
+        },
+        "operationId": {
+          "$ref": "#/definitions/id"
+        },
+        "error": {
+          "$ref": "#/definitions/errorCode"
+        }
+      }
+    },
+    "authorizationResponse": {
+      "oneOf": [
+        {
+          "$ref": "#/definitions/authorizationResult"
+        },
+        {
+          "$ref": "#/definitions/authorizationError"
+        }
+      ]
+    }
+  }
+}

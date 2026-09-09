@@ -34,6 +34,18 @@ import {
   GrammyMessagesAdapter,
 } from "./adapters/telegram/grammy-messages.adapter.js";
 import { GrammyMembershipAdapter } from "./adapters/telegram/grammy-membership.adapter.js";
+import { GrammyCommunityChatAdapter } from "./adapters/telegram/grammy-community-chat.adapter.js";
+import { HttpCommunityAuthorization } from "./adapters/platform/http-community-authorization.adapter.js";
+import { CommunityProvider } from "./modules/community/community-provider.js";
+import { CommunityController } from "./modules/community/community.controller.js";
+import {
+  COMMUNITY_DISPATCH_AUTHORIZATION,
+  DisabledCommunityDispatchAuthorization,
+  DisabledTelegramCommunityChat,
+  TELEGRAM_COMMUNITY_CHAT,
+  type CommunityDispatchAuthorization,
+  type TelegramCommunityChat,
+} from "./modules/community/community-ports.js";
 import { GrammyCallbackAnswersAdapter } from "./adapters/telegram/grammy-callback-answers.adapter.js";
 import {
   TELEGRAM_CALLBACK_ANSWERS,
@@ -45,13 +57,17 @@ import {
   type ApplicationConfig,
 } from "./config/application-config.js";
 import { createDatabase } from "./database/create-database.js";
-import { DATABASE } from "./database/database.js";
+import { DATABASE, type Database } from "./database/database.js";
 import { DatabaseLifecycle } from "./database/database-lifecycle.js";
 import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
 import { SignInAccountLink } from "./modules/bot-sign-in/sign-in-account-link.js";
 import { BotSignIn } from "./modules/bot-sign-in/bot-sign-in.js";
 import { BotSignInController } from "./modules/bot-sign-in/bot-sign-in.controller.js";
-import { CLOCK, systemClock } from "./modules/identity-linking/clock.js";
+import {
+  CLOCK,
+  systemClock,
+  type Clock,
+} from "./modules/identity-linking/clock.js";
 import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
 import { IdentityLinkRecovery } from "./modules/identity-linking/identity-link-recovery.js";
 import { IdentityLinkingController } from "./modules/identity-linking/identity-linking.controller.js";
@@ -92,6 +108,7 @@ export class AppModule {
       module: AppModule,
       controllers: [
         BotSignInController,
+        CommunityController,
         CommunicationsController,
         IdentityLinkingController,
         OperationsController,
@@ -142,6 +159,60 @@ export class AppModule {
             }
             return new DisabledTelegramMembership();
           },
+        },
+        {
+          provide: TELEGRAM_COMMUNITY_CHAT,
+          inject: [APPLICATION_CONFIG],
+          useFactory: (
+            applicationConfig: ApplicationConfig,
+          ): TelegramCommunityChat =>
+            applicationConfig.communityMode === "live" &&
+            applicationConfig.botToken
+              ? new GrammyCommunityChatAdapter(applicationConfig.botToken)
+              : new DisabledTelegramCommunityChat(),
+        },
+        {
+          provide: COMMUNITY_DISPATCH_AUTHORIZATION,
+          inject: [APPLICATION_CONFIG],
+          useFactory: (
+            applicationConfig: ApplicationConfig,
+          ): CommunityDispatchAuthorization =>
+            applicationConfig.communityDispatchUrl &&
+            applicationConfig.communityDispatchSecret
+              ? new HttpCommunityAuthorization(
+                  applicationConfig.communityDispatchUrl,
+                  applicationConfig.communityDispatchSecret,
+                )
+              : new DisabledCommunityDispatchAuthorization(),
+        },
+        {
+          provide: CommunityProvider,
+          inject: [
+            DATABASE,
+            APPLICATION_CONFIG,
+            CLOCK,
+            COMMUNITY_DISPATCH_AUTHORIZATION,
+            TELEGRAM_COMMUNITY_CHAT,
+          ],
+          useFactory: (
+            database: Database,
+            applicationConfig: ApplicationConfig,
+            clock: Clock,
+            authorization: CommunityDispatchAuthorization,
+            chat: TelegramCommunityChat,
+          ) =>
+            new CommunityProvider(
+              database,
+              applicationConfig.botIdentity,
+              applicationConfig.canonicalChatId,
+              clock,
+              authorization,
+              chat,
+              {
+                reconciliationCadenceMs:
+                  applicationConfig.communityReconciliationCadenceMilliseconds,
+              },
+            ),
         },
         {
           provide: PLATFORM_EVIDENCE_DELIVERY,

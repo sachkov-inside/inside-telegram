@@ -6,6 +6,7 @@ import type {
   VerifiedPrivateContactability,
   VerifiedPrivateStart,
 } from "../../modules/bot-contacts/bot-contacts.js";
+import type { CommunityJoinRequest } from "../../modules/community/community-provider.js";
 import type { DurableMembershipEnvelope } from "../../modules/membership-evidence/membership-evidence-provider.js";
 import type { VerifiedSignInDecision } from "../../modules/bot-sign-in/bot-sign-in.js";
 import { toTelegramChatMember } from "./grammy-membership.adapter.js";
@@ -29,6 +30,11 @@ export type TelegramUpdateCommand =
     }
   | { readonly kind: "ignored" }
   | { readonly kind: "membership"; readonly value: DurableMembershipEnvelope }
+  | { readonly kind: "join-request"; readonly value: CommunityJoinRequest }
+  | {
+      readonly kind: "community-request";
+      readonly value: VerifiedPrivateStart;
+    }
   | {
       readonly kind: "start";
       readonly value: {
@@ -124,30 +130,41 @@ export class GrammyUpdateAdapter {
         value: decision,
         callbackQueryId: update.callback_query.id,
       };
-    const preference = /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/.exec(
-      typeof update.message?.text === "string"
-        ? update.message.text.trim()
-        : "",
+    // The contact asks for their own admission; nobody else selects a recipient.
+    const admission = this.privateCommand(
+      /^\/community(?:@[A-Za-z0-9_]+)?$/,
+      botIdentity,
+      updateId,
+      update,
+      observedAt,
+    );
+    if (admission) {
+      return { kind: "community-request", value: admission.contact };
+    }
+    const preference = this.privateCommand(
+      /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/,
+      botIdentity,
+      updateId,
+      update,
+      observedAt,
     );
     if (preference) {
-      const privateCommand = this.privateStart(
-        botIdentity,
-        updateId,
-        { ...update, message: { ...update.message!, text: "/start" } },
-        observedAt,
-      );
-      if (privateCommand)
-        return {
-          kind: "marketing_preference",
-          value: {
-            contact: privateCommand.contact,
-            enabled: preference[1] === "/resume",
-          },
-        };
+      return {
+        kind: "marketing_preference",
+        value: {
+          contact: preference.contact,
+          enabled: preference.match[1] === "/resume",
+        },
+      };
     }
     const start = this.privateStart(botIdentity, updateId, update, observedAt);
     if (start) {
       return { kind: "start", value: start };
+    }
+
+    const joinRequest = this.joinRequest(botIdentity, updateId, update);
+    if (joinRequest) {
+      return { kind: "join-request", value: joinRequest };
     }
 
     const subjectMembership = this.subjectMembershipEvent(
@@ -179,6 +196,76 @@ export class GrammyUpdateAdapter {
     }
 
     return { kind: "ignored" };
+  }
+
+  /**
+   * Any private non-bot slash command is verified the same way `/start` is, so a
+   * new command never invents its own idea of a trusted sender.
+   */
+  private privateCommand(
+    pattern: RegExp,
+    botIdentity: string,
+    updateId: string,
+    update: Partial<Update>,
+    observedAt: Date,
+  ):
+    | {
+        readonly contact: VerifiedPrivateStart;
+        readonly match: RegExpExecArray;
+      }
+    | undefined {
+    const text =
+      typeof update.message?.text === "string"
+        ? update.message.text.trim()
+        : "";
+    const match = pattern.exec(text);
+    if (!match) {
+      return undefined;
+    }
+    const verified = this.privateStart(
+      botIdentity,
+      updateId,
+      { ...update, message: { ...update.message!, text: "/start" } },
+      observedAt,
+    );
+    return verified ? { contact: verified.contact, match } : undefined;
+  }
+
+  /** A join request identifies its own chat and requester; nothing else selects a recipient. */
+  private joinRequest(
+    botIdentity: string,
+    updateId: string,
+    update: Partial<Update>,
+  ): CommunityJoinRequest | undefined {
+    const request: unknown = update.chat_join_request;
+    if (!isRecord(request)) {
+      return undefined;
+    }
+    const chat = request.chat;
+    const from = request.from;
+    if (
+      !isRecord(chat) ||
+      chat.type === "private" ||
+      !isRecord(from) ||
+      from.is_bot !== false ||
+      typeof request.date !== "number" ||
+      !Number.isSafeInteger(request.date) ||
+      request.date < 0
+    ) {
+      return undefined;
+    }
+    const canonicalChatId = signedTelegramId(chat.id);
+    const telegramUserId = telegramId(from.id);
+    if (!canonicalChatId || !telegramUserId) {
+      return undefined;
+    }
+    return {
+      botIdentity,
+      canonicalChatId,
+      telegramUserId,
+      requestedAt: new Date(request.date * 1000),
+      updateId,
+    };
   }
 
   private subjectMembershipEvent(

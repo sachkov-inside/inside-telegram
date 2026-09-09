@@ -94,3 +94,20 @@ export function canonicalProviderMembershipUpdate(
     },
   };
 }
+
+export function canonicalJoinRequestUpdate(
+  updateId: number,
+  chatId: number,
+  userId: number,
+  options: { chatType?: string; date?: number; isBot?: boolean } = {},
+) {
+  return {
+    update_id: updateId,
+    chat_join_request: {
+      chat: { id: chatId, type: options.chatType ?? "supergroup" },
+      from: { id: userId, is_bot: options.isBot ?? false },
+      user_chat_id: userId,
+      date: options.date ?? 1_893_456_060,
+    },
+  };
+}

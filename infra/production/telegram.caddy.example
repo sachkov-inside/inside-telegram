@@ -1,7 +1,7 @@
 telegram.example.com {
 	@provider {
 		method POST
-		path_regexp provider ^/(webhooks/telegram|integrations/platform/v1/identity-links(/[^/]+/confirm)?|integrations/identity/v1/sign-in(/[^/]+/(status|consume|account-link))?)$
+		path_regexp provider ^/(webhooks/telegram|integrations/platform/v1/(identity-links(/[^/]+/confirm)?|community-entitlements)|integrations/identity/v1/sign-in(/[^/]+/(status|consume|account-link))?)$
 	}
 	handle @provider {
 		reverse_proxy 127.0.0.1:3303

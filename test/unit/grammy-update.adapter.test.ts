@@ -6,6 +6,7 @@ import {
 } from "../../src/adapters/telegram/grammy-update.adapter.js";
 import { TELEGRAM_WEBHOOK_ALLOWED_UPDATES } from "../../src/modules/webhook/telegram-webhook.js";
 import {
+  canonicalJoinRequestUpdate,
   canonicalMembershipUpdate,
   canonicalProviderMembershipUpdate,
   privateContactabilityUpdate,
@@ -22,6 +23,7 @@ describe("GrammyUpdateAdapter", () => {
       "message",
       "chat_member",
       "my_chat_member",
+      "chat_join_request",
       "callback_query",
     ]);
   });
@@ -204,5 +206,74 @@ describe("GrammyUpdateAdapter", () => {
         updateId: "9002",
       },
     });
+  });
+
+  it("translates a canonical-chat join request to its verified requester", () => {
+    const command = adapter.translate(
+      "inside",
+      "91",
+      canonicalJoinRequestUpdate(91, -1_000_000_000_000, 10_001),
+      observedAt,
+    );
+
+    expect(command).toEqual({
+      kind: "join-request",
+      value: {
+        botIdentity: "inside",
+        canonicalChatId: "-1000000000000",
+        telegramUserId: "10001",
+        requestedAt: new Date(1_893_456_060 * 1000),
+        updateId: "91",
+      },
+    });
+  });
+
+  it.each([
+    ["a bot requester", { isBot: true }],
+    ["a private chat", { chatType: "private" }],
+    ["a negative date", { date: -1 }],
+  ])("ignores a join request with %s", (_name, options) => {
+    expect(
+      adapter.translate(
+        "inside",
+        "92",
+        canonicalJoinRequestUpdate(92, -1_000_000_000_000, 10_001, options),
+        observedAt,
+      ),
+    ).toEqual({ kind: "ignored" });
+  });
+
+  it("translates the contact's own admission request", () => {
+    const command = adapter.translate(
+      "inside",
+      "93",
+      privateStartUpdate(93, 10_001, { text: "/community" }),
+      observedAt,
+    );
+
+    expect(command).toEqual({
+      kind: "community-request",
+      value: {
+        botIdentity: "inside",
+        observedAt,
+        privateChatId: "10001",
+        telegramUserId: "10001",
+        updateId: "93",
+      },
+    });
+  });
+
+  it.each([
+    ["a group chat", { chatType: "supergroup" }],
+    ["a bot sender", { isBot: true }],
+  ])("ignores an admission request from %s", (_name, options) => {
+    expect(
+      adapter.translate(
+        "inside",
+        "94",
+        privateStartUpdate(94, 10_001, { ...options, text: "/community" }),
+        observedAt,
+      ),
+    ).toEqual({ kind: "ignored" });
   });
 });

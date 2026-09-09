@@ -6,7 +6,12 @@ import { translateTemplateIntake } from "../../adapters/telegram/grammy-template
 import { Inject, Injectable } from "@nestjs/common";
 
 import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
-import { BotContacts } from "../bot-contacts/bot-contacts.js";
+import { CommunityProvider } from "../community/community-provider.js";
+import { StartResponseDeliveryQueue } from "../outbound/start-response-delivery-queue.js";
+import {
+  BotContacts,
+  type VerifiedPrivateStart,
+} from "../bot-contacts/bot-contacts.js";
 import { BotSignIn } from "../bot-sign-in/bot-sign-in.js";
 import {
   TELEGRAM_CALLBACK_ANSWERS,
@@ -16,6 +21,10 @@ import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { MembershipEvidenceProvider } from "../membership-evidence/membership-evidence-provider.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import { TelegramUpdateInbox } from "./telegram-update-inbox.js";
+import {
+  APPLICATION_CONFIG,
+  type ApplicationConfig,
+} from "../../config/application-config.js";
 
 @Injectable()
 export class TelegramUpdateProcessor {
@@ -23,6 +32,7 @@ export class TelegramUpdateProcessor {
 
   constructor(
     @Inject(TelegramUpdateInbox) private readonly inbox: TelegramUpdateInbox,
+    @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
     @Inject(BotContacts) private readonly botContacts: BotContacts,
     @Inject(IdentityLinking)
     private readonly identityLinking: IdentityLinking,
@@ -37,6 +47,10 @@ export class TelegramUpdateProcessor {
     @Inject(AuthorAdmin)
     private readonly authorAdmin: Pick<AuthorAdmin, "handle">,
     @Inject(MarketingEntry) private readonly marketing: MarketingEntry,
+    @Inject(CommunityProvider)
+    private readonly community: CommunityProvider,
+    @Inject(StartResponseDeliveryQueue)
+    private readonly replies: StartResponseDeliveryQueue,
   ) {}
 
   async processAvailable(limit = 50, now?: Date): Promise<number> {
@@ -103,6 +117,12 @@ export class TelegramUpdateProcessor {
           await this.botContacts.observeContactability(command.value);
         } else if (command.kind === "membership") {
           await this.membershipEvidence.accept(command.value);
+        } else if (command.kind === "join-request") {
+          await this.community.acceptJoinRequest(command.value);
+        } else if (command.kind === "community-request") {
+          // The command exists only while community effects are enabled.
+          if (this.config.communityMode === "live")
+            await this.answerAdmission(command.value);
         } else if (command.kind === "ignored") {
           const authorInput = translateAuthorInput(
             update.botIdentity,
@@ -136,5 +156,35 @@ export class TelegramUpdateProcessor {
       }
     }
     return processed;
+  }
+
+  /** The contact's own request is the only path that hands out an invite link. */
+  private async answerAdmission(contact: VerifiedPrivateStart): Promise<void> {
+    const admission = await this.community.admissionFor(contact.telegramUserId);
+    const texts = this.config.communityTexts;
+    let messageText: string;
+    switch (admission.kind) {
+      case "link":
+        messageText = `${texts.invite}\n${admission.inviteLink}`;
+        break;
+      case "member":
+        messageText = texts.member;
+        break;
+      case "preparing":
+        messageText = texts.preparing;
+        break;
+      case "none":
+        messageText = texts.unavailable;
+        break;
+    }
+    await this.replies.enqueue({
+      botIdentity: contact.botIdentity,
+      telegramUserId: contact.telegramUserId,
+      privateChatId: contact.privateChatId,
+      messageText,
+      sourceKey: `community-admission:${contact.botIdentity}:${contact.updateId}`,
+      triggerUpdateId: contact.updateId,
+      now: contact.observedAt,
+    });
   }
 }

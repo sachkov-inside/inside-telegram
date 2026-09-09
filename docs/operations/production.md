@@ -32,6 +32,13 @@ Database входит в резервную копию кластера pgBackRe
 - `PLATFORM_EVIDENCE_DELIVERY_URL` — HTTPS endpoint Platform
   `/integrations/telegram/v1/membership-evidence`.
 - `TELEGRAM_WEBHOOK_SECRET` — третье независимое случайное значение; его алфавит — base64url.
+- Community entitlements включаются отдельно: `TELEGRAM_COMMUNITY_MODE=live`,
+  `TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS=60000`, свои
+  `PLATFORM_COMMUNITY_INTEGRATION_SECRET` и `PLATFORM_COMMUNITY_DISPATCH_SECRET`, а также
+  `PLATFORM_COMMUNITY_DISPATCH_URL` — HTTPS endpoint Platform
+  `/internal/billing-dispatch/authorize`. Каждый secret отличается от остальных направлений.
+  Бот в canonical chat должен быть administrator с `can_invite_users` и `can_restrict_members`:
+  без этих прав provider не выполняет ни одной mutation и показывает degraded diagnostic.
 - `TELEGRAM_MARKETING_ENABLED=false`: выпуск Membership/sign-in не включает рассылки и воронки.
 - Тексты welcome/link/status заполняются по-русски. Они предназначены для личного диалога с ботом.
 
@@ -114,11 +121,15 @@ rollback и downgrade migrations не выполняются; повтор то�
 
 Platform `TELEGRAM_LINKING_ENDPOINT` указывает на HTTPS
 `https://<telegram-domain>/integrations/platform/v1/identity-links`, а `TELEGRAM_BOT_START_URL` —
-на подтверждённый username production bot. Не используйте temporary proof callback.
+на подтверждённый username production bot. Community entitlement target path протокола
+`/internal/community-entitlements` обслуживается этим приложением как
+`https://<telegram-domain>/integrations/platform/v1/community-entitlements`; Platform настраивает
+у себя именно этот URL. Не используйте temporary proof callback.
 
 После успешного TLS и readiness вызовите Telegram `setWebhook` через защищённый операторский API
 клиент: `url=https://<telegram-domain>/webhooks/telegram`, `secret_token=TELEGRAM_WEBHOOK_SECRET`,
-`allowed_updates=["message","chat_member","my_chat_member","callback_query"]`, `drop_pending_updates=false`.
+`allowed_updates=["message","chat_member","my_chat_member","chat_join_request","callback_query"]`,
+`drop_pending_updates=false`.
 Это начальная настройка прямого webhook. Если production использует
 [входной relay](webhook-relay.md), сохраняйте его зарегистрированные URL с портом 88
 и `ip_address` из актуального operational record. Обычный деплой приложения не
