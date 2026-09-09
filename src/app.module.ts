@@ -1,3 +1,4 @@
+import { NotificationWorker } from "./operations/notification-worker.js";
 import { AuthorFunnels } from "./modules/communications/author-funnels.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
@@ -212,6 +213,7 @@ export class AppModule {
               : new DisabledAuthorContentValidation(),
         },
         BackgroundWorkers,
+        NotificationWorker,
         BotContacts,
         BotSignIn,
         SignInAccountLink,

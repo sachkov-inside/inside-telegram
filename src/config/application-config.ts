@@ -1,8 +1,13 @@
+import {
+  loadNotificationConfig,
+  type NotificationConfig,
+} from "./notification-config.js";
 export type DeliveryMode = "disabled" | "live";
 export type EvidenceDeliveryMode = "disabled" | "live";
 export type MembershipMode = "disabled" | "live";
 
 export interface ApplicationConfig {
+  readonly notifications?: NotificationConfig;
   readonly botIdentity: string;
   readonly botToken?: string;
   readonly canonicalChatId: string;
@@ -253,6 +258,7 @@ export function loadApplicationConfig(
       throw new Error("Tracking redirect cannot be a tracking destination");
   }
   return Object.freeze({
+    notifications: loadNotificationConfig(environment),
     ...(platformTrackingRedirectUrl
       ? { platformTrackingRedirectUrl, platformTrackingTargetPrefixes }
       : {}),

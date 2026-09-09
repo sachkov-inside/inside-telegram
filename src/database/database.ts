@@ -1,3 +1,4 @@
+import type { NotificationTables } from "../modules/notifications/notification-storage.js";
 import type { ColumnType, Generated, Kysely } from "kysely";
 
 import type { MembershipEvidenceSource } from "../modules/membership-evidence/membership-evidence.js";
@@ -276,7 +277,7 @@ export interface SignInSubjectsTable {
   telegram_user_id: BigIntColumn;
 }
 
-export interface DatabaseSchema {
+export interface DatabaseSchema extends NotificationTables {
   communication_author_compositions: {
     bot_identity: string;
     owner_account_ref: string;

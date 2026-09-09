@@ -12,6 +12,16 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     services:
+      rabbitmq:
+        image: rabbitmq:4.3-management-alpine
+        ports:
+          - 5673:5672
+          - 15673:15672
+        options: >-
+          --health-cmd "rabbitmq-diagnostics -q ping"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 30
       postgres:
         image: postgres:18.4-alpine
         env:
