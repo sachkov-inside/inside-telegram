@@ -7,6 +7,14 @@ export type EvidenceDeliveryMode = "disabled" | "live";
 export type MembershipMode = "disabled" | "live";
 export type CommunityMode = "disabled" | "live";
 
+/** Private-chat wording for the contact's own admission request. */
+export interface CommunityTexts {
+  readonly invite: string;
+  readonly preparing: string;
+  readonly member: string;
+  readonly unavailable: string;
+}
+
 export interface ApplicationConfig {
   readonly notifications?: NotificationConfig;
   readonly botIdentity: string;
@@ -17,6 +25,7 @@ export interface ApplicationConfig {
   readonly communityDispatchUrl?: string;
   readonly communityDispatchSecret?: string;
   readonly communityReconciliationCadenceMilliseconds: number;
+  readonly communityTexts: CommunityTexts;
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
   readonly marketingEnabled: boolean;
@@ -132,6 +141,20 @@ export function loadApplicationConfig(
     60_000,
     "TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS",
   );
+  const communityTexts: CommunityTexts = Object.freeze({
+    invite:
+      environment.TELEGRAM_COMMUNITY_INVITE_TEXT?.trim() ||
+      "Ссылка на вход в сообщество. Она действует несколько минут и только для вас.",
+    preparing:
+      environment.TELEGRAM_COMMUNITY_PREPARING_TEXT?.trim() ||
+      "Готовим вход в сообщество. Напишите /community ещё раз через минуту.",
+    member:
+      environment.TELEGRAM_COMMUNITY_MEMBER_TEXT?.trim() ||
+      "Вы уже участник сообщества.",
+    unavailable:
+      environment.TELEGRAM_COMMUNITY_UNAVAILABLE_TEXT?.trim() ||
+      "Сейчас у вас нет действующего права на участие в сообществе.",
+  });
   const communityIntegrationSecret =
     environment.PLATFORM_COMMUNITY_INTEGRATION_SECRET?.trim() || undefined;
   const communityDispatchUrl =
@@ -353,6 +376,7 @@ export function loadApplicationConfig(
     ...(communityDispatchUrl ? { communityDispatchUrl } : {}),
     ...(communityDispatchSecret ? { communityDispatchSecret } : {}),
     communityReconciliationCadenceMilliseconds,
+    communityTexts,
     databaseUrl,
     deliveryMode,
     marketingEnabled: parseBoolean(

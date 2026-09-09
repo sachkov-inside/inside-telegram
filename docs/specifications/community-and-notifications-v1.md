@@ -123,10 +123,6 @@ manifest integrity и scenario references двух bundles. Это форма и
 симулятор lifecycle. #55/#56 требуют real PostgreSQL persistence/concurrency и #56 real RabbitMQ
 ACL/confirm/ack/crash/fairness proof. #438 проверяет два источника и канала через обе стороны.
 
-Community runtime поставлен: `test/integration/community-entitlements.integration.test.ts` исполняет
-vendored sequence corpus этой задачи на реальном PostgreSQL, включая same-revision rejoin, old
-expired grant при новом lifetime, конкурентные workers и потерянные ответы. Реализация описана в
-[community entitlements runtime](../integrations/community-entitlements-v1.md).
 Community runtime обязан исполнить весь vendored sequence corpus, включая expired permit before
 started, same-revision rejoin и old expired grant при новом lifetime. Дополнительно проверить
 unknown create invite с bounded expiry, shared chat bypass конфигурацию и потерю admin rights.

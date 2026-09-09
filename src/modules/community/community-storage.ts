@@ -32,6 +32,12 @@ export type CommunityEffectState =
 
 export type CommunityInviteState = "none" | "unknown" | "created" | "revoked";
 
+/** Only a real external mutation becomes an attempt; observing is not one. */
+export type CommunityMutation = Exclude<
+  CommunityEffectStep,
+  "observe" | "done"
+>;
+
 export type CommunityAttemptOutcome =
   "started" | "unknown" | "succeeded" | "not_started" | "rejected";
 
@@ -49,6 +55,7 @@ export interface CommunityTables {
     invite_link: string | null;
     invite_state: CommunityInviteState;
     invite_expires_at: Timestamp | null;
+    invite_revision: RevisionColumn | null;
     status: CommunityStatus;
     observed_membership: ObservedMembership;
     due_at: Timestamp;
@@ -98,7 +105,7 @@ export interface CommunityTables {
     attempt_id: string;
     effect_ref: string;
     permit_ref: string;
-    action: CommunityEffectStep;
+    action: CommunityMutation;
     started_at: Timestamp;
     outcome: CommunityAttemptOutcome;
     diagnostic_code: string | null;

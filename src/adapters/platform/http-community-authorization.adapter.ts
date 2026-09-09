@@ -1,20 +1,10 @@
 import {
+  communityErrorStatus,
   validDispatchResponse,
   type DispatchAuthorizationRequest,
   type DispatchAuthorizationResponse,
 } from "../../modules/community/community-contract.js";
 import type { CommunityDispatchAuthorization } from "../../modules/community/community-ports.js";
-
-const ERROR_STATUS: Readonly<Record<string, number>> = {
-  malformed: 400,
-  unauthorized: 401,
-  unsupported_contract: 422,
-  not_found: 404,
-  operation_conflict: 409,
-  revision_conflict: 409,
-  binding_conflict: 409,
-  unavailable: 503,
-};
 
 /**
  * Checks both the HTTP status and the body. A mismatch is an invalid provider
@@ -54,7 +44,7 @@ export class HttpCommunityAuthorization implements CommunityDispatchAuthorizatio
       const result = value as DispatchAuthorizationResponse;
       if (result.operationId !== request.operationId) return;
       if (result.operation === "dispatch.error") {
-        return response.status === ERROR_STATUS[result.error]
+        return response.status === communityErrorStatus[result.error]
           ? result
           : undefined;
       }

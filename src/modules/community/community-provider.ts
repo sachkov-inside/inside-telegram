@@ -1,8 +1,8 @@
 import { randomUUID } from "node:crypto";
 
-import { sql, type Selectable, type Transaction } from "kysely";
+import { sql } from "kysely";
 
-import type { Database, DatabaseSchema } from "../../database/database.js";
+import type { Database } from "../../database/database.js";
 import { canonicalJson } from "../../security/payload-digest.js";
 import type { Clock } from "../identity-linking/clock.js";
 import {
@@ -14,7 +14,6 @@ import {
   COMMUNITY_CONTRACT_VERSION,
   DISPATCH_CONTRACT_VERSION,
   parseCommunityRequest,
-  type CommunityEffect,
   type CommunityResponse,
   type CommunityResult,
   type CommunitySetCommand,
@@ -23,27 +22,39 @@ import {
   type DispatchDenialReason,
   type ObservedMembership,
 } from "./community-contract.js";
+import {
+  closeEffect,
+  deferEffect,
+  desiredFor,
+  isOpen,
+  lapse,
+  lockAccount,
+  nextAction,
+  observedMembership,
+  openAbsence,
+  openEffect,
+  resolveIdentity,
+  reusableInvite,
+  setDesired,
+  statusFor,
+  targetOf,
+  type DesiredRow,
+  type EffectRow,
+  type ObservedState,
+  type Tx,
+} from "./community-ledger.js";
 import type {
   CommunityDispatchAuthorization,
   CommunityObservation,
   TelegramCommunityChat,
 } from "./community-ports.js";
-import type {
-  CommunityEffectStep,
-  CommunityTables,
-} from "./community-storage.js";
+import type { CommunityMutation } from "./community-storage.js";
 
-type Tx = Transaction<DatabaseSchema>;
-type EffectRow = Selectable<CommunityTables["community_effects"]>;
-type DesiredRow = Selectable<CommunityTables["community_desired_states"]>;
-type Mutation = Exclude<CommunityEffectStep, "observe" | "done">;
-type ObservedState = "member" | "not_member" | "banned";
-
-const RETRY_BACKOFF_MILLISECONDS = [1000, 5000, 30_000] as const;
 const ATTEMPT_BUDGET = 5;
 const PERMIT_WINDOW_MILLISECONDS = 5000;
 const ATTEMPT_LEASE_MILLISECONDS = 60_000;
 const INVITE_WINDOW_MILLISECONDS = 600_000;
+const CAPABILITY_CACHE_MILLISECONDS = 5000;
 
 export interface CommunityJoinRequest {
   readonly botIdentity: string;
@@ -64,6 +75,13 @@ export interface CommunitySnapshot {
   readonly effectBacklog: number;
 }
 
+/** What the intended contact may be told when they ask to join themselves. */
+export type CommunityAdmission =
+  | { readonly kind: "link"; readonly inviteLink: string }
+  | { readonly kind: "preparing" }
+  | { readonly kind: "member" }
+  | { readonly kind: "none" };
+
 export interface CommunityProviderOptions {
   readonly reconciliationCadenceMs?: number;
 }
@@ -75,6 +93,10 @@ export interface CommunityProviderOptions {
  */
 export class CommunityProvider {
   private readonly cadence: number;
+  private capability?: {
+    readonly at: number;
+    readonly diagnosticCode: string | null;
+  };
 
   constructor(
     private readonly db: Database,
@@ -200,9 +222,11 @@ export class CommunityProvider {
           invite_link: null,
           invite_state: "none",
           invite_expires_at: null,
+          invite_revision: null,
           ...state,
         })
         .onConflict((c) =>
+          // A stored link keeps its own revision, so a newer right never reuses it.
           c.columns(["bot_identity", "account_ref"]).doUpdateSet(state),
         )
         .execute();
@@ -216,14 +240,17 @@ export class CommunityProvider {
         observed,
         now,
       );
-      await this.openEffect(
+      await openEffect(
         tx,
-        command.binding.accountRef,
-        command.binding.telegramIdentityRef,
-        command.operationId,
-        command.entitlementRevision,
+        this.bot,
+        this.clock,
+        {
+          accountRef: command.binding.accountRef,
+          telegramIdentityRef: command.binding.telegramIdentityRef,
+          operationId: command.operationId,
+          entitlementRevision: command.entitlementRevision,
+        },
         allows ? "community.ensure_admission" : "community.ensure_absence",
-        now,
       );
       return recorded;
     });
@@ -341,7 +368,7 @@ export class CommunityProvider {
   // ------------------------------------------------------------ join events
 
   /**
-   * A verified join request is one effect for that exact request. A replayed update
+   * A verified join request is one effect for that exact update. A replayed update
    * reuses it; a later legitimate rejoin under the same right creates a new one.
    */
   async acceptJoinRequest(request: CommunityJoinRequest): Promise<void> {
@@ -371,13 +398,7 @@ export class CommunityProvider {
             "platform_links.telegram_identity_ref",
           ),
       )
-      .select([
-        "community_desired_states.account_ref",
-        "community_desired_states.telegram_identity_ref",
-        "community_desired_states.access",
-        "community_desired_states.entitlement_revision",
-        "community_desired_states.latest_operation",
-      ])
+      .selectAll("community_desired_states")
       .where("platform_links.bot_identity", "=", this.bot)
       .where("platform_links.telegram_user_id", "=", request.telegramUserId)
       .executeTakeFirst();
@@ -391,7 +412,7 @@ export class CommunityProvider {
       return;
     }
 
-    const key = `${this.bot}:${this.canonicalChatId}:${request.telegramUserId}:${request.requestedAt.getTime()}`;
+    const key = `${this.bot}:${this.canonicalChatId}:${request.updateId}`;
     await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, intended.account_ref);
       const existing = await tx
@@ -400,52 +421,64 @@ export class CommunityProvider {
         .where("join_request_key", "=", key)
         .executeTakeFirst();
       if (existing) return;
-      await this.openEffect(
+      await openEffect(
         tx,
-        intended.account_ref,
-        intended.telegram_identity_ref,
-        intended.latest_operation,
-        Number(intended.entitlement_revision),
+        this.bot,
+        this.clock,
+        targetOf(intended),
         "community.approve_join",
-        now,
         key,
       );
     });
   }
 
-  private async openEffect(
-    tx: Tx,
-    accountRef: string,
-    telegramIdentityRef: string,
-    operationId: string,
-    entitlementRevision: number,
-    effect: CommunityEffect,
-    now: Date,
-    joinRequestKey?: string,
-  ): Promise<string> {
-    const effectRef = randomUUID();
-    await tx
-      .insertInto("community_effects")
-      .values({
-        effect_ref: effectRef,
-        bot_identity: this.bot,
-        account_ref: accountRef,
-        telegram_identity_ref: telegramIdentityRef,
-        operation_id: operationId,
-        entitlement_revision: entitlementRevision,
-        effect,
-        step: "observe",
-        state: "pending",
-        join_request_key: joinRequestKey ?? null,
-        available_at: now,
-        attempt_count: 0,
-        retry_count: 0,
-        diagnostic_code: null,
-        created_at: now,
-        updated_at: now,
-      })
-      .execute();
-    return effectRef;
+  /**
+   * The stored link is handed only to its own intended contact, on that contact's
+   * own request. Handing it over is not membership and does not change status.
+   */
+  async admissionFor(telegramUserId: string): Promise<CommunityAdmission> {
+    return this.db.transaction().execute(async (tx) => {
+      const link = await tx
+        .selectFrom("platform_links")
+        .select(["account_ref", "telegram_identity_ref"])
+        .where("bot_identity", "=", this.bot)
+        .where("telegram_user_id", "=", telegramUserId)
+        .executeTakeFirst();
+      if (!link) return { kind: "none" } as const;
+      await lockAccount(tx, this.bot, link.account_ref);
+      const desired = await tx
+        .selectFrom("community_desired_states")
+        .selectAll()
+        .where("bot_identity", "=", this.bot)
+        .where("account_ref", "=", link.account_ref)
+        .where("telegram_identity_ref", "=", link.telegram_identity_ref)
+        .forUpdate()
+        .executeTakeFirst();
+      const now = this.clock.now();
+      if (!desired || !accessAllows(desired.access, now))
+        return { kind: "none" } as const;
+      if (desired.observed_membership === "member")
+        return { kind: "member" } as const;
+      if (reusableInvite(desired, now) && desired.invite_link)
+        return { kind: "link", inviteLink: desired.invite_link } as const;
+      // No usable link yet: make sure admission work exists, then answer honestly.
+      const open = await tx
+        .selectFrom("community_effects")
+        .select("effect_ref")
+        .where("bot_identity", "=", this.bot)
+        .where("account_ref", "=", link.account_ref)
+        .where("state", "in", ["pending", "started", "unknown"])
+        .executeTakeFirst();
+      if (!open)
+        await openEffect(
+          tx,
+          this.bot,
+          this.clock,
+          targetOf(desired),
+          "community.ensure_admission",
+        );
+      return { kind: "preparing" } as const;
+    });
   }
 
   // ----------------------------------------------------------------- worker
@@ -491,11 +524,25 @@ export class CommunityProvider {
     await this.dispatch(effect, desired, action, telegramUserId, payloadDigest);
   }
 
-  /** Capability and membership are read together: an unusable bot is not absence. */
+  /**
+   * Capability and membership are read together: an unusable bot is not absence.
+   * The capability answer is reused briefly so one sweep costs one capability read
+   * rather than one per Account against the shared bot rate budget.
+   */
   private async observe(telegramUserId: string): Promise<CommunityObservation> {
-    const capability = await this.chat.readCapability(this.canonicalChatId);
-    if (capability.kind !== "ready")
-      return { kind: "unavailable", diagnosticCode: capability.diagnosticCode };
+    const now = this.clock.now().getTime();
+    if (
+      !this.capability ||
+      now - this.capability.at >= CAPABILITY_CACHE_MILLISECONDS
+    ) {
+      const read = await this.chat.readCapability(this.canonicalChatId);
+      this.capability = {
+        at: now,
+        diagnosticCode: read.kind === "ready" ? null : read.diagnosticCode,
+      };
+    }
+    const blocked = this.capability.diagnosticCode;
+    if (blocked) return { kind: "unavailable", diagnosticCode: blocked };
     return this.chat.observeMember(this.canonicalChatId, telegramUserId);
   }
 
@@ -533,8 +580,9 @@ export class CommunityProvider {
         .forUpdate()
         .executeTakeFirst();
       if (!desired) {
-        await this.closeEffect(
+        await closeEffect(
           tx,
+          this.clock,
           effectRef,
           "failed",
           "missing_desired_state",
@@ -545,8 +593,9 @@ export class CommunityProvider {
         Number(effect.entitlement_revision) !==
         Number(desired.entitlement_revision)
       ) {
-        await this.closeEffect(
+        await closeEffect(
           tx,
+          this.clock,
           effectRef,
           "superseded",
           "revision_advanced",
@@ -555,32 +604,43 @@ export class CommunityProvider {
       }
       const allows = accessAllows(desired.access, now);
       if (!allows && effect.effect !== "community.ensure_absence") {
-        // A lapsed or revoked right never admits; removal work replaces the admission.
-        await this.closeEffect(
-          tx,
-          effectRef,
-          "superseded",
-          "right_not_current",
-        );
-        if (desired.access.kind === "finite" && desired.status !== "expired")
-          await this.setDesired(tx, desired, { status: "expired" }, now);
-        await this.openAbsence(tx, desired, now);
+        await lapse(tx, this.bot, this.clock, effectRef, desired, now);
         return;
       }
       if (allows && effect.effect === "community.ensure_absence") {
-        await this.closeEffect(tx, effectRef, "superseded", "right_restored");
+        await closeEffect(
+          tx,
+          this.clock,
+          effectRef,
+          "superseded",
+          "right_restored",
+        );
         return;
       }
 
-      const telegramUserId = await this.resolveIdentity(
+      const telegramUserId = await resolveIdentity(
         tx,
+        this.bot,
         desired.account_ref,
         effect.telegram_identity_ref,
         effect.effect === "community.ensure_absence",
       );
       if (!telegramUserId) {
-        await this.closeEffect(tx, effectRef, "failed", "unverified_binding");
-        await this.setDesired(tx, desired, { status: "failed" }, now);
+        await closeEffect(
+          tx,
+          this.clock,
+          effectRef,
+          "failed",
+          "unverified_binding",
+        );
+        await setDesired(
+          tx,
+          this.bot,
+          this.clock,
+          desired,
+          { status: "failed" },
+          now,
+        );
         return;
       }
       const operation = await tx
@@ -597,47 +657,10 @@ export class CommunityProvider {
     });
   }
 
-  /**
-   * Raw Telegram identifiers come only from our own verified mapping. Removing a
-   * historical identity additionally requires that no transfer has taken it over.
-   */
-  private async resolveIdentity(
-    tx: Tx,
-    accountRef: string,
-    telegramIdentityRef: string,
-    allowHistorical: boolean,
-  ): Promise<string | undefined> {
-    const link = await tx
-      .selectFrom("platform_links")
-      .select("telegram_user_id")
-      .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", accountRef)
-      .where("telegram_identity_ref", "=", telegramIdentityRef)
-      .executeTakeFirst();
-    if (link) return link.telegram_user_id;
-    if (!allowHistorical) return undefined;
-
-    const transferred = await tx
-      .selectFrom("platform_links")
-      .select("account_ref")
-      .where("bot_identity", "=", this.bot)
-      .where("telegram_identity_ref", "=", telegramIdentityRef)
-      .executeTakeFirst();
-    if (transferred) return undefined;
-    const historical = await tx
-      .selectFrom("community_bindings")
-      .select("telegram_user_id")
-      .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", accountRef)
-      .where("telegram_identity_ref", "=", telegramIdentityRef)
-      .executeTakeFirst();
-    return historical?.telegram_user_id ?? undefined;
-  }
-
   private async dispatch(
     effect: EffectRow,
     desired: DesiredRow,
-    action: Mutation,
+    action: CommunityMutation,
     telegramUserId: string,
     payloadDigest: string,
   ): Promise<void> {
@@ -668,7 +691,7 @@ export class CommunityProvider {
         .where("effect_ref", "=", effect.effect_ref)
         .forUpdate()
         .executeTakeFirstOrThrow();
-      const state = await this.desiredFor(tx, effect.account_ref);
+      const state = await desiredFor(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
       if (
         !isOpen(current.state) ||
@@ -682,12 +705,7 @@ export class CommunityProvider {
         current.effect !== "community.ensure_absence" &&
         !accessAllows(state.access, now)
       ) {
-        await this.closeEffect(
-          tx,
-          current.effect_ref,
-          "superseded",
-          "right_not_current",
-        );
+        await lapse(tx, this.bot, this.clock, current.effect_ref, state, now);
         return;
       }
       if (
@@ -698,7 +716,7 @@ export class CommunityProvider {
         response.attemptId !== request.attemptId ||
         response.decision.status === "unavailable"
       ) {
-        await this.deferIn(tx, current, "authorization_unavailable");
+        await deferEffect(tx, this.clock, current, "authorization_unavailable");
         return;
       }
       if (response.decision.status === "denied") {
@@ -710,7 +728,7 @@ export class CommunityProvider {
         until > now.getTime() &&
         until <= receivedAt.getTime() + PERMIT_WINDOW_MILLISECONDS
       )) {
-        await this.deferIn(tx, current, "permit_out_of_window");
+        await deferEffect(tx, this.clock, current, "permit_out_of_window");
         return;
       }
       // The attempt is durable before any external call, under the same lock.
@@ -761,7 +779,7 @@ export class CommunityProvider {
   }
 
   private async call(
-    action: Mutation,
+    action: CommunityMutation,
     telegramUserId: string,
     inviteLink: string | null,
     desired: DesiredRow,
@@ -785,9 +803,7 @@ export class CommunityProvider {
             chat,
             expiresAt,
           );
-          return created.kind === "created"
-            ? { ...created, expiresAt }
-            : { ...created, expiresAt };
+          return { ...created, expiresAt };
         }
       }
     } catch {
@@ -805,7 +821,7 @@ export class CommunityProvider {
   private async settle(
     effectRef: string,
     attemptId: string,
-    action: Mutation,
+    action: CommunityMutation,
     outcome: CallResult,
   ): Promise<void> {
     await this.db.transaction().execute(async (tx) => {
@@ -843,6 +859,7 @@ export class CommunityProvider {
         .where("attempt_id", "=", attemptId)
         .execute();
       if (!isOpen(current.state)) return;
+      const desired = await desiredFor(tx, this.bot, current.account_ref);
 
       if (outcome.kind === "created") {
         await tx
@@ -858,19 +875,20 @@ export class CommunityProvider {
           })
           .where("effect_ref", "=", effectRef)
           .execute();
-        const desired = await this.desiredFor(tx, current.account_ref);
         // The link is the Account's, so removal can still revoke it later.
-        await tx
-          .updateTable("community_desired_states")
-          .set({
-            invite_link: outcome.inviteLink,
-            invite_state: "created",
-            invite_expires_at: outcome.expiresAt,
-          })
-          .where("bot_identity", "=", this.bot)
-          .where("account_ref", "=", current.account_ref)
-          .execute();
-        await this.setDesired(tx, desired, { status: "waiting_for_join" }, now);
+        await this.storeInvite(tx, desired, {
+          invite_link: outcome.inviteLink,
+          invite_state: "created",
+          invite_expires_at: outcome.expiresAt,
+        });
+        await setDesired(
+          tx,
+          this.bot,
+          this.clock,
+          desired,
+          { status: "waiting_for_join" },
+          now,
+        );
         return;
       }
       if (outcome.kind === "unknown") {
@@ -887,19 +905,15 @@ export class CommunityProvider {
           })
           .where("effect_ref", "=", effectRef)
           .execute();
-        const desired = await this.desiredFor(tx, current.account_ref);
         if (invite)
-          await tx
-            .updateTable("community_desired_states")
-            .set({
-              invite_state: "unknown",
-              invite_expires_at: outcome.expiresAt ?? null,
-            })
-            .where("bot_identity", "=", this.bot)
-            .where("account_ref", "=", current.account_ref)
-            .execute();
-        await this.setDesired(
+          await this.storeInvite(tx, desired, {
+            invite_state: "unknown",
+            invite_expires_at: outcome.expiresAt ?? null,
+          });
+        await setDesired(
           tx,
+          this.bot,
+          this.clock,
           desired,
           { status: "unknown", observed: "unknown" },
           now,
@@ -923,7 +937,12 @@ export class CommunityProvider {
         if (action === "revoke_link")
           await tx
             .updateTable("community_desired_states")
-            .set({ invite_state: "revoked", invite_link: null })
+            .set({
+              invite_state: "revoked",
+              invite_link: null,
+              invite_expires_at: null,
+              invite_revision: null,
+            })
             .where("bot_identity", "=", this.bot)
             .where("account_ref", "=", current.account_ref)
             .execute();
@@ -933,18 +952,26 @@ export class CommunityProvider {
         outcome.kind === "rejected" &&
         current.attempt_count >= ATTEMPT_BUDGET
       ) {
-        await this.closeEffect(
+        await closeEffect(
           tx,
+          this.clock,
           effectRef,
           "failed",
           `${action}_rejected_${outcome.providerErrorCode}`,
         );
-        const desired = await this.desiredFor(tx, current.account_ref);
-        await this.setDesired(tx, desired, { status: "failed" }, now);
+        await setDesired(
+          tx,
+          this.bot,
+          this.clock,
+          desired,
+          { status: "failed" },
+          now,
+        );
         return;
       }
-      await this.deferIn(
+      await deferEffect(
         tx,
+        this.clock,
         current,
         `${action}_${outcome.kind}`,
         "retryAfterSeconds" in outcome && outcome.retryAfterSeconds
@@ -952,6 +979,23 @@ export class CommunityProvider {
           : 0,
       );
     });
+  }
+
+  private async storeInvite(
+    tx: Tx,
+    desired: DesiredRow,
+    invite: {
+      invite_link?: string;
+      invite_state: "created" | "unknown";
+      invite_expires_at: Date | null;
+    },
+  ): Promise<void> {
+    await tx
+      .updateTable("community_desired_states")
+      .set({ ...invite, invite_revision: desired.entitlement_revision })
+      .where("bot_identity", "=", this.bot)
+      .where("account_ref", "=", desired.account_ref)
+      .execute();
   }
 
   private async wait(
@@ -962,7 +1006,7 @@ export class CommunityProvider {
     await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
-      const current = await this.desiredFor(tx, effect.account_ref);
+      const current = await desiredFor(tx, this.bot, effect.account_ref);
       if (
         Number(current.entitlement_revision) !==
         Number(desired.entitlement_revision)
@@ -979,8 +1023,10 @@ export class CommunityProvider {
         })
         .where("effect_ref", "=", effect.effect_ref)
         .execute();
-      await this.setDesired(
+      await setDesired(
         tx,
+        this.bot,
+        this.clock,
         current,
         { status: "waiting_for_join", observed: observedMembership(observed) },
         now,
@@ -996,15 +1042,17 @@ export class CommunityProvider {
     await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
-      const current = await this.desiredFor(tx, effect.account_ref);
+      const current = await desiredFor(tx, this.bot, effect.account_ref);
       if (
         Number(current.entitlement_revision) !==
         Number(desired.entitlement_revision)
       )
         return;
-      await this.closeEffect(tx, effect.effect_ref, "completed", null);
-      await this.setDesired(
+      await closeEffect(tx, this.clock, effect.effect_ref, "completed", null);
+      await setDesired(
         tx,
+        this.bot,
+        this.clock,
         current,
         {
           status: statusFor(current, observed, now),
@@ -1023,64 +1071,80 @@ export class CommunityProvider {
     now: Date,
   ): Promise<void> {
     if (reason === "superseded") {
-      await this.closeEffect(
+      await closeEffect(
         tx,
+        this.clock,
         effect.effect_ref,
         "superseded",
         "dispatch_superseded",
       );
-      await this.setDesired(tx, desired, { status: "superseded" }, now);
+      await setDesired(
+        tx,
+        this.bot,
+        this.clock,
+        desired,
+        { status: "superseded" },
+        now,
+      );
       return;
     }
     if (reason === "expired") {
-      await this.closeEffect(
+      await closeEffect(
         tx,
+        this.clock,
         effect.effect_ref,
         "superseded",
         "dispatch_expired",
       );
-      await this.setDesired(
+      await setDesired(
         tx,
+        this.bot,
+        this.clock,
         desired,
         { status: desired.access.kind === "finite" ? "expired" : "failed" },
         now,
       );
       if (effect.effect !== "community.ensure_absence")
-        await this.openAbsence(tx, desired, now);
+        await openAbsence(tx, this.bot, this.clock, desired);
       return;
     }
-    await this.closeEffect(
+    await closeEffect(
       tx,
+      this.clock,
       effect.effect_ref,
       "failed",
       `dispatch_${reason}`,
     );
-    await this.setDesired(tx, desired, { status: "failed" }, now);
-  }
-
-  private async openAbsence(
-    tx: Tx,
-    desired: DesiredRow,
-    now: Date,
-  ): Promise<void> {
-    const open = await tx
-      .selectFrom("community_effects")
-      .select("effect_ref")
-      .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", desired.account_ref)
-      .where("effect", "=", "community.ensure_absence")
-      .where("state", "in", ["pending", "started", "unknown"])
-      .executeTakeFirst();
-    if (open) return;
-    await this.openEffect(
+    await setDesired(
       tx,
-      desired.account_ref,
-      desired.telegram_identity_ref,
-      desired.latest_operation,
-      Number(desired.entitlement_revision),
-      "community.ensure_absence",
+      this.bot,
+      this.clock,
+      desired,
+      { status: "failed" },
       now,
     );
+  }
+
+  private async defer(
+    effectRef: string,
+    diagnosticCode: string,
+  ): Promise<void> {
+    await this.db.transaction().execute(async (tx) => {
+      const found = await tx
+        .selectFrom("community_effects")
+        .select("account_ref")
+        .where("effect_ref", "=", effectRef)
+        .executeTakeFirstOrThrow();
+      await lockAccount(tx, this.bot, found.account_ref);
+      const current = await tx
+        .selectFrom("community_effects")
+        .selectAll()
+        .where("effect_ref", "=", effectRef)
+        .forUpdate()
+        .executeTakeFirstOrThrow();
+      if (!isOpen(current.state)) return;
+      await deferEffect(tx, this.clock, current, diagnosticCode);
+    });
   }
 
   // --------------------------------------------------------- reconciliation
@@ -1104,7 +1168,7 @@ export class CommunityProvider {
   private async reconcileAccount(accountRef: string): Promise<void> {
     const claimed = await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, accountRef);
-      const desired = await this.desiredFor(tx, accountRef);
+      const desired = await desiredFor(tx, this.bot, accountRef);
       const now = this.clock.now();
       if (desired.due_at > now) return;
       if (
@@ -1112,8 +1176,15 @@ export class CommunityProvider {
         !accessAllows(desired.access, now)
       ) {
         if (desired.status !== "expired")
-          await this.setDesired(tx, desired, { status: "expired" }, now);
-        await this.openAbsence(tx, desired, now);
+          await setDesired(
+            tx,
+            this.bot,
+            this.clock,
+            desired,
+            { status: "expired" },
+            now,
+          );
+        await openAbsence(tx, this.bot, this.clock, desired);
       }
       await tx
         .updateTable("community_desired_states")
@@ -1132,8 +1203,9 @@ export class CommunityProvider {
         .where("state", "=", "started")
         .executeTakeFirst();
       if (inFlight) return;
-      const telegramUserId = await this.resolveIdentity(
+      const telegramUserId = await resolveIdentity(
         tx,
+        this.bot,
         accountRef,
         desired.telegram_identity_ref,
         true,
@@ -1145,7 +1217,7 @@ export class CommunityProvider {
     const observation = await this.observe(claimed.telegramUserId);
     await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, accountRef);
-      const desired = await this.desiredFor(tx, accountRef);
+      const desired = await desiredFor(tx, this.bot, accountRef);
       const now = this.clock.now();
       if (
         Number(desired.entitlement_revision) !==
@@ -1154,8 +1226,10 @@ export class CommunityProvider {
         return;
       if (observation.kind === "unavailable") {
         // An outage is never hidden behind an earlier applied status.
-        await this.setDesired(
+        await setDesired(
           tx,
+          this.bot,
+          this.clock,
           desired,
           { status: "unknown", observed: "unknown" },
           now,
@@ -1163,8 +1237,10 @@ export class CommunityProvider {
         return;
       }
       const observed = observedMembership(observation.state);
-      await this.setDesired(
+      await setDesired(
         tx,
+        this.bot,
+        this.clock,
         desired,
         { status: statusFor(desired, observation.state, now), observed },
         now,
@@ -1179,17 +1255,15 @@ export class CommunityProvider {
         .executeTakeFirst();
       if (open) return;
       if (allows && observed === "not_member")
-        await this.openEffect(
+        await openEffect(
           tx,
-          accountRef,
-          desired.telegram_identity_ref,
-          desired.latest_operation,
-          Number(desired.entitlement_revision),
+          this.bot,
+          this.clock,
+          targetOf(desired),
           "community.ensure_admission",
-          now,
         );
       if (!allows && observed === "member")
-        await this.openAbsence(tx, desired, now);
+        await openAbsence(tx, this.bot, this.clock, desired);
     });
   }
 
@@ -1214,120 +1288,6 @@ export class CommunityProvider {
       effectBacklog: Number(effects.rows[0]?.backlog ?? 0),
     };
   }
-
-  // ----------------------------------------------------------------- shared
-
-  private async desiredFor(tx: Tx, accountRef: string): Promise<DesiredRow> {
-    return tx
-      .selectFrom("community_desired_states")
-      .selectAll()
-      .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", accountRef)
-      .forUpdate()
-      .executeTakeFirstOrThrow();
-  }
-
-  private async setDesired(
-    tx: Tx,
-    desired: DesiredRow,
-    change: { status?: CommunityStatus; observed?: ObservedMembership },
-    now: Date,
-  ): Promise<void> {
-    const status = change.status ?? desired.status;
-    const observed = change.observed ?? desired.observed_membership;
-    await tx
-      .updateTable("community_desired_states")
-      .set({ status, observed_membership: observed, updated_at: now })
-      .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", desired.account_ref)
-      .execute();
-    const operation = await tx
-      .selectFrom("community_operations")
-      .selectAll()
-      .where("operation_id", "=", desired.latest_operation)
-      .executeTakeFirst();
-    if (!operation) return;
-    const result = assertCommunityResult({
-      ...operation.result,
-      status,
-      observedMembership: observed,
-      updatedAt: now.toISOString(),
-    });
-    await tx
-      .updateTable("community_operations")
-      .set({ result, status, updated_at: now })
-      .where("operation_id", "=", operation.operation_id)
-      .execute();
-  }
-
-  private async closeEffect(
-    tx: Tx,
-    effectRef: string,
-    state: "completed" | "superseded" | "failed",
-    diagnosticCode: string | null,
-  ): Promise<void> {
-    await tx
-      .updateTable("community_effects")
-      .set({
-        state,
-        step: "done",
-        diagnostic_code: diagnosticCode,
-        updated_at: this.clock.now(),
-      })
-      .where("effect_ref", "=", effectRef)
-      .execute();
-  }
-
-  private async defer(
-    effectRef: string,
-    diagnosticCode: string,
-  ): Promise<void> {
-    await this.db.transaction().execute(async (tx) => {
-      const found = await tx
-        .selectFrom("community_effects")
-        .select("account_ref")
-        .where("effect_ref", "=", effectRef)
-        .executeTakeFirstOrThrow();
-      await lockAccount(tx, this.bot, found.account_ref);
-      const current = await tx
-        .selectFrom("community_effects")
-        .selectAll()
-        .where("effect_ref", "=", effectRef)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
-      if (!isOpen(current.state)) return;
-      await this.deferIn(tx, current, diagnosticCode);
-    });
-  }
-
-  /**
-   * Nothing started externally, so the work is only rescheduled. A provider or
-   * authorization outage keeps retrying instead of dropping a durable right.
-   */
-  private async deferIn(
-    tx: Tx,
-    effect: EffectRow,
-    diagnosticCode: string,
-    minimumDelay = 0,
-  ): Promise<void> {
-    const now = this.clock.now();
-    const backoff =
-      RETRY_BACKOFF_MILLISECONDS[
-        Math.min(effect.retry_count, RETRY_BACKOFF_MILLISECONDS.length - 1)
-      ]!;
-    await tx
-      .updateTable("community_effects")
-      .set({
-        state: "pending",
-        step: "observe",
-        retry_count: effect.retry_count + 1,
-        available_at: new Date(now.getTime() + Math.max(backoff, minimumDelay)),
-        diagnostic_code: diagnosticCode,
-        updated_at: now,
-      })
-      .where("effect_ref", "=", effect.effect_ref)
-      .execute();
-  }
 }
 
 type CallResult =
@@ -1342,47 +1302,6 @@ type CallResult =
     }
   | { kind: "unknown"; expiresAt?: Date }
   | { kind: "not_started" };
-
-function nextAction(
-  effect: EffectRow,
-  desired: DesiredRow,
-  observed: ObservedState,
-  now: Date,
-): Mutation | "wait" | "done" {
-  if (effect.effect === "community.ensure_absence") {
-    if (observed === "member") return "ban";
-    // An invite whose URL was never observed has no address to revoke; it expires.
-    return desired.invite_state === "created" ? "revoke_link" : "done";
-  }
-  if (observed === "member") return "done";
-  if (observed === "banned") return "unban";
-  if (effect.effect === "community.approve_join") return "approve";
-  const live =
-    desired.invite_state !== "none" &&
-    desired.invite_expires_at !== null &&
-    desired.invite_expires_at > now;
-  return live ? "wait" : "create_invite";
-}
-
-function statusFor(
-  desired: DesiredRow,
-  observed: ObservedState,
-  now: Date,
-): CommunityStatus {
-  const allows = accessAllows(desired.access, now);
-  if (allows) return observed === "member" ? "applied" : "waiting_for_join";
-  if (observed !== "member")
-    return desired.access.kind === "finite" ? "expired" : "applied";
-  return desired.access.kind === "finite" ? "expired" : "accepted";
-}
-
-function observedMembership(observed: ObservedState): ObservedMembership {
-  return observed === "member" ? "member" : "not_member";
-}
-
-function isOpen(state: EffectRow["state"]): boolean {
-  return state === "pending" || state === "started" || state === "unknown";
-}
 
 function sameDesiredState(
   desired: DesiredRow,
@@ -1404,14 +1323,4 @@ function conflict(
     status: communityErrorStatus[error],
     body: communityError(operationId, error),
   };
-}
-
-async function lockAccount(
-  tx: Tx,
-  bot: string,
-  accountRef: string,
-): Promise<void> {
-  await sql`select pg_advisory_xact_lock(hashtextextended(${`inside-telegram:community:${JSON.stringify([bot, accountRef])}`}, 0))`.execute(
-    tx,
-  );
 }

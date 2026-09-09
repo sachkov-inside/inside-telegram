@@ -62,6 +62,12 @@ const config: ApplicationConfig = {
   linkedUnavailableText: "Telegram linked; Membership check is unavailable.",
   communityMode: "disabled",
   communityReconciliationCadenceMilliseconds: 60_000,
+  communityTexts: {
+    invite: "Synthetic community invite",
+    preparing: "Synthetic community preparing",
+    member: "Synthetic community member",
+    unavailable: "Synthetic community unavailable",
+  },
   membershipMode: "disabled",
   membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",

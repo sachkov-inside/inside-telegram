@@ -437,6 +437,7 @@ describe("bot sign-in provider", () => {
       claim.mockClear();
       const processor = new TelegramUpdateProcessor(
         inbox,
+        config,
         application.get(BotContacts),
         application.get(IdentityLinking),
         new RuntimeMetrics(),
@@ -451,6 +452,7 @@ describe("bot sign-in provider", () => {
         { handle: async () => false },
         application.get(MarketingEntry),
         application.get(CommunityProvider),
+        application.get(StartResponseDeliveryQueue),
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);

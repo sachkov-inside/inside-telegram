@@ -15,7 +15,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { credentialsMatch } from "../../security/credentials.js";
+import { bearerMatches } from "../../security/credentials.js";
 import { IDENTITY_LINKING_CONTRACT_VERSION } from "./identity-linking-http.contract.js";
 import {
   InMemoryIdentityLinkingAdapter,
@@ -54,16 +54,7 @@ export class IdentityLinkingController {
   }
 
   private authenticate(authorization: string | undefined): void {
-    const prefix = "Bearer ";
-    if (!authorization?.startsWith(prefix)) {
-      throw new UnauthorizedException();
-    }
-    if (
-      !credentialsMatch(
-        authorization.slice(prefix.length),
-        this.config.platformIntegrationSecret,
-      )
-    ) {
+    if (!bearerMatches(authorization, this.config.platformIntegrationSecret)) {
       throw new UnauthorizedException();
     }
   }

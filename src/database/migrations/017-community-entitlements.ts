@@ -17,7 +17,9 @@ export const communityEntitlementsMigration: Migration = {
       invite_state text not null default 'none'
         check (invite_state in ('none','unknown','created','revoked')),
       invite_expires_at timestamptz,
-      status text not null,
+      invite_revision bigint,
+      status text not null check (status in
+        ('accepted','waiting_for_join','applied','superseded','failed','unknown','expired')),
       observed_membership text not null
         check (observed_membership in ('member','not_member','unknown')),
       due_at timestamptz not null,
@@ -33,7 +35,8 @@ export const communityEntitlementsMigration: Migration = {
       payload_digest text not null,
       command jsonb not null,
       result jsonb not null,
-      status text not null,
+      status text not null check (status in
+        ('accepted','waiting_for_join','applied','superseded','failed','unknown','expired')),
       created_at timestamptz not null,
       updated_at timestamptz not null
     );
@@ -45,7 +48,7 @@ export const communityEntitlementsMigration: Migration = {
       telegram_identity_ref text not null,
       link_ref uuid not null,
       link_revision bigint not null,
-      telegram_user_id text,
+      telegram_user_id bigint,
       first_seen_at timestamptz not null,
       last_seen_at timestamptz not null,
       primary key (bot_identity, account_ref, telegram_identity_ref)
@@ -79,7 +82,8 @@ export const communityEntitlementsMigration: Migration = {
       attempt_id uuid primary key,
       effect_ref uuid not null references community_effects,
       permit_ref uuid not null,
-      action text not null,
+      action text not null check (action in
+        ('unban','create_invite','approve','ban','revoke_link')),
       started_at timestamptz not null,
       outcome text not null check (outcome in
         ('started','unknown','succeeded','not_started','rejected')),

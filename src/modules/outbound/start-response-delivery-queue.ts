@@ -39,6 +39,41 @@ export class StartResponseDeliveryQueue {
     private readonly config?: ApplicationConfig,
   ) {}
 
+  /**
+   * Adds one durable private-chat reply. The source key makes a replayed update
+   * reuse the same intent instead of sending twice.
+   */
+  async enqueue(delivery: {
+    readonly botIdentity: string;
+    readonly telegramUserId: string;
+    readonly privateChatId: string;
+    readonly messageText: string;
+    readonly sourceKey: string;
+    readonly triggerUpdateId: string;
+    readonly now: Date;
+  }): Promise<void> {
+    await this.database
+      .insertInto("start_response_deliveries")
+      .values({
+        attempt_count: 0,
+        available_at: delivery.now,
+        bot_identity: delivery.botIdentity,
+        created_at: delivery.now,
+        delivered_at: null,
+        diagnostic_code: null,
+        locked_at: null,
+        message_text: delivery.messageText,
+        private_chat_id: delivery.privateChatId,
+        source_key: delivery.sourceKey,
+        state: "pending",
+        telegram_user_id: delivery.telegramUserId,
+        trigger_update_id: delivery.triggerUpdateId,
+        updated_at: delivery.now,
+      })
+      .onConflict((conflict) => conflict.doNothing())
+      .execute();
+  }
+
   async claimNext(
     now: Date,
     signInEnabled = false,

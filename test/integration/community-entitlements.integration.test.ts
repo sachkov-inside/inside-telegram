@@ -502,11 +502,25 @@ describe("community admission", () => {
 
   it("reuses one effect for a replayed join request and opens a new one for a rejoin", async () => {
     const who = subject();
-    const grant = await admit(who);
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
     const request = joinRequest(who);
-
     await provider(who).acceptJoinRequest(request);
-    const afterReplay = await effects(who);
+    await drain(who);
+
+    // The very same update reaches the provider twice.
+    await provider(who).acceptJoinRequest(request);
+    const afterReplay = (await effects(who)).filter(
+      (row) => row.effect === "community.approve_join",
+    );
 
     chat.membership = "not_member";
     await provider(who).acceptJoinRequest(joinRequest(who, 120));
@@ -515,9 +529,7 @@ describe("community admission", () => {
     const approvals = (await effects(who)).filter(
       (row) => row.effect === "community.approve_join",
     );
-    expect(
-      afterReplay.filter((r) => r.effect === "community.approve_join"),
-    ).toHaveLength(1);
+    expect(afterReplay).toHaveLength(1);
     expect(approvals).toHaveLength(2);
     expect(approvals[0]?.effect_ref).not.toBe(approvals[1]?.effect_ref);
     expect(Number((await desiredState(who)).entitlement_revision)).toBe(1);
@@ -694,6 +706,48 @@ describe("dispatch permits", () => {
     await drain(who);
     clock.value = new Date("2026-10-08T09:00:00Z");
     await drain(who, 1);
+    expect((await result(who, grant.operationId)).status).toBe("expired");
+    expect(
+      (await effects(who)).some(
+        (row) =>
+          row.effect === "community.ensure_absence" &&
+          ["pending", "started", "unknown"].includes(row.state),
+      ),
+    ).toBe(true);
+    chat.calls.length = 0;
+
+    // A manual lifetime grant arrives before the removal of the old one runs.
+    const lifetime = command("lifetime-community-grant", who, {
+      binding: grant.binding,
+      entitlementRevision: 2,
+      access: { kind: "lifetime" },
+    });
+    await provider(who).handle(lifetime);
+    await drain(who);
+
+    expect(chat.count("ban")).toBe(0);
+    const state = await desiredState(who);
+    expect(state.access).toEqual({ kind: "lifetime" });
+    expect(state.status).not.toBe("expired");
+    expect((await result(who, lifetime.operationId)).access).toEqual({
+      kind: "lifetime",
+    });
+  });
+
+  it("honours a superseded denial without removing anyone", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+    clock.value = new Date("2026-10-08T09:00:00Z");
+    await drain(who, 1);
     chat.calls.length = 0;
     decide = deny("superseded");
 
@@ -829,5 +883,196 @@ describe("community provider outages", () => {
 
     expect(snapshot.dueStates).toBeGreaterThan(0);
     expect(snapshot.oldestDueAgeMs).toBeGreaterThan(300_000);
+  });
+});
+
+describe("membership that arrived another way", () => {
+  it("removes a member who entered outside our invite when no right is current", async () => {
+    const who = subject();
+    const grant = command("community-revoke", who, {
+      entitlementRevision: 1,
+      access: { kind: "denied" },
+    });
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    // Somebody was let in by an owner-created link or a manual approval.
+    chat.membership = "member";
+
+    await drain(who);
+
+    expect(chat.count("ban")).toBe(1);
+    expect(chat.count("create_invite")).toBe(0);
+    const state = await desiredState(who);
+    expect(state.status).toBe("applied");
+    expect(state.observed_membership).toBe("not_member");
+  });
+
+  it("applies a right without approving anything when the member is already inside", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    chat.membership = "member";
+    await provider(who).handle(grant);
+
+    await drain(who);
+
+    expect(chat.count("approve")).toBe(0);
+    expect(chat.count("create_invite")).toBe(0);
+    expect((await result(who, grant.operationId)).status).toBe("applied");
+  });
+});
+
+describe("invite ownership", () => {
+  it("never reuses a link created for an earlier revision", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+    expect(chat.count("create_invite")).toBe(1);
+    const first = await desiredState(who);
+    chat.invite = { kind: "created", inviteLink: "https://t.me/+relinked" };
+
+    // A relink raises the entitlement revision while the old link is still live.
+    const relinked = command("finite-community-grant", who, {
+      binding: { ...grant.binding, linkRevision: 2 },
+      entitlementRevision: 2,
+    });
+    await provider(who).handle(relinked);
+    await drain(who);
+
+    expect(chat.count("create_invite")).toBe(2);
+    const second = await desiredState(who);
+    expect(second.invite_link).not.toBe(first.invite_link);
+    expect(Number(second.invite_revision)).toBe(2);
+    expect((await result(who, relinked.operationId)).status).toBe(
+      "waiting_for_join",
+    );
+  });
+
+  it("keeps every accepted operation of the current revision in step", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    const duplicate = command("finite-community-grant", who, {
+      binding: grant.binding,
+    });
+    await provider(who).handle(duplicate);
+
+    await drain(who);
+
+    expect((await result(who, grant.operationId)).status).toBe(
+      "waiting_for_join",
+    );
+    expect((await result(who, duplicate.operationId)).status).toBe(
+      "waiting_for_join",
+    );
+  });
+});
+
+describe("handing the invite to its own contact", () => {
+  it("gives the stored link only to the intended contact and does not apply it", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+
+    const admission = await provider(who).admissionFor(who.user);
+
+    expect(admission).toEqual({
+      kind: "link",
+      inviteLink: "https://t.me/+synthetic",
+    });
+    expect((await result(who, grant.operationId)).status).toBe(
+      "waiting_for_join",
+    );
+    expect((await result(who, grant.operationId)).observedMembership).not.toBe(
+      "member",
+    );
+  });
+
+  it("tells an unlinked or unentitled contact nothing about a link", async () => {
+    const who = subject();
+    const grant = command("finite-community-grant", who);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      who.user,
+      who.bot,
+    );
+    await provider(who).handle(grant);
+    await drain(who);
+    const stranger = subject();
+
+    await expect(provider(who).admissionFor(stranger.user)).resolves.toEqual({
+      kind: "none",
+    });
+
+    await provider(who).handle(
+      command("community-revoke", who, {
+        binding: grant.binding,
+        entitlementRevision: 2,
+        access: { kind: "denied" },
+      }),
+    );
+    await expect(provider(who).admissionFor(who.user)).resolves.toEqual({
+      kind: "none",
+    });
+  });
+
+  it("reports an existing member and prepares admission when no link is ready", async () => {
+    const who = subject();
+    await admit(who);
+    await expect(provider(who).admissionFor(who.user)).resolves.toEqual({
+      kind: "member",
+    });
+
+    const waiting = subject();
+    const grant = command("finite-community-grant", waiting);
+    await seedCommunityBinding(
+      db,
+      grant.binding,
+      clock.now(),
+      waiting.user,
+      waiting.bot,
+    );
+    await provider(waiting).handle(grant);
+
+    await expect(provider(waiting).admissionFor(waiting.user)).resolves.toEqual(
+      { kind: "preparing" },
+    );
   });
 });

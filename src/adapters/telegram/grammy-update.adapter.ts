@@ -32,6 +32,10 @@ export type TelegramUpdateCommand =
   | { readonly kind: "membership"; readonly value: DurableMembershipEnvelope }
   | { readonly kind: "join-request"; readonly value: CommunityJoinRequest }
   | {
+      readonly kind: "community-request";
+      readonly value: VerifiedPrivateStart;
+    }
+  | {
       readonly kind: "start";
       readonly value: {
         readonly contact: VerifiedPrivateStart;
@@ -126,6 +130,22 @@ export class GrammyUpdateAdapter {
         value: decision,
         callbackQueryId: update.callback_query.id,
       };
+    const admission = /^\/community(?:@[A-Za-z0-9_]+)?$/.test(
+      typeof update.message?.text === "string"
+        ? update.message.text.trim()
+        : "",
+    );
+    if (admission) {
+      // The contact asks for their own admission; nobody else selects a recipient.
+      const privateCommand = this.privateStart(
+        botIdentity,
+        updateId,
+        { ...update, message: { ...update.message!, text: "/start" } },
+        observedAt,
+      );
+      if (privateCommand)
+        return { kind: "community-request", value: privateCommand.contact };
+    }
     const preference = /^(\/stop|\/resume)(?:@[A-Za-z0-9_]+)?$/.exec(
       typeof update.message?.text === "string"
         ? update.message.text.trim()

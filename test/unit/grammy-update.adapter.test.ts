@@ -242,4 +242,38 @@ describe("GrammyUpdateAdapter", () => {
       ),
     ).toEqual({ kind: "ignored" });
   });
+
+  it("translates the contact's own admission request", () => {
+    const command = adapter.translate(
+      "inside",
+      "93",
+      privateStartUpdate(93, 10_001, { text: "/community" }),
+      observedAt,
+    );
+
+    expect(command).toEqual({
+      kind: "community-request",
+      value: {
+        botIdentity: "inside",
+        observedAt,
+        privateChatId: "10001",
+        telegramUserId: "10001",
+        updateId: "93",
+      },
+    });
+  });
+
+  it.each([
+    ["a group chat", { chatType: "supergroup" }],
+    ["a bot sender", { isBot: true }],
+  ])("ignores an admission request from %s", (_name, options) => {
+    expect(
+      adapter.translate(
+        "inside",
+        "94",
+        privateStartUpdate(94, 10_001, { ...options, text: "/community" }),
+        observedAt,
+      ),
+    ).toEqual({ kind: "ignored" });
+  });
 });

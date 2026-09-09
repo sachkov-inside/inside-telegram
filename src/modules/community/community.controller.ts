@@ -13,7 +13,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { credentialsMatch } from "../../security/credentials.js";
+import { bearerMatches } from "../../security/credentials.js";
 import { CommunityProvider } from "./community-provider.js";
 
 /**
@@ -33,13 +33,7 @@ export class CommunityController {
     @Headers("authorization") authorization: string | undefined,
     @Body() body: unknown,
   ) {
-    const prefix = "Bearer ";
-    const secret = this.config.communityIntegrationSecret;
-    if (
-      !secret ||
-      !authorization?.startsWith(prefix) ||
-      !credentialsMatch(authorization.slice(prefix.length), secret)
-    )
+    if (!bearerMatches(authorization, this.config.communityIntegrationSecret))
       throw new HttpException(
         { statusCode: HttpStatus.UNAUTHORIZED },
         HttpStatus.UNAUTHORIZED,
