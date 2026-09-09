@@ -6,6 +6,7 @@ import type {
   VerifiedPrivateContactability,
   VerifiedPrivateStart,
 } from "../../modules/bot-contacts/bot-contacts.js";
+import type { CommunityJoinRequest } from "../../modules/community/community-provider.js";
 import type { DurableMembershipEnvelope } from "../../modules/membership-evidence/membership-evidence-provider.js";
 import type { VerifiedSignInDecision } from "../../modules/bot-sign-in/bot-sign-in.js";
 import { toTelegramChatMember } from "./grammy-membership.adapter.js";
@@ -29,6 +30,7 @@ export type TelegramUpdateCommand =
     }
   | { readonly kind: "ignored" }
   | { readonly kind: "membership"; readonly value: DurableMembershipEnvelope }
+  | { readonly kind: "join-request"; readonly value: CommunityJoinRequest }
   | {
       readonly kind: "start";
       readonly value: {
@@ -150,6 +152,11 @@ export class GrammyUpdateAdapter {
       return { kind: "start", value: start };
     }
 
+    const joinRequest = this.joinRequest(botIdentity, updateId, update);
+    if (joinRequest) {
+      return { kind: "join-request", value: joinRequest };
+    }
+
     const subjectMembership = this.subjectMembershipEvent(
       botIdentity,
       updateId,
@@ -179,6 +186,43 @@ export class GrammyUpdateAdapter {
     }
 
     return { kind: "ignored" };
+  }
+
+  /** A join request identifies its own chat and requester; nothing else selects a recipient. */
+  private joinRequest(
+    botIdentity: string,
+    updateId: string,
+    update: Partial<Update>,
+  ): CommunityJoinRequest | undefined {
+    const request: unknown = update.chat_join_request;
+    if (!isRecord(request)) {
+      return undefined;
+    }
+    const chat = request.chat;
+    const from = request.from;
+    if (
+      !isRecord(chat) ||
+      chat.type === "private" ||
+      !isRecord(from) ||
+      from.is_bot !== false ||
+      typeof request.date !== "number" ||
+      !Number.isSafeInteger(request.date) ||
+      request.date < 0
+    ) {
+      return undefined;
+    }
+    const canonicalChatId = signedTelegramId(chat.id);
+    const telegramUserId = telegramId(from.id);
+    if (!canonicalChatId || !telegramUserId) {
+      return undefined;
+    }
+    return {
+      botIdentity,
+      canonicalChatId,
+      telegramUserId,
+      requestedAt: new Date(request.date * 1000),
+      updateId,
+    };
   }
 
   private subjectMembershipEvent(

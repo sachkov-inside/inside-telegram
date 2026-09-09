@@ -27,6 +27,11 @@ import type {
 import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { TelegramWebhook } from "../../src/modules/webhook/telegram-webhook.js";
+import { CommunityProvider } from "../../src/modules/community/community-provider.js";
+import {
+  DisabledCommunityDispatchAuthorization,
+  DisabledTelegramCommunityChat,
+} from "../../src/modules/community/community-ports.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
 import { canonicalMembershipUpdate } from "../support/synthetic-telegram-updates.js";
 
@@ -49,6 +54,8 @@ const config: ApplicationConfig = {
   linkedMemberText: "Membership check sent to Platform.",
   linkedNonMemberText: "Telegram linked; Membership is not active.",
   linkedUnavailableText: "Telegram linked; Membership check is unavailable.",
+  communityMode: "disabled",
+  communityReconciliationCadenceMilliseconds: 60_000,
   membershipMode: "disabled",
   membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",
@@ -373,6 +380,14 @@ describe("durable Membership events", () => {
       new Communications(database, config, new DisabledAuthorAuthorization()),
       { handle: async () => false },
       new MarketingEntry(database, config, clock),
+      new CommunityProvider(
+        database,
+        config.botIdentity,
+        config.canonicalChatId,
+        clock,
+        new DisabledCommunityDispatchAuthorization(),
+        new DisabledTelegramCommunityChat(),
+      ),
     );
     const webhook = new TelegramWebhook(config, inbox, metrics);
     const update = canonicalMembershipUpdate(

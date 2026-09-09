@@ -200,4 +200,79 @@ describe("application configuration", () => {
       }),
     ).toThrow("TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS");
   });
+
+  it("keeps community effects disabled and fails the endpoint closed by default", () => {
+    const config = loadApplicationConfig(validEnvironment);
+    expect(config.communityMode).toBe("disabled");
+    expect(config.communityIntegrationSecret).toBeUndefined();
+    expect(config.communityReconciliationCadenceMilliseconds).toBe(60_000);
+  });
+
+  it("requires a bot token and both dispatch credentials for live community effects", () => {
+    const community = {
+      ...validEnvironment,
+      TELEGRAM_COMMUNITY_MODE: "live",
+      PLATFORM_COMMUNITY_INTEGRATION_SECRET:
+        "synthetic_community_inbound_secret",
+      PLATFORM_COMMUNITY_DISPATCH_URL:
+        "https://platform.test/internal/authorize",
+      PLATFORM_COMMUNITY_DISPATCH_SECRET: "synthetic_community_dispatch_secret",
+    };
+    expect(() => loadApplicationConfig(community)).toThrow(
+      "TELEGRAM_BOT_TOKEN is required for live community effects",
+    );
+    const withToken = { ...community, TELEGRAM_BOT_TOKEN: "synthetic-token" };
+    expect(loadApplicationConfig(withToken).communityMode).toBe("live");
+    for (const missing of [
+      "PLATFORM_COMMUNITY_INTEGRATION_SECRET",
+      "PLATFORM_COMMUNITY_DISPATCH_URL",
+      "PLATFORM_COMMUNITY_DISPATCH_SECRET",
+    ]) {
+      expect(() =>
+        loadApplicationConfig({ ...withToken, [missing]: "" }),
+      ).toThrow("Live community mode requires");
+    }
+  });
+
+  it("refuses a community secret shared with another direction", () => {
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COMMUNITY_INTEGRATION_SECRET:
+          "synthetic_community_shared_secret",
+        PLATFORM_COMMUNITY_DISPATCH_SECRET: "synthetic_community_shared_secret",
+      }),
+    ).toThrow("must differ from every other service secret");
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COMMUNITY_INTEGRATION_SECRET: "short",
+      }),
+    ).toThrow("base64url credential");
+  });
+
+  it("refuses a community dispatch URL that is not a plain HTTPS endpoint", () => {
+    for (const bad of [
+      "http://platform.test/authorize",
+      "https://user:password@platform.test/authorize",
+      "https://platform.test/authorize?token=1",
+      "https://platform.test/authorize#fragment",
+    ]) {
+      expect(() =>
+        loadApplicationConfig({
+          ...validEnvironment,
+          PLATFORM_COMMUNITY_DISPATCH_URL: bad,
+        }),
+      ).toThrow("PLATFORM_COMMUNITY_DISPATCH_URL");
+    }
+  });
+
+  it("bounds the community reconciliation cadence to at most one minute", () => {
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS: "120000",
+      }),
+    ).toThrow("TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS");
+  });
 });

@@ -20,6 +20,7 @@ describe("production provider routes", () => {
   it.each([
     "/webhooks/telegram",
     "/integrations/platform/v1/identity-links",
+    "/integrations/platform/v1/community-entitlements",
     "/integrations/platform/v1/identity-links/reference/confirm",
     "/integrations/identity/v1/sign-in",
     "/integrations/identity/v1/sign-in/reference/status",
@@ -41,6 +42,7 @@ describe("production provider routes", () => {
     "/integrations/identity/v1/sign-in/reference/complete",
     "/integrations/platform/v1/identity-links/a/b/confirm",
     "/integrations/platform/v1/communications",
+    "/integrations/platform/v1/community-entitlements/extra",
     "/prefix/integrations/identity/v1/sign-in",
   ])("rejects paths outside the production boundary: %s", (path) => {
     expect(paths.test(path)).toBe(false);

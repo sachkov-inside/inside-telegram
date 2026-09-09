@@ -6,6 +6,7 @@ import { translateTemplateIntake } from "../../adapters/telegram/grammy-template
 import { Inject, Injectable } from "@nestjs/common";
 
 import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
+import { CommunityProvider } from "../community/community-provider.js";
 import { BotContacts } from "../bot-contacts/bot-contacts.js";
 import { BotSignIn } from "../bot-sign-in/bot-sign-in.js";
 import {
@@ -37,6 +38,8 @@ export class TelegramUpdateProcessor {
     @Inject(AuthorAdmin)
     private readonly authorAdmin: Pick<AuthorAdmin, "handle">,
     @Inject(MarketingEntry) private readonly marketing: MarketingEntry,
+    @Inject(CommunityProvider)
+    private readonly community: CommunityProvider,
   ) {}
 
   async processAvailable(limit = 50, now?: Date): Promise<number> {
@@ -103,6 +106,8 @@ export class TelegramUpdateProcessor {
           await this.botContacts.observeContactability(command.value);
         } else if (command.kind === "membership") {
           await this.membershipEvidence.accept(command.value);
+        } else if (command.kind === "join-request") {
+          await this.community.acceptJoinRequest(command.value);
         } else if (command.kind === "ignored") {
           const authorInput = translateAuthorInput(
             update.botIdentity,

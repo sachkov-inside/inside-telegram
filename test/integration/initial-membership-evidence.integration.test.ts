@@ -60,6 +60,8 @@ const config: ApplicationConfig = {
   linkedMemberText: "Membership check sent to Platform.",
   linkedNonMemberText: "Telegram linked; Membership is not active.",
   linkedUnavailableText: "Telegram linked; Membership check is unavailable.",
+  communityMode: "disabled",
+  communityReconciliationCadenceMilliseconds: 60_000,
   membershipMode: "disabled",
   membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",

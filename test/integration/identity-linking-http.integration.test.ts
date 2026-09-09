@@ -30,6 +30,8 @@ const config: ApplicationConfig = {
   linkedMemberText: "Synthetic member status",
   linkedNonMemberText: "Synthetic non-member status",
   linkedUnavailableText: "Synthetic unavailable status",
+  communityMode: "disabled",
+  communityReconciliationCadenceMilliseconds: 60_000,
   membershipMode: "disabled",
   membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",

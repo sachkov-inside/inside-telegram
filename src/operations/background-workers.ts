@@ -12,6 +12,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../config/application-config.js";
+import { CommunityProvider } from "../modules/community/community-provider.js";
 import { InitialMembershipCheckProcessor } from "../modules/membership-evidence/initial-membership-check-processor.js";
 import { MembershipEvidenceDeliveryProcessor } from "../modules/membership-evidence/membership-evidence-delivery-processor.js";
 import { MembershipEvidenceProvider } from "../modules/membership-evidence/membership-evidence-provider.js";
@@ -32,6 +33,9 @@ export class BackgroundWorkers
   private deliveryTimer?: NodeJS.Timeout;
   private evidenceCycleRunning = false;
   private evidenceTimer?: NodeJS.Timeout;
+  private communityCycleRunning = false;
+  private communityCycle?: Promise<void>;
+  private communityTimer?: NodeJS.Timeout;
   private membershipCycleRunning = false;
   private membershipCycle?: Promise<void>;
   private membershipTimer?: NodeJS.Timeout;
@@ -54,6 +58,7 @@ export class BackgroundWorkers
     private readonly evidenceDeliveries: MembershipEvidenceDeliveryProcessor,
     @Inject(MembershipEvidenceProvider)
     private readonly membershipEvidence: MembershipEvidenceProvider,
+    @Inject(CommunityProvider) private readonly community: CommunityProvider,
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
   ) {}
 
@@ -91,6 +96,15 @@ export class BackgroundWorkers
       void this.runMembershipCycle();
     }
 
+    if (this.config.communityMode === "live") {
+      this.communityTimer = setInterval(
+        () => void this.runCommunityCycle(),
+        500,
+      );
+      this.communityTimer.unref();
+      void this.runCommunityCycle();
+    }
+
     if (this.config.evidenceDeliveryMode === "live") {
       this.evidenceTimer = setInterval(() => void this.runEvidenceCycle(), 500);
       this.evidenceTimer.unref();
@@ -105,7 +119,12 @@ export class BackgroundWorkers
     clearInterval(this.deliveryTimer);
     clearInterval(this.evidenceTimer);
     clearInterval(this.membershipTimer);
-    await Promise.all([this.membershipCycle, this.marketingCycle]);
+    clearInterval(this.communityTimer);
+    await Promise.all([
+      this.membershipCycle,
+      this.marketingCycle,
+      this.communityCycle,
+    ]);
   }
 
   private async runUpdateCycle(): Promise<void> {
@@ -177,6 +196,29 @@ export class BackgroundWorkers
     } finally {
       this.membershipCycleRunning = false;
       this.membershipCycle = undefined;
+    }
+  }
+
+  private runCommunityCycle(): Promise<void> {
+    if (this.communityCycleRunning || this.stopping) {
+      return Promise.resolve();
+    }
+    this.communityCycleRunning = true;
+    const cycle = this.executeCommunityCycle();
+    this.communityCycle = cycle;
+    return cycle;
+  }
+
+  private async executeCommunityCycle(): Promise<void> {
+    try {
+      await this.community.processDueEffects();
+      await this.community.reconcileDueStates();
+      this.metrics.recordCommunity(await this.community.snapshot());
+    } catch {
+      this.logger.error("Community entitlement worker cycle failed");
+    } finally {
+      this.communityCycleRunning = false;
+      this.communityCycle = undefined;
     }
   }
 

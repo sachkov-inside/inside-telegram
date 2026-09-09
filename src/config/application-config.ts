@@ -5,12 +5,18 @@ import {
 export type DeliveryMode = "disabled" | "live";
 export type EvidenceDeliveryMode = "disabled" | "live";
 export type MembershipMode = "disabled" | "live";
+export type CommunityMode = "disabled" | "live";
 
 export interface ApplicationConfig {
   readonly notifications?: NotificationConfig;
   readonly botIdentity: string;
   readonly botToken?: string;
   readonly canonicalChatId: string;
+  readonly communityMode: CommunityMode;
+  readonly communityIntegrationSecret?: string;
+  readonly communityDispatchUrl?: string;
+  readonly communityDispatchSecret?: string;
+  readonly communityReconciliationCadenceMilliseconds: number;
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
   readonly marketingEnabled: boolean;
@@ -115,6 +121,77 @@ export function loadApplicationConfig(
     throw new Error(
       "TELEGRAM_CANONICAL_CHAT_ID must be a non-zero safe Telegram integer",
     );
+  }
+
+  const communityMode = environment.TELEGRAM_COMMUNITY_MODE ?? "disabled";
+  assertExternalMode(communityMode, "TELEGRAM_COMMUNITY_MODE");
+  const communityReconciliationCadenceMilliseconds = parseBoundedInteger(
+    environment.TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS,
+    60_000,
+    15_000,
+    60_000,
+    "TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS",
+  );
+  const communityIntegrationSecret =
+    environment.PLATFORM_COMMUNITY_INTEGRATION_SECRET?.trim() || undefined;
+  const communityDispatchUrl =
+    environment.PLATFORM_COMMUNITY_DISPATCH_URL?.trim() || undefined;
+  const communityDispatchSecret =
+    environment.PLATFORM_COMMUNITY_DISPATCH_SECRET?.trim() || undefined;
+  for (const [name, value] of [
+    ["PLATFORM_COMMUNITY_INTEGRATION_SECRET", communityIntegrationSecret],
+    ["PLATFORM_COMMUNITY_DISPATCH_SECRET", communityDispatchSecret],
+  ] as const) {
+    if (value && !/^[A-Za-z0-9_-]{32,256}$/.test(value)) {
+      throw new Error(
+        `${name} must be a base64url credential of at least 32 characters`,
+      );
+    }
+  }
+  // Each direction keeps its own service secret; no existing caller inherits community authority.
+  if (
+    communityIntegrationSecret &&
+    [
+      platformIntegrationSecret,
+      signInIntegrationSecret,
+      communityDispatchSecret,
+    ].includes(communityIntegrationSecret)
+  ) {
+    throw new Error(
+      "PLATFORM_COMMUNITY_INTEGRATION_SECRET must differ from every other service secret",
+    );
+  }
+  if (communityDispatchUrl) {
+    assertHttpUrl(communityDispatchUrl, "PLATFORM_COMMUNITY_DISPATCH_URL");
+    const url = new URL(communityDispatchUrl);
+    if (
+      url.username ||
+      url.password ||
+      url.search ||
+      url.hash ||
+      (url.protocol !== "https:" &&
+        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+    ) {
+      throw new Error(
+        "PLATFORM_COMMUNITY_DISPATCH_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
+      );
+    }
+  }
+  if (communityMode === "live") {
+    if (!botToken) {
+      throw new Error(
+        "TELEGRAM_BOT_TOKEN is required for live community effects",
+      );
+    }
+    if (
+      !communityIntegrationSecret ||
+      !communityDispatchUrl ||
+      !communityDispatchSecret
+    ) {
+      throw new Error(
+        "Live community mode requires PLATFORM_COMMUNITY_INTEGRATION_SECRET, PLATFORM_COMMUNITY_DISPATCH_URL and PLATFORM_COMMUNITY_DISPATCH_SECRET",
+      );
+    }
   }
 
   let platformEvidenceDeliveryUrl: string | undefined;
@@ -271,6 +348,11 @@ export function loadApplicationConfig(
     botIdentity,
     ...(botToken ? { botToken } : {}),
     canonicalChatId,
+    communityMode,
+    ...(communityIntegrationSecret ? { communityIntegrationSecret } : {}),
+    ...(communityDispatchUrl ? { communityDispatchUrl } : {}),
+    ...(communityDispatchSecret ? { communityDispatchSecret } : {}),
+    communityReconciliationCadenceMilliseconds,
     databaseUrl,
     deliveryMode,
     marketingEnabled: parseBoolean(

@@ -1,7 +1,7 @@
-import { createHash } from "node:crypto";
 import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 import schema from "./contracts/schema.json" with { type: "json" };
+export { canonicalJson, digest } from "../../security/payload-digest.js";
 
 export type Category = "subscription" | "material";
 export interface NotificationCommand {
@@ -95,17 +95,6 @@ export const validDispatchResponse = ajv.compile({
     $ref: `${schema.$id}#/definitions/${name}`,
   })),
 });
-export function canonicalJson(value: unknown): string {
-  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
-  if (value && typeof value === "object")
-    return `{${Object.entries(value)
-      .sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0))
-      .map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`)
-      .join(",")}}`;
-  return JSON.stringify(value);
-}
-export const digest = (value: unknown) =>
-  createHash("sha256").update(canonicalJson(value)).digest("hex");
 export interface DeliveryEnvelope {
   exchange: string;
   routingKey: string;

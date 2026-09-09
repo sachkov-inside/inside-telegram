@@ -1,3 +1,4 @@
+import { communityEntitlementsMigration } from "./migrations/017-community-entitlements.js";
 import { notificationsMigration } from "./migrations/016-notifications.js";
 import { authorDraftsMigration } from "./migrations/015-author-drafts.js";
 import { broadcastAnalyticsMigration } from "./migrations/013-broadcast-analytics.js";
@@ -25,6 +26,7 @@ import { communicationsTemplatesMigration } from "./migrations/010-communication
 import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
+  "017-community-entitlements": communityEntitlementsMigration,
   "016-notifications": notificationsMigration,
   "015-author-drafts": authorDraftsMigration,
   "014-author-admin": authorAdminMigration,
