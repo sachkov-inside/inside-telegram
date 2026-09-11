@@ -41,13 +41,21 @@ def decide(item, current=None):
     if (children and 'tracker:auto-complete' in labels and not unfinished(children)
             and not blocked and not gate):
         return Decision(1, 'Done', 'explicit aggregate policy; children and gates complete', close=True)
-    if children:
-        return Decision(1, current if current and current != 'Done' else 'Inbox',
-                        'aggregate requires acceptance or remaining child work')
     session = item.get('session') or {}
+    prs = item.get('prs', [])
+    if children and unfinished(children) and (
+            current in {'In progress', 'Review', 'Blocked'} or session or prs):
+        # An aggregate is active while a child, a session, or a pull request is. A
+        # manual active state without any of them is preserved for owner adoption.
+        return Decision(1, current if current and current != 'Done' else 'In progress',
+                        'aggregate requires acceptance or remaining child work')
+    if children and unfinished(children):
+        # An aggregate with unfinished children is never itself ready to implement.
+        return Decision(1, 'In progress', 'aggregate requires acceptance or remaining child work')
+    # Every child is complete, or nothing is active any more: decide this item's own
+    # readiness instead of leaving the aggregate in a stale aggregate state.
     if blocked or gate or session.get('phase') == 'blocked':
         return Decision(1, 'Blocked', 'unresolved dependency, owner gate, or session blocker')
-    prs = item.get('prs', [])
     if any(p['state'] == 'OPEN' and not p.get('isDraft') for p in prs):
         return Decision(1, 'Review', 'linked non-draft pull request')
     if session.get('phase') == 'active' or any(p['state'] == 'OPEN' for p in prs):
@@ -55,7 +63,9 @@ def decide(item, current=None):
     if session.get('phase') == 'review':
         return Decision(1, 'Blocked', 'review handoff has no open non-draft pull request')
     # Existing manual work has no session identity yet. Never take it over by inference.
-    if not session and current in {'In progress', 'Review', 'Blocked'}:
+    # A fully completed aggregate is not such work: its readiness is derived above.
+    if not session and current in {'In progress', 'Review', 'Blocked'} and not (
+            children and not unfinished(children)):
         return Decision(1, current, 'legacy state needs explicit session adoption')
     if labels & ROLES == {'ready-for-agent'}:
         return Decision(1, 'Ready', 'specified, unblocked, no active session')

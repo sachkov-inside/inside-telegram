@@ -243,6 +243,20 @@ Every completed agent session ends with a decision handoff in chat: the outcome,
 decision needed, material caveats, verification performed, and direct links to the durable document,
 issue, and pull request when they exist. A file path is supporting detail, not the handoff itself.
 
+## Pipeline stages
+
+The Developer Pipeline is owner-driven. Work moves through stages: sharpen the idea (`grilling` or
+`grill-with-docs`), Specification (`to-spec`), Ticket breakdown (`to-tickets`), and Implementation
+(`implement`); `triage` and `wayfinder` are on-ramps. The owner starts each stage in the current
+session.
+
+An agent must not chain stages. Finishing a stage ends with a decision handoff and a recommended
+next stage; starting that stage needs a new explicit owner request. This boundary does not depend on
+runtime behavior, including runtimes that ignore a skill's user-only invocation marker.
+
+Start a development session in the repository that owns the outcome. The project harness loads from
+the repository root; a parent navigation directory does not provide its skills or workflow.
+
 ## Owner gates
 
 Explicit owner approval is required for:
