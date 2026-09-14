@@ -301,7 +301,9 @@
                             "scheduled",
                             "active",
                             "expired",
-                            "revoked"
+                            "revoked",
+                            "pending_verification",
+                            "suspended_source"
                           ]
                         },
                         "nextChargeAt": {
@@ -724,7 +726,9 @@
                           "scheduled",
                           "active",
                           "expired",
-                          "revoked"
+                          "revoked",
+                          "pending_verification",
+                          "suspended_source"
                         ]
                       },
                       "nextChargeAt": {

@@ -7,14 +7,27 @@ Platform определяет Account, тариф, Enrollment, состав и �
 
 ## Версии и границы
 
-Переносимые файлы в `docs/contracts/subscription-activation-v1` получены без изменений из
-Platform PR #629, принятый main commit `a663f661e89dfb90270b93e871da81d37d476363`.
-Дерево принятого commit совпадает с проверенным head PR `35702d9da2a2d6c0724a57e319b2bcb5d6318dd3`.
-`docs/contracts/community-v2` получен из принятого Platform PR #626, commit
-`7ac1a7200489c822569435afeac88a6f16b76ef5`. Corpus содержит схемы и отрицательные примеры;
-тесты читают его локально. Checkout и база Platform не входят в приложение или тестовые imports.
-Оба corpus побайтно сверены с принятым commit #629; binding lookup (#627) входит в эту версию.
-[Provenance и SHA-256 файлов](../evidence/course-activation/provider-provenance.json) сохраняются отдельно от неизменённого corpus.
+Переносимые файлы в `docs/contracts/subscription-activation-v1` обновлены для
+[Telegram #66](https://github.com/sachkov-inside/inside-telegram/issues/66) из неизменяемого
+provider snapshot `platform625-contract-draft-1` поставки Platform #625. Это uncommitted draft
+поверх accepted `a663f661e89dfb90270b93e871da81d37d476363`, **не окончательный provider SHA**.
+[Provenance и SHA-256 пяти файлов](subscription-activation-v1-provenance.json) фиксируют exact bytes;
+итоговая приёмка требует сверки с опубликованным final head Platform #625.
+
+Shared Enrollment.state добавляет `pending_verification` и `suspended_source` и в
+`ownAccessResponse.value.enrollments[]`, и в non-null `activationResponse.value.enrollment`.
+Activation outcome.state, binding и остальные поля не меняются. `pending_verification` означает,
+что временное основание пока не подтверждено и само доступа не даёт; бот предлагает повторить
+проверку позже или обратиться за помощью. `suspended_source` означает зафиксированное окончание
+источника: повтор/member не восстанавливают его. Бот направляет к владельцу для подтверждения
+нового периода и продолжает показывать независимые действующие Guide/course основания.
+Решения о выдаче и восстановлении принадлежат Platform. Telegram не хранит own-access проекцию
+в отдельной таблице; миграция для расширения transport enum не нужна.
+
+`docs/contracts/community-v2` остаётся из принятого Platform PR #626, commit
+`7ac1a7200489c822569435afeac88a6f16b76ef5`. Corpus читается локально; checkout и база Platform
+не входят в imports. [Прежнее evidence #64](../evidence/course-activation/README.md) относится
+к baseline до расширения #625, а не подтверждает этот draft.
 
 Все операции идут через authenticated HTTP. `binding` принимает только `contractVersion`
 и opaque `identityRef`; возвращает linked с точным binding либо unlinked. Используется существующий

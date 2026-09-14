@@ -393,5 +393,167 @@
         "state": "linked"
       }
     }
+  },
+  {
+    "name": "own-tribute-pending_verification",
+    "definition": "ownAccessResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "enrollments": [
+          {
+            "id": "62500000-0000-4000-8000-000000000001",
+            "accountId": "62500000-0000-4000-8000-000000000002",
+            "tier": {
+              "id": "62500000-0000-4000-8000-000000000003",
+              "revision": 1,
+              "name": "Материалы + сообщество",
+              "benefits": [
+                "materials",
+                "community"
+              ],
+              "contentScope": {
+                "guideIds": [],
+                "materialIds": []
+              }
+            },
+            "origin": "tribute",
+            "startsAt": "2030-01-01T00:00:00.000Z",
+            "endsAt": "2030-02-01T00:00:00.000Z",
+            "endPolicy": "temporary_membership",
+            "revision": 1,
+            "state": "pending_verification",
+            "renewal": "not_applicable",
+            "nextChargeAt": null
+          }
+        ],
+        "grounds": [],
+        "admission": {
+          "state": "checking",
+          "admissionRestriction": null
+        }
+      }
+    }
+  },
+  {
+    "name": "nested-enrollment-pending_verification",
+    "definition": "activationResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "attemptId": "62500000-0000-4000-8000-000000000004",
+        "state": "checking",
+        "enrollment": {
+          "id": "62500000-0000-4000-8000-000000000001",
+          "accountId": "62500000-0000-4000-8000-000000000002",
+          "tier": {
+            "id": "62500000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "name": "Материалы + сообщество",
+            "benefits": [
+              "materials",
+              "community"
+            ],
+            "contentScope": {
+              "guideIds": [],
+              "materialIds": []
+            }
+          },
+          "origin": "tribute",
+          "startsAt": "2030-01-01T00:00:00.000Z",
+          "endsAt": "2030-02-01T00:00:00.000Z",
+          "endPolicy": "temporary_membership",
+          "revision": 1,
+          "state": "pending_verification",
+          "renewal": "not_applicable",
+          "nextChargeAt": null
+        }
+      }
+    }
+  },
+  {
+    "name": "own-tribute-suspended_source",
+    "definition": "ownAccessResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "enrollments": [
+          {
+            "id": "62500000-0000-4000-8000-000000000001",
+            "accountId": "62500000-0000-4000-8000-000000000002",
+            "tier": {
+              "id": "62500000-0000-4000-8000-000000000003",
+              "revision": 1,
+              "name": "Материалы + сообщество",
+              "benefits": [
+                "materials",
+                "community"
+              ],
+              "contentScope": {
+                "guideIds": [],
+                "materialIds": []
+              }
+            },
+            "origin": "tribute",
+            "startsAt": "2030-01-01T00:00:00.000Z",
+            "endsAt": "2030-02-01T00:00:00.000Z",
+            "endPolicy": "temporary_membership",
+            "revision": 1,
+            "state": "suspended_source",
+            "renewal": "not_applicable",
+            "nextChargeAt": null
+          }
+        ],
+        "grounds": [],
+        "admission": {
+          "state": "checking",
+          "admissionRestriction": null
+        }
+      }
+    }
+  },
+  {
+    "name": "nested-enrollment-suspended_source",
+    "definition": "activationResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "attemptId": "62500000-0000-4000-8000-000000000004",
+        "state": "checking",
+        "enrollment": {
+          "id": "62500000-0000-4000-8000-000000000001",
+          "accountId": "62500000-0000-4000-8000-000000000002",
+          "tier": {
+            "id": "62500000-0000-4000-8000-000000000003",
+            "revision": 1,
+            "name": "Материалы + сообщество",
+            "benefits": [
+              "materials",
+              "community"
+            ],
+            "contentScope": {
+              "guideIds": [],
+              "materialIds": []
+            }
+          },
+          "origin": "tribute",
+          "startsAt": "2030-01-01T00:00:00.000Z",
+          "endsAt": "2030-02-01T00:00:00.000Z",
+          "endPolicy": "temporary_membership",
+          "revision": 1,
+          "state": "suspended_source",
+          "renewal": "not_applicable",
+          "nextChargeAt": null
+        }
+      }
+    }
   }
 ]

@@ -1,0 +1,20 @@
+{
+  "issue": 625,
+  "writer": "codex-20260914-platform-625",
+  "status": "readonly draft; uncommitted implementation, not final head",
+  "base": "a663f661e89dfb90270b93e871da81d37d476363",
+  "sharedDefinition": "membership-entitlements/domain/subscription-enrollment.ts enrollmentViewSchema.state",
+  "affectedPortableDefinitions": ["activationResponse", "ownAccessResponse"],
+  "addedStates": ["pending_verification", "suspended_source"],
+  "unchanged": "activationOutcome.state, all other fields, bindingQuery/bindingResponse",
+  "check": "subscription-contract-corpus.test.ts 56/56 PASS",
+  "files": {
+    "subscription-activation-v1/manifest.json": "0775b65ef6ffd407a819cbf9581c05573cdde4643397922264a894b4b7fa2be0",
+    "subscription-activation-v1/schema.json": "d671a9a7efe0690dfa286201de65dc228a985b457687b6ae10aaeaa790bcf6b4",
+    "subscription-activation-v1/fixtures.json": "55a8a9edfa10bf4bfa268c40a3055411ed832e8d064c5aa632c11e0ce995a51a",
+    "subscription-activation-v1/scenarios.json": "fc60d4cd6a1c728c3cf81856830c6f48cf314a288985c9d11747b655a5f346bb",
+    "subscription-activation-v1/protocol.md": "cc39a7719b8a7774d72fce3d44088e7fd4de8f3c890270cf69a06cd893c9dc0b"
+  },
+  "snapshot": "platform625-contract-draft-1",
+  "platformAccepted": false
+}

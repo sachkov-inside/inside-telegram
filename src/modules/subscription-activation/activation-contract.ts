@@ -57,7 +57,13 @@ export interface EnrollmentView {
   readonly origin: "course" | "tribute" | "manual" | "platform_payment";
   readonly startsAt: string;
   readonly endsAt: string | null;
-  readonly state: "scheduled" | "active" | "expired" | "revoked";
+  readonly state:
+    | "scheduled"
+    | "active"
+    | "expired"
+    | "revoked"
+    | "pending_verification"
+    | "suspended_source";
   readonly renewal: "not_applicable" | "billing_agreement";
   readonly benefitTerms?: readonly {
     readonly capability: string;
