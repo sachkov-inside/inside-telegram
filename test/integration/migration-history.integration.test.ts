@@ -14,6 +14,8 @@ import { botSignInMigration } from "../../src/database/migrations/008-bot-sign-i
 import { signInReservationMigration } from "../../src/database/migrations/009-sign-in-reservation.js";
 import { communicationsTemplatesMigration } from "../../src/database/migrations/010-communications-templates.js";
 import { signInMessageResultMigration } from "../../src/database/migrations/010-sign-in-message-result.js";
+import { CommunityRestrictions } from "../../src/modules/community/community-restrictions.js";
+import { digest } from "../../src/security/payload-digest.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl)
@@ -112,9 +114,47 @@ it.each(["communications-first", "sign-in-first"] as const)(
     const ledger = await sql<{
       count: string;
     }>`select count(*) from kysely_migration`.execute(database);
-    expect(ledger.rows[0]?.count).toBe("21");
+    expect(ledger.rows[0]?.count).toBe("22");
   },
 );
+
+it("preserves legacy restriction receipts without inventing an audit during upgrade", async () => {
+  await migrateTo(database, "020-community-effect-provenance");
+  const input = {
+    operationId: randomUUID(),
+    botIdentity: "synthetic-legacy",
+    accountRef: "opaque-legacy-account",
+    identityRef: "opaque-legacy-identity",
+    expectedRevision: 1,
+    action: "restore" as const,
+    actorRef: "synthetic-owner",
+    reason: "Legacy decision",
+  };
+  const now = new Date();
+  await sql`insert into community_restriction_decisions
+    (operation_id, fingerprint, actor_ref, reason, created_at)
+    values (${input.operationId}, ${digest(input)}, ${input.actorRef}, ${input.reason}, ${now})`.execute(
+    database,
+  );
+  await migrateToLatest(database);
+  const read = () =>
+    database
+      .selectFrom("community_restriction_decisions")
+      .selectAll()
+      .where("operation_id", "=", input.operationId)
+      .executeTakeFirstOrThrow();
+  const historical = await read();
+  expect(historical.audit).toBeNull();
+  const decisions = new CommunityRestrictions(database, { now: () => now });
+  expect(await decisions.decide(input, true)).toBe("duplicate");
+  expect(await decisions.decide({ ...input, reason: "Changed" }, true)).toBe(
+    "conflict",
+  );
+  expect(await read()).toEqual(historical);
+  await migrateDown(database);
+  await migrateToLatest(database);
+  expect(await read()).toEqual(historical);
+});
 
 it.each([
   "009-sign-in-reservation",

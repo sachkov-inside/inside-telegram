@@ -54,6 +54,19 @@ revision возвращает conflict: прочитать новое состо
 Restore снимает admission hold, но не создаёт entitlement: допуск всё равно требует актуального
 права Platform и свежего dispatch permit. Purchase/start никогда не вызывает эту команду.
 
+Журнал `community_restriction_decisions` сохраняет actor, причину, operationId и время вместе
+с versioned `audit`: opaque target/binding, action, expected/applied restriction revision,
+restriction/removal/confirmed-ban/status до и после, исходную community operation, её contract version,
+entitlement revision и correlationRef. Эти сведения читаются под блокировкой Account и записываются
+в одной транзакции с решением; последующий hold, новая проекция или duplicate/conflict их не меняют.
+Community contract не передаёт course/payment sourceRef: журнал связывает решение с доступной
+community operation/correlation, не угадывая источник выдачи Platform. CLI по-прежнему выводит
+только статус, без references и содержимого журнала.
+
+Миграция `021` сохраняет старые replay receipts с `audit = null`: их недостающий target/before-after
+нельзя восстановить из fingerprint или текущей проекции. Новые решения фиксируют `audit.version = 1`.
+
+
 ## Наблюдение и остановка
 
 Метрики `activation_pending`, `activation_oldest_pending_seconds`, `community_due`,

@@ -1,3 +1,4 @@
+import { communityRestrictionAuditMigration } from "./migrations/021-community-restriction-audit.js";
 import { communityEffectProvenanceMigration } from "./migrations/020-community-effect-provenance.js";
 import { subscriptionActivationMigration } from "./migrations/019-subscription-activation.js";
 import { communityRestrictionsMigration } from "./migrations/018-community-restrictions.js";
@@ -29,6 +30,7 @@ import { communicationsTemplatesMigration } from "./migrations/010-communication
 import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
+  "021-community-restriction-audit": communityRestrictionAuditMigration,
   "020-community-effect-provenance": communityEffectProvenanceMigration,
   "019-subscription-activation": subscriptionActivationMigration,
   "018-community-restrictions": communityRestrictionsMigration,

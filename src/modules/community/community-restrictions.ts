@@ -2,6 +2,7 @@ import type { Database } from "../../database/database.js";
 import { digest } from "../../security/payload-digest.js";
 import type { Clock } from "../identity-linking/clock.js";
 import { desiredFor, lockAccount, setDesired } from "./community-ledger.js";
+import type { RestrictionAuditState } from "./community-storage.js";
 
 export interface RestrictionDecision {
   readonly operationId: string;
@@ -53,7 +54,22 @@ export class CommunityRestrictions {
       )
         return "conflict";
       if (!apply) return "ready";
+      const operation = await tx
+        .selectFrom("community_operations")
+        .select("command")
+        .where("operation_id", "=", current.latest_operation)
+        .where("bot_identity", "=", input.botIdentity)
+        .where("account_ref", "=", input.accountRef)
+        .executeTakeFirstOrThrow();
+      const now = this.clock.now();
       const restriction = input.action === "hold" ? "moderation" : "none";
+      const after: RestrictionAuditState = {
+        admissionRestriction: restriction,
+        removalOrigin:
+          input.action === "restore" ? "operator_restore" : "external_unknown",
+        confirmedBanAttemptId: null,
+        status: input.action === "hold" ? "failed" : "accepted",
+      };
       await tx
         .insertInto("community_restriction_decisions")
         .values({
@@ -61,20 +77,43 @@ export class CommunityRestrictions {
           fingerprint,
           actor_ref: input.actorRef,
           reason: input.reason,
-          created_at: this.clock.now(),
+          created_at: now,
+          audit: {
+            version: 1,
+            target: {
+              botIdentity: input.botIdentity,
+              accountRef: current.account_ref,
+              identityRef: current.telegram_identity_ref,
+              linkRef: current.link_ref,
+              linkRevision: current.link_revision,
+            },
+            action: input.action,
+            expectedRevision: input.expectedRevision,
+            appliedRevision: input.expectedRevision + 1,
+            before: {
+              admissionRestriction: current.admission_restriction,
+              removalOrigin: current.removal_origin,
+              confirmedBanAttemptId: current.confirmed_ban_attempt_id,
+              status: current.status,
+            },
+            after,
+            communityOperation: {
+              operationId: current.latest_operation,
+              correlationRef: operation.command.correlationRef,
+              contractVersion: operation.command.contractVersion,
+              entitlementRevision: current.entitlement_revision,
+            },
+          },
         })
         .execute();
       await tx
         .updateTable("community_desired_states")
         .set({
-          admission_restriction: restriction,
-          confirmed_ban_attempt_id: null,
-          removal_origin:
-            input.action === "restore"
-              ? "operator_restore"
-              : "external_unknown",
+          admission_restriction: after.admissionRestriction,
+          confirmed_ban_attempt_id: after.confirmedBanAttemptId,
+          removal_origin: after.removalOrigin,
           restriction_revision: input.expectedRevision + 1,
-          due_at: this.clock.now(),
+          due_at: now,
         })
         .where("bot_identity", "=", input.botIdentity)
         .where("account_ref", "=", input.accountRef)
@@ -84,8 +123,8 @@ export class CommunityRestrictions {
         input.botIdentity,
         this.clock,
         { ...current, admission_restriction: restriction },
-        { status: input.action === "hold" ? "failed" : "accepted" },
-        this.clock.now(),
+        { status: after.status },
+        now,
       );
       return "applied";
     });

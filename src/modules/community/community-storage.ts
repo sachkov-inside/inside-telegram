@@ -42,6 +42,39 @@ export type CommunityMutation = Exclude<
 export type CommunityAttemptOutcome =
   "started" | "unknown" | "succeeded" | "not_started" | "rejected";
 
+export type CommunityRemovalOrigin =
+  "none" | "bot_expiry" | "operator_restore" | "external_unknown";
+
+export interface RestrictionAuditState {
+  readonly admissionRestriction: AdmissionRestriction;
+  readonly removalOrigin: CommunityRemovalOrigin;
+  readonly confirmedBanAttemptId: string | null;
+  readonly status: CommunityStatus;
+}
+
+/** Immutable decision context; never copied from the later mutable projection. */
+export interface RestrictionDecisionAudit {
+  readonly version: 1;
+  readonly target: {
+    readonly botIdentity: string;
+    readonly accountRef: string;
+    readonly identityRef: string;
+    readonly linkRef: string;
+    readonly linkRevision: string;
+  };
+  readonly action: "hold" | "restore";
+  readonly expectedRevision: number;
+  readonly appliedRevision: number;
+  readonly before: RestrictionAuditState;
+  readonly after: RestrictionAuditState;
+  readonly communityOperation: {
+    readonly operationId: string;
+    readonly correlationRef: string;
+    readonly contractVersion: CommunitySetCommand["contractVersion"];
+    readonly entitlementRevision: string;
+  };
+}
+
 export interface CommunityTables {
   community_desired_states: {
     last_membership_update_id: ColumnType<
@@ -70,13 +103,9 @@ export interface CommunityTables {
       AdmissionRestriction
     >;
     removal_origin: ColumnType<
-      "none" | "bot_expiry" | "operator_restore" | "external_unknown",
-      | "none"
-      | "bot_expiry"
-      | "operator_restore"
-      | "external_unknown"
-      | undefined,
-      "none" | "bot_expiry" | "operator_restore" | "external_unknown"
+      CommunityRemovalOrigin,
+      CommunityRemovalOrigin | undefined,
+      CommunityRemovalOrigin
     >;
     bot_identity: string;
     account_ref: string;
@@ -119,6 +148,11 @@ export interface CommunityTables {
     last_seen_at: Timestamp;
   };
   community_restriction_decisions: {
+    audit: ColumnType<
+      RestrictionDecisionAudit | null,
+      RestrictionDecisionAudit,
+      never
+    >;
     operation_id: string;
     fingerprint: string;
     actor_ref: string;

@@ -235,6 +235,137 @@ describe("community v2 exact target, moderation and durable effects", () => {
     await s.provider().processDueEffects();
     expect(s.chat.count("unban")).toBe(1);
   });
+  it("preserves a reconstructable restore audit after a new hold and conflicting retries", async () => {
+    const s = await stand();
+    const command = await s.set();
+    const restrictions = new CommunityRestrictions(db, s.clock);
+    const input = {
+      operationId: randomUUID(),
+      botIdentity: s.bot,
+      accountRef: s.binding.accountRef,
+      identityRef: s.binding.telegramIdentityRef,
+      expectedRevision: 0,
+      action: "hold" as const,
+      actorRef: "synthetic-owner",
+      reason: "Synthetic moderation decision",
+    };
+    const audit = (operationId: string) =>
+      db
+        .selectFrom("community_restriction_decisions")
+        .selectAll()
+        .where("operation_id", "=", operationId)
+        .executeTakeFirst();
+    expect(await restrictions.decide(input, false)).toBe("ready");
+    expect(await audit(input.operationId)).toBeUndefined();
+    expect(await restrictions.decide(input, true)).toBe("applied");
+    const restore = {
+      ...input,
+      operationId: randomUUID(),
+      expectedRevision: 1,
+      action: "restore" as const,
+      reason: "Synthetic authorized restoration",
+    };
+    const before = await s.row();
+    expect(await restrictions.decide(restore, true)).toBe("applied");
+    const restored = await audit(restore.operationId);
+    expect(restored).toEqual({
+      operation_id: restore.operationId,
+      fingerprint: digest(restore),
+      actor_ref: restore.actorRef,
+      reason: restore.reason,
+      created_at: s.clock.now(),
+      audit: {
+        version: 1,
+        target: {
+          botIdentity: s.bot,
+          accountRef: s.binding.accountRef,
+          identityRef: s.binding.telegramIdentityRef,
+          linkRef: s.binding.linkRef,
+          linkRevision: "2",
+        },
+        action: "restore",
+        expectedRevision: 1,
+        appliedRevision: 2,
+        before: {
+          admissionRestriction: "moderation",
+          removalOrigin: "external_unknown",
+          confirmedBanAttemptId: before.confirmed_ban_attempt_id,
+          status: "failed",
+        },
+        after: {
+          admissionRestriction: "none",
+          removalOrigin: "operator_restore",
+          confirmedBanAttemptId: null,
+          status: "accepted",
+        },
+        communityOperation: {
+          operationId: command.operationId,
+          correlationRef: command.correlationRef,
+          contractVersion: COMMUNITY_V2,
+          entitlementRevision: "1",
+        },
+      },
+    });
+    await s.set(); // The current entitlement operation is no longer the audited source.
+    const hold = { ...input, operationId: randomUUID(), expectedRevision: 2 };
+    expect(await restrictions.decide(hold, true)).toBe("applied");
+    const held = await s.row();
+    expect(held.admission_restriction).toBe("moderation");
+    expect(held.restriction_revision).toBe("3");
+    expect(await restrictions.decide(restore, true)).toBe("duplicate");
+    for (const changed of [
+      { ...restore, action: "hold" as const },
+      { ...restore, reason: "Changed reason" },
+      { ...restore, accountRef: "another-opaque-account" },
+      { ...restore, expectedRevision: 3 },
+    ])
+      expect(await restrictions.decide(changed, true)).toBe("conflict");
+    const stale = { ...restore, operationId: randomUUID() };
+    expect(await restrictions.decide(stale, true)).toBe("conflict");
+    expect(await audit(stale.operationId)).toBeUndefined();
+    expect(await audit(restore.operationId)).toEqual(restored);
+    expect(await s.row()).toEqual(held);
+    expect((await audit(hold.operationId))?.audit?.before).toEqual(
+      restored?.audit?.after,
+    );
+  });
+  it("rolls back the audit together with the restriction if its receipt update fails", async () => {
+    const s = await stand();
+    await s.set();
+    const before = await s.row();
+    const input = {
+      operationId: randomUUID(),
+      botIdentity: s.bot,
+      accountRef: s.binding.accountRef,
+      identityRef: s.binding.telegramIdentityRef,
+      expectedRevision: 0,
+      action: "hold" as const,
+      actorRef: "synthetic-owner",
+      reason: "Synthetic atomicity check",
+    };
+    let reads = 0;
+    const restrictions = new CommunityRestrictions(db, {
+      now() {
+        if (++reads === 2)
+          throw new Error("Synthetic failure after desired update");
+        return s.clock.now();
+      },
+    });
+    await expect(restrictions.decide(input, true)).rejects.toThrow(
+      "Synthetic failure after desired update",
+    );
+    expect(
+      await db
+        .selectFrom("community_restriction_decisions")
+        .selectAll()
+        .where("operation_id", "=", input.operationId)
+        .executeTakeFirst(),
+    ).toBeUndefined();
+    expect(await s.row()).toEqual(before);
+    expect(
+      await new CommunityRestrictions(db, s.clock).decide(input, true),
+    ).toBe("applied");
+  });
   it("orders equal-second membership events and preserves a later moderator ban", async () => {
     const s = await stand();
     s.chat.membership = "member";

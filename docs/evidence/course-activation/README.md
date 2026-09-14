@@ -31,7 +31,9 @@ Runtime image отдельно собирается из `infra/production/Docke
 
 Операторский CLI на отдельном synthetic пользователе вернул `ready → applied → duplicate`
 для preview, apply и точного повтора одной команды. PG отдельно проверяет конфликт revision
-и restore, совпавший с незавершённым наблюдением или внешним эффектом. Исходные operator references
+и restore, совпавший с незавершённым наблюдением или внешним эффектом. PG audit regression
+проверяет исходную запись restore после нового hold/operation, неизменность при duplicate/conflict,
+атомарный rollback и сохранение legacy receipts при миграции `021`. Исходные operator references
 и JSON остаются вне Git.
 
 ## Интерфейсные артефакты
