@@ -8,12 +8,13 @@ Platform определяет Account, тариф, Enrollment, состав и �
 ## Версии и границы
 
 Переносимые файлы в `docs/contracts/subscription-activation-v1` получены без изменений из
-Platform PR #629, commit `35702d9da2a2d6c0724a57e319b2bcb5d6318dd3`.
-Этот commit проверен координатором, но на момент подготовки consumer ожидает merge.
+Platform PR #629, принятый main commit `a663f661e89dfb90270b93e871da81d37d476363`.
+Дерево принятого commit совпадает с проверенным head PR `35702d9da2a2d6c0724a57e319b2bcb5d6318dd3`.
 `docs/contracts/community-v2` получен из принятого Platform PR #626, commit
 `7ac1a7200489c822569435afeac88a6f16b76ef5`. Corpus содержит схемы и отрицательные примеры;
 тесты читают его локально. Checkout и база Platform не входят в приложение или тестовые imports.
-Финальная приёмка требует принятой версии Platform с binding lookup (#627).
+Оба corpus побайтно сверены с принятым commit #629; binding lookup (#627) входит в эту версию.
+[Provenance и SHA-256 файлов](../evidence/course-activation/provider-provenance.json) сохраняются отдельно от неизменённого corpus.
 
 Все операции идут через authenticated HTTP. `binding` принимает только `contractVersion`
 и opaque `identityRef`; возвращает linked с точным binding либо unlinked. Используется существующий

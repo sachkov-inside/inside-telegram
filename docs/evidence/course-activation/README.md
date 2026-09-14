@@ -1,9 +1,13 @@
 # Локальная проверка Telegram #64
 
-Проверка 14 сентября 2026 года использует Platform PR #629 commit
-`35702d9da2a2d6c0724a57e319b2bcb5d6318dd3`. Он проверен координатором и CI, но пока не принят в main.
-Это worker evidence на проверяемом provider; завершённая приёмка #64 требует сообщения о merge
-и повторения применимых проверок. Точный Telegram head и итоговые review/CI указываются в PR.
+Проверка 14 сентября 2026 года выполнена на принятом Platform PR #629, main commit
+`a663f661e89dfb90270b93e871da81d37d476363`. Проверены ancestry в `origin/main`, совпадение
+дерева с reviewed head `35702d9da2a2d6c0724a57e319b2bcb5d6318dd3` и побайтное равенство
+всех 10 файлов обоих portable corpus. [Provenance и SHA-256](provider-provenance.json).
+После обновления отдельного detached checkout перезапущены API, billing worker и web;
+desktop, mobile, existing Account и nonmember повторены на новых synthetic identities.
+`platformAccepted:true` относится к принятому provider и этим локальным прогонам.
+Точный Telegram head и итоговые review/CI указываются в PR.
 
 [Воспроизведение](../../operations/course-activation.md) — `proof:course:provider`,
 `proof:course:browser` и `proof:course:existing`. Browser runners используют настоящие API/BFF,
@@ -53,5 +57,5 @@ Runtime image отдельно собирается из `infra/production/Docke
 Это локальная проверка двух приложений, а не реальная Telegram delivery, оплата или production
 запуск. Tribute import/feed, 39 сценариев всей поставки, реальный batch и принятие #625 не входят
 в этот PR. Source readiness, управление двумя ботами, реальные полномочия и разрешение включения
-остаются gates владельца, перечисленными в runbook. Принятый provider и final-head review/CI ещё
-должны быть зафиксированы перед итоговой передачей #64.
+остаются gates владельца, перечисленными в runbook. Итоговые review/CI точного Telegram head
+и receipt передачи фиксируются в PR; merge выполняет координатор.

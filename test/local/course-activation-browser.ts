@@ -196,8 +196,10 @@ try {
       }),
     ).toBeVisible();
   await expect(
-    page.getByText("Загружаем подписку…", { exact: true }),
-  ).toBeHidden({ timeout: 30_000 });
+    page
+      .getByText("Загружаем подписку…", { exact: true })
+      .filter({ visible: true }),
+  ).toHaveCount(0, { timeout: 30_000 });
   const audit = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
     .analyze();
