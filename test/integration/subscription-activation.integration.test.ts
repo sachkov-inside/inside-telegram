@@ -59,6 +59,7 @@ let db: Database;
 let worker: SubscriptionActivation;
 const bindings = new Map<string, ActivationBinding>();
 const proofs: ActivationEvidence[] = [];
+const begins: string[] = [];
 const granted = new Set<string>();
 const results = new Map<string, ActivationResult<ActivationResponse>>();
 const receipts = new Map<string, ActivationResult<ActivationResponse>>();
@@ -84,6 +85,7 @@ const platform: ActivationPlatform = {
         };
   },
   async begin(input) {
+    begins.push(input.attemptId);
     if (results.has(input.attemptId))
       return structuredClone(results.get(input.attemptId)!);
     return {
@@ -395,6 +397,51 @@ describe("durable activation ingress, identity and continuation", () => {
     await worker.processAvailable();
     expect(proofs.at(-1)!.attemptId).not.toBe(initial.attemptId);
     expect(granted.has(`course:${await identity(70005)}`)).toBe(true);
+  });
+  it("expires known unavailable work and permits a fresh explicit start", async () => {
+    source = "unavailable";
+    await ingress(70011, "/start a_course");
+    await link(70011);
+    await worker.processAvailable();
+    const first = proofs.at(-1)!;
+    const calls = { begins: begins.length, proofs: proofs.length };
+    clock.value = new Date(clock.now().getTime() + 31 * 24 * 60 * 60_000);
+    await worker.processAvailable();
+    expect({ begins: begins.length, proofs: proofs.length }).toEqual(calls);
+    expect(
+      await db
+        .selectFrom("activation_attempts")
+        .selectAll()
+        .where("bot_identity", "=", bot)
+        .where("telegram_user_id", "=", "70011")
+        .execute(),
+    ).toEqual([]);
+    source = "member";
+    await ingress(70011, "/start a_course");
+    await worker.processAvailable();
+    expect(proofs.at(-1)!.attemptId).not.toBe(first.attemptId);
+    expect(granted.has(`course:${await identity(70011)}`)).toBe(true);
+  });
+  it("resolves expired uncertain evidence before cleanup without starting a new proof", async () => {
+    await ingress(70010, "/start a_course");
+    await link(70010);
+    dropBeforeAccept = true;
+    await worker.processAvailable();
+    const first = proofs.at(-1)!;
+    const beginCount = begins.length;
+    clock.value = new Date(clock.now().getTime() + 31 * 24 * 60 * 60_000);
+    await worker.processAvailable();
+    expect(proofs.at(-1)).toEqual(first);
+    expect(begins).toHaveLength(beginCount);
+    expect(granted.has(`course:${await identity(70010)}`)).toBe(false);
+    expect(
+      await db
+        .selectFrom("activation_attempts")
+        .selectAll()
+        .where("bot_identity", "=", bot)
+        .where("telegram_user_id", "=", "70010")
+        .execute(),
+    ).toEqual([]);
   });
   it("allows a rejected course to be checked again after retention", async () => {
     source = "not_member";

@@ -52,6 +52,10 @@
   "operator": {
     "command": "pnpm owner:community-restriction --preview / --apply through stdin",
     "authority": "synthetic local user only",
-    "results": ["ready", "applied", "duplicate"]
+    "results": ["ready", "applied", "duplicate"],
+    "auditChecks": [
+      "PASS immutable reconstructable restore snapshot after later hold, duplicate and conflicting replay",
+      "PASS atomic audit/projection rollback and legacy receipt upgrade in PostgreSQL"
+    ]
   }
 }

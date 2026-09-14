@@ -33,6 +33,12 @@ import type { ActivationTables } from "./activation-storage.js";
 type Attempt = Selectable<ActivationTables["activation_attempts"]>;
 const RETENTION = 30 * 24 * 60 * 60_000;
 const CADENCE = 60_000;
+// A known unfinished outcome may expire. Never discard an uncertain evidence write
+// or a confirmed Enrollment receipt just because the user has not returned.
+const expirableAttempt = sql<boolean>`coalesce(
+  (evidence is null and result is null)
+  or result->>'ok' = 'false'
+  or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account'), false)`;
 export type AccessAction = "own" | "community" | "retry" | "help" | "platform";
 
 /** Durable Telegram continuation; Account and every grant remain Platform-owned. */
@@ -72,7 +78,8 @@ export class SubscriptionActivation {
         .where("bot_identity", "=", contact.botIdentity)
         .where("telegram_user_id", "=", contact.telegramUserId)
         .where("expires_at", "<=", now)
-        .where("state", "=", "needs_account")
+        .where("state", "in", ["pending", "needs_account", "retry"])
+        .where(expirableAttempt)
         .where((eb) =>
           eb.or([eb("lease_until", "is", null), eb("lease_until", "<=", now)]),
         )
@@ -257,10 +264,7 @@ export class SubscriptionActivation {
           .where("state", "in", ["pending", "needs_account", "retry"])
           .where("due_at", "<=", now)
           .where((eb) =>
-            eb.or([
-              eb("state", "!=", "needs_account"),
-              eb("expires_at", ">", now),
-            ]),
+            eb.or([eb("expires_at", ">", now), eb.not(expirableAttempt)]),
           )
           .where((eb) =>
             eb.or([
@@ -296,7 +300,8 @@ export class SubscriptionActivation {
       .deleteFrom("activation_attempts")
       .where("bot_identity", "=", this.config.botIdentity)
       .where("expires_at", "<=", this.clock.now())
-      .where("state", "=", "needs_account")
+      .where("state", "in", ["pending", "needs_account", "retry"])
+      .where(expirableAttempt)
       .where((eb) =>
         eb.or([
           eb("lease_until", "is", null),
@@ -330,12 +335,17 @@ export class SubscriptionActivation {
         await this.finish(attempt, replay);
         return;
       }
+      const expired = attempt.expires_at <= this.clock.now();
       await this.db
         .updateTable("activation_attempts")
-        .set({ evidence: null })
+        .set({
+          evidence: null,
+          ...(expired ? { lease_token: null, lease_until: null } : {}),
+        })
         .where("attempt_id", "=", attempt.attempt_id)
         .where("lease_token", "=", attempt.lease_token)
         .execute();
+      if (expired) return; // The uncertain write is resolved; do not start fresh proof after retention.
     }
     if (
       attempt.result !== null &&
