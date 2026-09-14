@@ -17,9 +17,12 @@ const ownFixture = fixtures.find(
 const activationFixture = fixtures.find(
   (fixture) => fixture.name === "nested-enrollment-pending_verification",
 )?.value as { ok: true; value: ActivationResponse };
-const enrollmentFixture = ownFixture.value.enrollments[0];
-if (!enrollmentFixture)
-  throw new Error("Portable own-access fixture has no Enrollment");
+const enrollmentFixture = (() => {
+  const enrollment = ownFixture.value.enrollments[0];
+  if (!enrollment)
+    throw new Error("Portable own-access fixture has no Enrollment");
+  return enrollment;
+})();
 const binding = {
   accountRef: "synthetic-account",
   identityRef: "synthetic-identity",
