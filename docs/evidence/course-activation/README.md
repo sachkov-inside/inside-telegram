@@ -18,10 +18,10 @@
 | 1, 32 | Новая course ссылка → browser-owned Telegram sign-in → linking → один Platform Enrollment → кабинет/закрытый материал → intended join по реальному v2 dispatch permit; desktop/mobile |
 | 2 | Новый email Account сначала совершает разовую покупку через hosted bank double и сохраняет progress; после course/linking paid grounds, notices, profile и progress сохранены |
 | 3, 7 | Browser nonmember получает ноль Enrollment; unit source policy проверяет гостя, permissions, 429, неизвестный статус и отдельный canonical/source chat |
-| 4, 5, 38 | Повторы и source exit сохраняют id/revision/term; PG два кода/worker сохраняют одну source identity; owner UI manual confirmation после course сохраняет один Enrollment и срок |
+| 4, 5, 38 | Повторы и source exit сохраняют id/revision/term; PG два кода/worker сохраняют одну source identity; owner UI manual-first/activation-first и две ссылки сохраняют один Enrollment и срок |
 | 6, 8 | Portable strict corpus + exact rule/binding revisions; PG expired unaccepted proof сначала replay, затем fresh evidence; потерянный принятый receipt повторяется спустя 31 день; identity conflict останавливает retry |
 | 27, 29, 30 | PG intended/foreign/expired invite, concurrency и persisted invite horizon; реальные приложения восстанавливают community delivery после restart consumer при сохранённом Platform grant |
-| 28, 39 | PG moderation/external unknown/own expiry, v1 receipt/v2 target/digest; отдельные гонки equal-second events, own kicked before HTTP ack, stale superseded settle after audited restore |
+| 28, 39 | PG moderation/external unknown/own expiry, v1 receipt/v2 target/digest; отдельные гонки equal-second events, own kicked before HTTP ack, stale superseded settle after audited restore и stale observation во время operator restore; actual bot/cabinet moderation сохраняет чтение и не вызывает unban после start |
 
 Исполняемые источники: `test/integration/subscription-activation.integration.test.ts`,
 `test/integration/community-v2.integration.test.ts`, unit ingress/HTTP/corpus и local browser runners.
@@ -29,11 +29,18 @@
 Runtime image отдельно собирается из `infra/production/Dockerfile`; обе новые схемы загружаются
 из production `dist` без `docs` и dev dependencies. Схемы в `src` проверяются на byte-identical drift.
 
+Операторский CLI на отдельном synthetic пользователе вернул `ready → applied → duplicate`
+для preview, apply и точного повтора одной команды. PG отдельно проверяет конфликт revision
+и restore, совпавший с незавершённым наблюдением или внешним эффектом. Исходные operator references
+и JSON остаются вне Git.
+
 ## Интерфейсные артефакты
 
 - [Новый покупатель читает закрытый материал, mobile](new-reader-mobile.png).
 - [Существующий Account: сохранённое чтение, mobile](existing-reader-mobile.png).
 - [Существующий Account: сохранённое чтение, desktop](existing-reader-desktop.png).
+- [Кабинет нового покупателя, desktop](new-cabinet-desktop.png) и [mobile](new-cabinet-mobile.png).
+- Модераторское ограничение при сохранённых правах: [mobile](moderation-mobile.png) и [desktop](moderation-desktop.png).
 - [Машиночитаемые результаты](results.json).
 
 Скриншоты содержат только seeded материалы и synthetic пользователя. Auth cookies, login токены,

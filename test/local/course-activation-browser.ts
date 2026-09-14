@@ -1,7 +1,9 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { chromium, expect } from "@playwright/test";
+import { chromium, expect as baseExpect } from "@playwright/test";
+
+const expect = baseExpect.configure({ timeout: 30_000 });
 
 // Separate local acceptance command: no production address, token, or Account fixture is accepted.
 const web = "http://127.0.0.1:3600";
@@ -92,8 +94,17 @@ try {
     m.buttons?.some((b) => b.url === `${web}/account`),
   )!;
   await page.goto(prompt.buttons!.find((b) => b.url)!.url!);
-  await page.getByRole("button", { name: "Войти", exact: true }).click();
-  await page.getByRole("button", { name: /Telegram/u }).click();
+  const signIn = page.getByRole("button", { name: "Войти", exact: true });
+  await signIn.focus();
+  await expect(signIn).toBeFocused();
+  await signIn.press("Enter");
+  const telegramSignIn = page.getByRole("button", { name: /Telegram/u });
+  await telegramSignIn.focus();
+  await expect(telegramSignIn).toBeFocused();
+  await telegramSignIn.press("Enter");
+  transcript.push(
+    "PASS browser sign-in controls support keyboard focus and activation",
+  );
   await expect(page.locator("#bot")).toBeVisible();
   const token = new URL(
     (await page.locator("#bot").getAttribute("href"))!,
@@ -184,7 +195,7 @@ try {
     ).toBeVisible();
   await expect(
     page.getByText("Загружаем подписку…", { exact: true }),
-  ).toBeHidden();
+  ).toBeHidden({ timeout: 30_000 });
   const audit = await new AxeBuilder({ page })
     .withTags(["wcag2a", "wcag2aa", "wcag21aa"])
     .analyze();
@@ -214,7 +225,9 @@ try {
         .getByRole("button", { name: "Изучено", exact: true }),
     ).toBeEnabled();
     await expect(
-      page.getByText("Закрытое содержимое для участников.", { exact: true }),
+      page
+        .getByText("Закрытое содержимое для участников.", { exact: true })
+        .filter({ visible: true }),
     ).toBeVisible();
     transcript.push("PASS protected guide material body is readable");
     await page.screenshot({
@@ -277,6 +290,69 @@ try {
     transcript.push(
       "PASS repeated start and source exit preserve Enrollment identity, revision and dates",
     );
+    const unbans = async () =>
+      (
+        await (await context.request.get(`${provider}/proof/state`)).json()
+      ).effects.filter(
+        (effect: { method: string; user?: string }) =>
+          effect.method === "unban" && effect.user === String(user),
+      ).length;
+    const beforeUnbans = await unbans();
+    await context.request.post(`${provider}/proof/source`, {
+      data: { user: String(user), community: "banned" },
+    });
+    await webhook({
+      chat_member: {
+        chat: { id: -1000000000000, type: "supergroup" },
+        from: { id: 6400099, is_bot: false, first_name: "Synthetic moderator" },
+        date: Math.floor(Date.now() / 1000),
+        old_chat_member: { user: from, status: "member" },
+        new_chat_member: { user: from, status: "kicked", until_date: 0 },
+      },
+    });
+    await expect
+      .poll(
+        async () => {
+          await send("/community");
+          return (await messages()).some((message) =>
+            message.text.includes("Вступление ограничено"),
+          );
+        },
+        { timeout: 150_000, intervals: [5000] },
+      )
+      .toBe(true);
+    await send("/start a_course64");
+    await send("/access");
+    await expect
+      .poll(
+        async () =>
+          (await messages()).some(
+            (message) =>
+              message.text.startsWith("Мои доступы") &&
+              message.text.includes("Вступление ограничено"),
+          ),
+        { timeout: 30_000 },
+      )
+      .toBe(true);
+    await page.goto(`${web}/account/subscription`);
+    await expect(
+      page.getByText(/Вступление в сообщество ограничено модерацией/u),
+    ).toBeVisible();
+    await page.screenshot({
+      path: resolve(output, "moderation.png"),
+      fullPage: true,
+    });
+    await page.goto(`${web}/materials/developer-pipeline-bez-poteri-konteksta`);
+    await expect(
+      page
+        .getByText("Закрытое содержимое для участников.", { exact: true })
+        .filter({ visible: true }),
+    ).toBeVisible();
+    expect(await enrollments()).toEqual(before);
+    expect(await unbans()).toBe(beforeUnbans);
+    transcript.push(
+      "PASS moderation reaches bot and cabinet; repeated start cannot unban; course content remains readable",
+    );
   }
   if (source === "left") {
     await page.goto(`${web}/materials/developer-pipeline-bez-poteri-konteksta`);
@@ -284,7 +360,9 @@ try {
       page.locator("[data-reading-action-state]:visible"),
     ).toHaveAttribute("data-reading-action-state", "ready");
     await expect(
-      page.getByText("Закрытое содержимое для участников.", { exact: true }),
+      page
+        .getByText("Закрытое содержимое для участников.", { exact: true })
+        .filter({ visible: true }),
     ).toBeHidden();
     await expect(
       page

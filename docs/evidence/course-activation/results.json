@@ -4,26 +4,52 @@
   "authority": "local synthetic Telegram; actual Platform HTTP, PostgreSQL, Logto and browser",
   "runs": [
     {
-      "scenario": "proof-mobile",
-      "source": "member",
-      "mobile": true,
-      "checks": [
-        "PASS real browser linking and one Platform course Enrollment",
-        "PASS intended join via actual Platform v2 dispatch permit",
-        "PASS repeated start and source exit preserve Enrollment identity, revision and dates"
-      ]
-    },
-    {
-      "scenario": "proof-nonmember",
-      "source": "left",
-      "mobile": false,
-      "checks": ["PASS forwarded link to nonmember gives no Enrollment"]
-    },
-    {
       "scenario": "proof-existing-portable",
       "checks": [
         "PASS real email Account, local bank payment, saved paid rights/profile/progress after browser-owned Telegram linking and course Enrollment"
       ]
+    },
+    {
+      "scenario": "proof-final-mobile15",
+      "source": "member",
+      "mobile": true,
+      "checks": [
+        "PASS real browser linking and one Platform course Enrollment",
+        "PASS cabinet accessibility and viewport checks",
+        "PASS protected guide material body is readable",
+        "PASS intended join via actual Platform v2 dispatch permit",
+        "PASS repeated start and source exit preserve Enrollment identity, revision and dates",
+        "PASS moderation reaches bot and cabinet; repeated start cannot unban; course content remains readable"
+      ]
+    },
+    {
+      "scenario": "proof-final-desktop16",
+      "source": "member",
+      "mobile": false,
+      "checks": [
+        "PASS real browser linking and one Platform course Enrollment",
+        "PASS cabinet accessibility and viewport checks",
+        "PASS protected guide material body is readable",
+        "PASS intended join via actual Platform v2 dispatch permit",
+        "PASS repeated start and source exit preserve Enrollment identity, revision and dates",
+        "PASS moderation reaches bot and cabinet; repeated start cannot unban; course content remains readable"
+      ]
+    },
+    {
+      "scenario": "proof-final-keyboard18",
+      "source": "left",
+      "mobile": false,
+      "checks": [
+        "PASS browser sign-in controls support keyboard focus and activation",
+        "PASS forwarded link to nonmember gives no Enrollment",
+        "PASS cabinet accessibility and viewport checks",
+        "PASS nonmember cannot read protected course material"
+      ]
     }
-  ]
+  ],
+  "operator": {
+    "command": "pnpm owner:community-restriction --preview / --apply through stdin",
+    "authority": "synthetic local user only",
+    "results": ["ready", "applied", "duplicate"]
+  }
 }

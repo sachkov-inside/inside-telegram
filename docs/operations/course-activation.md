@@ -84,7 +84,8 @@ sign-in, activation, community v2 и dispatch; запустить API, Web и bi
 обычный UI; consumer не импортирует Platform source, не пишет в её БД и не подставляет binding.
 Проверить новый и существующий Account в desktop/mobile browser, bot-provided Account URL,
 долговечное продолжение после linking, кабинет/чтение, own-access, личный join request и отказ
-чужой ссылке. Остановить только созданные для проверки процессы/контейнеры, сохранив артефакты.
+чужой ссылке. Browser runner также проверяет focus/Enter входа, WCAG critical/serious в кабинете,
+отсутствие горизонтального переполнения и moderation в боте/кабинете после повторного start. Остановить только созданные для проверки процессы/контейнеры, сохранив артефакты.
 
 Воспроизводимые browser commands для отдельного loopback стенда:
 
