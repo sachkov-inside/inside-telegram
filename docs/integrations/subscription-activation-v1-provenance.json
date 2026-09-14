@@ -1,0 +1,14 @@
+{
+  "providerCommit": "de605c09f2afe5143dd96fb1c37ce5b6bd01e846",
+  "remoteBranch": "feat/625-tribute-access-convergence",
+  "status": "final portable contract; provider runtime and aggregate625 acceptance are not established by this commit",
+  "platformAccepted": false,
+  "contractFinal": true,
+  "files": {
+    "subscription-activation-v1/manifest.json": "0775b65ef6ffd407a819cbf9581c05573cdde4643397922264a894b4b7fa2be0",
+    "subscription-activation-v1/schema.json": "3615d67fd0a833a2ccadeec0dd3c56f3c98bdb441123a4b32c7eb52ef9164cea",
+    "subscription-activation-v1/fixtures.json": "d89658042a0414fd6a6feefb68a86ff25e950032f82a9010d26a2e0d51fc63b9",
+    "subscription-activation-v1/scenarios.json": "0234397ad37a90f96902c1a67d613446a3762e7fffe1b987dea3fac7b3485c9a",
+    "subscription-activation-v1/protocol.md": "d3e71ed2feca08efc1a505d940d3ddec5217468991b1850c23cf3cf38d33f96b"
+  }
+}

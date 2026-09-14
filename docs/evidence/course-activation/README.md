@@ -1,5 +1,9 @@
 # Локальная проверка Telegram #64
 
+Историческое evidence принятого PR #65. Расширение temporary Tribute в #66/Platform #625
+имеет [отдельный provenance](../../integrations/subscription-activation-v1-provenance.json)
+и требует самостоятельной сверки final provider; прежние hashes ниже относятся к baseline #64.
+
 Проверка 14 сентября 2026 года выполнена на принятом Platform PR #629, main commit
 `a663f661e89dfb90270b93e871da81d37d476363`. Проверены ancestry в `origin/main`, совпадение
 дерева с reviewed head `35702d9da2a2d6c0724a57e319b2bcb5d6318dd3` и побайтное равенство

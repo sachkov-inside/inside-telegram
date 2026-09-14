@@ -107,7 +107,8 @@
           "enum": [
             "member",
             "not_member",
-            "unavailable"
+            "unavailable",
+            "registry_lookup"
           ]
         }
       },
@@ -301,7 +302,9 @@
                             "scheduled",
                             "active",
                             "expired",
-                            "revoked"
+                            "revoked",
+                            "pending_verification",
+                            "suspended_source"
                           ]
                         },
                         "nextChargeAt": {
@@ -467,6 +470,13 @@
                       "type": "string",
                       "minLength": 1,
                       "maxLength": 256
+                    },
+                    "verificationMode": {
+                      "type": "string",
+                      "enum": [
+                        "course_membership",
+                        "tribute_registry"
+                      ]
                     }
                   },
                   "required": [
@@ -724,7 +734,9 @@
                           "scheduled",
                           "active",
                           "expired",
-                          "revoked"
+                          "revoked",
+                          "pending_verification",
+                          "suspended_source"
                         ]
                       },
                       "nextChargeAt": {

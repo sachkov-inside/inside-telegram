@@ -4,6 +4,16 @@ import type {
   ActivationResponse,
 } from "./activation-contract.js";
 import type { TelegramButton } from "../outbound/telegram-messages.js";
+const enrollmentStates = {
+  active: "Действует",
+  scheduled: "Начнётся позже",
+  expired: "Срок завершён",
+  revoked: "Отозвано",
+  pending_verification:
+    "Ожидает подтверждения Tribute. Временный доступ по этому основанию не подтверждён. Повторите проверку позже или нажмите «Нужна помощь»",
+  suspended_source:
+    "Источник Tribute завершён, доступ по нему приостановлен. Обратитесь к владельцу для подтверждения нового периода. Повторная проверка и вступление в группу не восстанавливают это основание",
+};
 export function activationMenu(accountUrl: string): readonly TelegramButton[] {
   return [
     { text: "Открыть платформу", url: accountUrl },
@@ -18,7 +28,7 @@ export function accountPrompt(accountUrl: string): {
   buttons: readonly TelegramButton[];
 } {
   return {
-    text: "Для активации войдите в Inside или создайте аккаунт на платформе, затем свяжите Telegram в кабинете. После подтверждения мы продолжим проверку. Истёкший вход можно начать заново: право за курс не теряется.",
+    text: "Для активации войдите в Inside или создайте аккаунт на платформе, затем свяжите Telegram в кабинете. После подтверждения мы продолжим проверку. Истёкший вход можно начать заново. Действующие права сохраняются на своих условиях.",
     buttons: [
       { text: "Создать аккаунт / войти через Telegram", url: accountUrl },
       { text: "У меня уже есть аккаунт", url: accountUrl },
@@ -50,6 +60,14 @@ export function activationMessage(
     case "already_active":
       return "Назначение тарифа подтверждено. Откройте «Мои доступы», чтобы увидеть текущий состав, источник и срок.";
     case "pending_review":
+      if (
+        result.value.enrollment &&
+        result.value.enrollment.state !== "active"
+      ) {
+        const enrollment = result.value.enrollment;
+        return `Активация не подтверждена. ${enrollment.tier.name}: ${enrollmentStates[enrollment.state]}. Независимые права и сроки назначения — в «Мои доступы».`;
+      }
+      return "Автоматическая проверка не подтвердила покупку. Обратитесь к владельцу; это не отменяет уже выданные права.";
     case "rejected":
       return "Автоматическая проверка не подтвердила покупку. Обратитесь к владельцу; это не отменяет уже выданные права.";
     default:
@@ -63,17 +81,12 @@ export function ownAccessText(access: OwnAccess): string {
     manual: "Назначено владельцем",
     platform_payment: "Оформлено на Platform",
   };
-  const states = {
-    active: "Действует",
-    scheduled: "Начнётся позже",
-    expired: "Срок завершён",
-    revoked: "Отозвано",
-  };
+
   const rows = access.enrollments
     .slice(0, 8)
     .map(
       (e) =>
-        `${e.tier.name}\n${origin[e.origin]}. ${states[e.state]}.\nСостав: ${e.tier.benefits.map(capability).join(", ")}.\nНачало: ${date(e.startsAt)}. ${term(e.endsAt)} — срок назначения. ${(e.benefitTerms ?? []).map((t) => `${capability(t.capability)}: ${t.revoked ? "отозвано" : term(t.endsAt)}`).join("; ")}.${e.renewal === "not_applicable" ? " Списаний Inside нет." : " Продление — по вашему платёжному соглашению."}`,
+        `${e.tier.name}\n${origin[e.origin]}. ${enrollmentStates[e.state]}.\nСостав: ${e.tier.benefits.map(capability).join(", ")}.\nНачало: ${date(e.startsAt)}. ${term(e.endsAt)} — срок назначения. ${(e.benefitTerms ?? []).map((t) => `${capability(t.capability)}: ${t.revoked ? "отозвано" : term(t.endsAt)}`).join("; ")}.${e.renewal === "not_applicable" ? " Списаний Inside нет." : " Продление — по вашему платёжному соглашению."}`,
     );
   for (const ground of access.grounds.filter((g) => g.active).slice(0, 8))
     rows.push(

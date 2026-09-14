@@ -25,7 +25,8 @@ export interface ActivationEvidence extends ActivationBinding {
   readonly ruleRevision: number;
   readonly checkedAt: string;
   readonly validUntil: string;
-  readonly decision: "member" | "not_member" | "unavailable";
+  readonly decision:
+    "member" | "not_member" | "unavailable" | "registry_lookup";
 }
 export type ActivationState =
   | "needs_account"
@@ -57,7 +58,13 @@ export interface EnrollmentView {
   readonly origin: "course" | "tribute" | "manual" | "platform_payment";
   readonly startsAt: string;
   readonly endsAt: string | null;
-  readonly state: "scheduled" | "active" | "expired" | "revoked";
+  readonly state:
+    | "scheduled"
+    | "active"
+    | "expired"
+    | "revoked"
+    | "pending_verification"
+    | "suspended_source";
   readonly renewal: "not_applicable" | "billing_agreement";
   readonly benefitTerms?: readonly {
     readonly capability: string;
@@ -75,6 +82,7 @@ export interface ActivationResponse {
     readonly id: string;
     readonly revision: number;
     readonly sourceRef: string;
+    readonly verificationMode?: "course_membership" | "tribute_registry";
   };
 }
 export interface OwnAccess {

@@ -15,6 +15,16 @@
     "missing and tombstoned bindings return unlinked; ambiguous identities return identity_conflict; storage failure or malformed binding returns unavailable",
     "lookup is read-only and creates no Enrollment or source grant",
     "relink after lookup rejects stale evidence and own-access; fresh lookup and fresh evidence can activate",
-    "exact accepted evidence replay remains durable after unlink while current own-access fails closed"
+    "exact accepted evidence replay remains durable after unlink while current own-access fails closed",
+    "temporary Tribute pending_verification and suspended_source are Platform-owned shared Enrollment states in own-access and nullable activation enrollment",
+    "fresh member can restore only observation_stale temporary source, never a source_ended latch; independent rights remain",
+    "absent rule.verificationMode means unchanged course_membership; member grants course no-end/no-charge, registry_lookup rejects for course",
+    "tribute_registry selects registry_lookup without getChatMember; member proof rejects for Tribute and cannot create paid lifetime",
+    "Tribute begin before Account persists identity-bound attempt; after linking fresh exact binding and registry read attach only verified source",
+    "forwarded Tribute link resolves recipient identity, never the sender; unknown/nonpaid/unknown-period registry yields pending_review and no new grant",
+    "Tribute confirmed period preserves exact registry snapshot, finite interval, renewal and independent rights; no client term accepted",
+    "Tribute uncertain HTTP write replays exact evidenceRef/payload first; accepted receipt remains immutable; later retry of known pending result uses fresh evidence",
+    "duplicate Tribute links and attempts return same source Enrollment and unchanged term; revoked/ended source never auto-restores",
+    "Tribute temporary registry entry grants only existing approved bounded evidence; registry_lookup never acts as member observation"
   ]
 }

@@ -19,7 +19,13 @@ export interface ActivationTables {
     identity_ref: string;
     code: string;
     trigger_update_id: string;
-    state: "pending" | "needs_account" | "retry" | "completed" | "rejected";
+    state:
+      | "pending"
+      | "needs_account"
+      | "retry"
+      | "pending_review"
+      | "completed"
+      | "rejected";
     evidence: ActivationEvidence | null;
     result: ActivationResult<ActivationResponse> | null;
     created_at: Timestamp;

@@ -1,6 +1,9 @@
 import { describe, expect, it } from "vitest";
 import { HttpActivationPlatform } from "../../src/adapters/platform/http-activation-platform.adapter.js";
-import { ACTIVATION_VERSION } from "../../src/modules/subscription-activation/activation-contract.js";
+import {
+  ACTIVATION_VERSION,
+  type ActivationEvidence,
+} from "../../src/modules/subscription-activation/activation-contract.js";
 import fixtures from "../../docs/contracts/subscription-activation-v1/fixtures.json" with { type: "json" };
 
 describe("activation HTTP consumer", () => {
@@ -70,4 +73,31 @@ describe("activation HTTP consumer", () => {
     );
     expect(await oversized.binding("synthetic-identity")).toBeUndefined();
   });
+  it.each(["member", "registry_lookup"] as const)(
+    "keeps stable evidence wire bytes for %s across JSON key reordering",
+    async (decision) => {
+      const fixture = fixtures.find(
+        (f) => f.name === "tribute-exact-binding-registry-request",
+      );
+      const input = { ...fixture?.value, decision } as ActivationEvidence;
+      const bodies: string[] = [];
+      const consumer = new HttpActivationPlatform(
+        "https://platform.example/activation",
+        "synthetic-secret",
+        async (_url, init) => {
+          bodies.push(String(init?.body));
+          return Response.json({ ok: false, error: { code: "unavailable" } });
+        },
+      );
+      await consumer.evidence(input);
+      await consumer.evidence(
+        Object.fromEntries(
+          Object.entries(input).reverse(),
+        ) as unknown as ActivationEvidence,
+      );
+      expect(bodies).toHaveLength(2);
+      expect(bodies[0]).toBe(bodies[1]);
+      expect(JSON.parse(bodies[0]!)).toEqual(input);
+    },
+  );
 });
