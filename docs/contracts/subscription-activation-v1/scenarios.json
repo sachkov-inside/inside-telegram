@@ -1,0 +1,20 @@
+{
+  "runtimeAssertions": [
+    "no Account: durable attempt, no grant",
+    "evidence checkedAt <= now < validUntil; age and total lifetime <= 5 minutes",
+    "exact audience identity Account link rule and source revision",
+    "two rules with same course source and identity yield one Enrollment",
+    "owner confirmed course and self-service yield the same source hash",
+    "revoke followed by retry remains pending_review",
+    "expired or paused rules reject new activation",
+    "not_member and unavailable produce no access",
+    "receipt replay with changed evidence is operation_conflict",
+    "own access checks current binding and includes independent grounds and moderation",
+    "binding lookup accepts only the separate activation authority; missing, invalid and other credentials return 401 with private/no-store",
+    "binding lookup returns exact current account_link_states references, never browser transaction linkRef or internal Account UUID",
+    "missing and tombstoned bindings return unlinked; ambiguous identities return identity_conflict; storage failure or malformed binding returns unavailable",
+    "lookup is read-only and creates no Enrollment or source grant",
+    "relink after lookup rejects stale evidence and own-access; fresh lookup and fresh evidence can activate",
+    "exact accepted evidence replay remains durable after unlink while current own-access fails closed"
+  ]
+}

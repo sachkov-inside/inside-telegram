@@ -1,0 +1,31 @@
+{
+  "platformCommit": "35702d9da2a2d6c0724a57e319b2bcb5d6318dd3",
+  "platformAccepted": false,
+  "authority": "local synthetic Telegram; actual Platform HTTP, PostgreSQL, Logto and browser",
+  "runs": [
+    {
+      "scenario": "proof-mobile",
+      "source": "member",
+      "mobile": true,
+      "checks": [
+        "PASS real browser linking and one Platform course Enrollment",
+        "PASS intended join via actual Platform v2 dispatch permit",
+        "PASS repeated start and source exit preserve Enrollment identity, revision and dates"
+      ]
+    },
+    {
+      "scenario": "proof-nonmember",
+      "source": "left",
+      "mobile": false,
+      "checks": [
+        "PASS forwarded link to nonmember gives no Enrollment"
+      ]
+    },
+    {
+      "scenario": "proof-existing-portable",
+      "checks": [
+        "PASS real email Account, local bank payment, saved paid rights/profile/progress after browser-owned Telegram linking and course Enrollment"
+      ]
+    }
+  ]
+}

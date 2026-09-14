@@ -2,9 +2,14 @@ import { Ajv } from "ajv";
 import addFormats from "ajv-formats";
 
 import { digest } from "../../security/payload-digest.js";
+import v2Schema from "./contracts/schema-v2.json" with { type: "json" };
 import schema from "./contracts/schema.json" with { type: "json" };
 
 export const COMMUNITY_CONTRACT_VERSION = "inside.community-entitlement.v1";
+export const COMMUNITY_V2 = "inside.community-entitlement.v2";
+export type CommunityVersion =
+  typeof COMMUNITY_CONTRACT_VERSION | typeof COMMUNITY_V2;
+export type AdmissionRestriction = "none" | "moderation" | "external_unknown";
 export const DISPATCH_CONTRACT_VERSION = "inside.billing-dispatch.v1";
 
 export type CommunityAccess =
@@ -20,7 +25,7 @@ export interface CommunityBinding {
 }
 
 export interface CommunitySetCommand {
-  readonly contractVersion: typeof COMMUNITY_CONTRACT_VERSION;
+  readonly contractVersion: CommunityVersion;
   readonly operation: "entitlement.set";
   readonly operationId: string;
   readonly binding: CommunityBinding;
@@ -31,7 +36,7 @@ export interface CommunitySetCommand {
 }
 
 export interface CommunityStatusQuery {
-  readonly contractVersion: typeof COMMUNITY_CONTRACT_VERSION;
+  readonly contractVersion: CommunityVersion;
   readonly operation: "entitlement.status";
   readonly operationId: string;
 }
@@ -48,7 +53,8 @@ export type CommunityStatus =
 export type ObservedMembership = "member" | "not_member" | "unknown";
 
 export interface CommunityResult {
-  readonly contractVersion: typeof COMMUNITY_CONTRACT_VERSION;
+  readonly admissionRestriction?: AdmissionRestriction;
+  readonly contractVersion: CommunityVersion;
   readonly operation: "entitlement.result";
   readonly operationId: string;
   readonly binding: CommunityBinding;
@@ -70,7 +76,7 @@ export type CommunityErrorCode =
   | "unavailable";
 
 export interface CommunityError {
-  readonly contractVersion: typeof COMMUNITY_CONTRACT_VERSION;
+  readonly contractVersion: CommunityVersion;
   readonly operation: "entitlement.error";
   readonly operationId: string;
   readonly error: CommunityErrorCode;
@@ -88,7 +94,7 @@ export interface DispatchAuthorizationRequest {
   readonly operation: "dispatch.authorize";
   readonly operationId: string;
   readonly dispatchId: string;
-  readonly dispatchContractVersion: typeof COMMUNITY_CONTRACT_VERSION;
+  readonly dispatchContractVersion: CommunityVersion;
   readonly attemptId: string;
   readonly effectRef: string;
   readonly effect: CommunityEffect;
@@ -134,6 +140,12 @@ export type DispatchAuthorizationResponse =
 const ajv = new Ajv({ strict: false });
 addFormats.default(ajv);
 ajv.addSchema(schema);
+ajv.addSchema(v2Schema);
+const v2Definition = (name: string) =>
+  ajv.compile({ $ref: `${v2Schema.$id}#/definitions/${name}` });
+const validV2Set = v2Definition("communitySet");
+const validV2Status = v2Definition("communityStatus");
+const validV2Result = v2Definition("communityResult");
 
 const definition = (name: string) =>
   ajv.compile({ $ref: `${schema.$id}#/definitions/${name}` });
@@ -164,7 +176,10 @@ const UUID =
  * Normalizes UUID spelling on the boundary before any storage or fingerprint,
  * then fingerprints the exact schema-valid command the sender signed.
  */
-export function parseCommunityRequest(body: unknown): ParsedCommunityRequest {
+export function parseCommunityRequest(
+  body: unknown,
+  version: CommunityVersion = COMMUNITY_CONTRACT_VERSION,
+): ParsedCommunityRequest {
   const record = isRecord(body) ? body : undefined;
   const operationId =
     typeof record?.operationId === "string" && UUID.test(record.operationId)
@@ -175,20 +190,40 @@ export function parseCommunityRequest(body: unknown): ParsedCommunityRequest {
       ? { kind: "rejected", error, operationId }
       : { kind: "rejected", error };
   if (!record) return rejected("malformed");
-  if (record.contractVersion !== COMMUNITY_CONTRACT_VERSION)
+  if (
+    record.contractVersion !== version &&
+    !(
+      record.operation === "entitlement.status" &&
+      record.contractVersion === COMMUNITY_CONTRACT_VERSION
+    )
+  )
     return rejected("unsupported_contract");
   if (canonicalBytes(record) > 16384) return rejected("malformed");
 
   if (record.operation === "entitlement.status") {
-    if (!validStatusQuery(record) || !operationId) return rejected("malformed");
+    if (
+      !(record.contractVersion === COMMUNITY_V2
+        ? validV2Status(record)
+        : validStatusQuery(record)) ||
+      !operationId
+    )
+      return rejected("malformed");
     return { kind: "status", operationId };
   }
-  if (!validSet(record) || !operationId) return rejected("malformed");
+  if (
+    !(version === COMMUNITY_V2 ? validV2Set(record) : validSet(record)) ||
+    !operationId
+  )
+    return rejected("malformed");
   const command = normalize(
     record as unknown as CommunitySetCommand,
     operationId,
   );
-  return { kind: "set", command, payloadDigest: digest(command) };
+  return {
+    kind: "set",
+    command,
+    payloadDigest: digest(version === COMMUNITY_V2 ? record : command),
+  };
 }
 
 function normalize(
@@ -213,7 +248,11 @@ function canonicalBytes(value: unknown): number {
 export function assertCommunityResult(
   result: CommunityResult,
 ): CommunityResult {
-  if (!validResult(result))
+  if (
+    !(result.contractVersion === COMMUNITY_V2
+      ? validV2Result(result)
+      : validResult(result))
+  )
     throw new Error("Community result violates the approved contract");
   return result;
 }
@@ -234,9 +273,10 @@ export const communityErrorStatus: Readonly<
 export function communityError(
   operationId: string,
   error: CommunityErrorCode,
+  version: CommunityVersion = COMMUNITY_CONTRACT_VERSION,
 ): CommunityError {
   return {
-    contractVersion: COMMUNITY_CONTRACT_VERSION,
+    contractVersion: version,
     operation: "entitlement.error",
     operationId,
     error,

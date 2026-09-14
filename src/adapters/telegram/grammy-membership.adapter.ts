@@ -1,4 +1,4 @@
-import { Api } from "grammy";
+import { Api, GrammyError } from "grammy";
 
 import type {
   TelegramChatMemberResult,
@@ -9,15 +9,15 @@ export class GrammyMembershipAdapter implements TelegramMembership {
   private readonly api: TelegramApi;
 
   constructor(token: string, api?: TelegramApi) {
-    this.api = api ?? new Api(token);
+    this.api = api ?? new Api(token, { timeoutSeconds: 5 });
   }
 
   async getBotChatMember(chatId: string): Promise<TelegramChatMemberResult> {
     try {
       const bot = await this.api.getMe();
       return await this.read(chatId, String(bot.id));
-    } catch {
-      return unavailable();
+    } catch (error) {
+      return unavailable(error);
     }
   }
 
@@ -27,8 +27,8 @@ export class GrammyMembershipAdapter implements TelegramMembership {
   ): Promise<TelegramChatMemberResult> {
     try {
       return await this.read(chatId, telegramUserId);
-    } catch {
-      return unavailable();
+    } catch (error) {
+      return unavailable(error);
     }
   }
 
@@ -75,8 +75,12 @@ function toSafeTelegramNumber(value: string): number {
   return number;
 }
 
-function unavailable(): TelegramChatMemberResult {
+function unavailable(error?: unknown): TelegramChatMemberResult {
   return {
+    ...(error instanceof GrammyError &&
+    Number.isFinite(error.parameters.retry_after)
+      ? { retryAfterSeconds: error.parameters.retry_after }
+      : {}),
     diagnosticCode: "telegram_api_unavailable",
     kind: "unavailable",
   };

@@ -1,0 +1,397 @@
+[
+  {
+    "name": "begin-needs-account",
+    "definition": "begin",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "code": "course_engineering",
+      "identityRef": "identity-course-buyer"
+    }
+  },
+  {
+    "name": "bounded-course-proof",
+    "definition": "evidence",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "audience": "inside.platform.subscription-activation",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "member"
+    }
+  },
+  {
+    "name": "own-current-binding",
+    "definition": "ownAccessQuery",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "accountRef": "platform-principal",
+      "identityRef": "identity-course-buyer",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1
+    }
+  },
+  {
+    "name": "pending-result",
+    "definition": "activationResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "attemptId": "00000000-0000-4000-8000-000000000001",
+        "state": "needs_account",
+        "enrollment": null,
+        "rule": {
+          "id": "00000000-0000-4000-8000-000000000003",
+          "revision": 1,
+          "sourceRef": "course-engineering"
+        }
+      }
+    }
+  },
+  {
+    "name": "own-moderation",
+    "definition": "ownAccessResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "enrollments": [],
+        "grounds": [],
+        "admission": {
+          "state": "moderation_blocked",
+          "admissionRestriction": "moderation"
+        }
+      }
+    }
+  },
+  {
+    "name": "wrong-audience",
+    "definition": "evidence",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "audience": "inside.community",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "member"
+    }
+  },
+  {
+    "name": "future-contract",
+    "definition": "evidence",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v2",
+      "audience": "inside.platform.subscription-activation",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "member"
+    }
+  },
+  {
+    "name": "missing-link",
+    "definition": "evidence",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "audience": "inside.platform.subscription-activation",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": null,
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "member"
+    }
+  },
+  {
+    "name": "extra-grant-authority",
+    "definition": "evidence",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "audience": "inside.platform.subscription-activation",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "member",
+      "capabilities": [
+        "materials"
+      ]
+    }
+  },
+  {
+    "name": "not_member",
+    "definition": "evidence",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "audience": "inside.platform.subscription-activation",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "not_member"
+    }
+  },
+  {
+    "name": "unavailable",
+    "definition": "evidence",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "audience": "inside.platform.subscription-activation",
+      "evidenceRef": "00000000-0000-4000-8000-000000000004",
+      "attemptId": "00000000-0000-4000-8000-000000000001",
+      "sourceRef": "course-engineering",
+      "identityRef": "identity-course-buyer",
+      "accountRef": "platform-principal",
+      "linkRef": "00000000-0000-4000-8000-000000000002",
+      "linkRevision": 1,
+      "ruleId": "00000000-0000-4000-8000-000000000003",
+      "ruleRevision": 1,
+      "checkedAt": "2030-01-01T00:00:00.000Z",
+      "validUntil": "2030-01-01T00:04:00.000Z",
+      "decision": "unavailable"
+    }
+  },
+  {
+    "name": "binding-verified-identity",
+    "definition": "bindingQuery",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "identityRef": "identity-course-buyer"
+    }
+  },
+  {
+    "name": "binding-current-snapshot",
+    "definition": "bindingResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "linked",
+        "binding": {
+          "accountRef": "platform-principal",
+          "identityRef": "identity-course-buyer",
+          "linkRef": "00000000-0000-4000-8000-000000000002",
+          "linkRevision": 2
+        }
+      }
+    }
+  },
+  {
+    "name": "binding-unlinked",
+    "definition": "bindingResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "unlinked"
+      }
+    }
+  },
+  {
+    "name": "binding-invalid_input",
+    "definition": "bindingResponse",
+    "valid": true,
+    "value": {
+      "ok": false,
+      "error": {
+        "code": "invalid_input"
+      }
+    }
+  },
+  {
+    "name": "binding-identity_conflict",
+    "definition": "bindingResponse",
+    "valid": true,
+    "value": {
+      "ok": false,
+      "error": {
+        "code": "identity_conflict"
+      }
+    }
+  },
+  {
+    "name": "binding-unavailable",
+    "definition": "bindingResponse",
+    "valid": true,
+    "value": {
+      "ok": false,
+      "error": {
+        "code": "unavailable"
+      }
+    }
+  },
+  {
+    "name": "binding-query-empty",
+    "definition": "bindingQuery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "identityRef": ""
+    }
+  },
+  {
+    "name": "binding-query-long",
+    "definition": "bindingQuery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "identityRef": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+    }
+  },
+  {
+    "name": "binding-query-username",
+    "definition": "bindingQuery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "identityRef": "identity-course-buyer",
+      "username": "example"
+    }
+  },
+  {
+    "name": "binding-query-account-id",
+    "definition": "bindingQuery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "identityRef": "identity-course-buyer",
+      "accountId": "00000000-0000-4000-8000-000000000099"
+    }
+  },
+  {
+    "name": "binding-query-future",
+    "definition": "bindingQuery",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v2",
+      "identityRef": "identity-course-buyer"
+    }
+  },
+  {
+    "name": "binding-response-zero-revision",
+    "definition": "bindingResponse",
+    "valid": false,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "linked",
+        "binding": {
+          "accountRef": "platform-principal",
+          "identityRef": "identity-course-buyer",
+          "linkRef": "00000000-0000-4000-8000-000000000002",
+          "linkRevision": 0
+        }
+      }
+    }
+  },
+  {
+    "name": "binding-response-browser-token",
+    "definition": "bindingResponse",
+    "valid": false,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "linked",
+        "binding": {
+          "accountRef": "platform-principal",
+          "identityRef": "identity-course-buyer",
+          "linkRef": "browser-token",
+          "linkRevision": 2
+        }
+      }
+    }
+  },
+  {
+    "name": "binding-response-internal-account",
+    "definition": "bindingResponse",
+    "valid": false,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "linked",
+        "binding": {
+          "accountRef": "platform-principal",
+          "identityRef": "identity-course-buyer",
+          "linkRef": "00000000-0000-4000-8000-000000000002",
+          "linkRevision": 2,
+          "accountId": "00000000-0000-4000-8000-000000000099"
+        }
+      }
+    }
+  },
+  {
+    "name": "binding-linked-missing-snapshot",
+    "definition": "bindingResponse",
+    "valid": false,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "linked"
+      }
+    }
+  }
+]

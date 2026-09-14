@@ -377,6 +377,7 @@ describe("durable Membership events", () => {
     const metrics = new RuntimeMetrics();
     const linking = new IdentityLinking(database, clock);
     const processor = new TelegramUpdateProcessor(
+      { async start() {}, async action() {} },
       inbox,
       config,
       new BotContacts(database, config),

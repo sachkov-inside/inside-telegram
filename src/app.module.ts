@@ -1,3 +1,7 @@
+import { SubscriptionActivation } from "./modules/subscription-activation/subscription-activation.js";
+import { SourceGroupProof } from "./modules/subscription-activation/source-group-proof.js";
+import { ACTIVATION_PLATFORM } from "./modules/subscription-activation/activation-ports.js";
+import { HttpActivationPlatform } from "./adapters/platform/http-activation-platform.adapter.js";
 import { NotificationWorker } from "./operations/notification-worker.js";
 import { AuthorFunnels } from "./modules/communications/author-funnels.js";
 import {
@@ -115,6 +119,33 @@ export class AppModule {
         TelegramWebhookController,
       ],
       providers: [
+        SubscriptionActivation,
+        {
+          provide: ACTIVATION_PLATFORM,
+          useFactory: () =>
+            config.activation
+              ? new HttpActivationPlatform(
+                  config.activation.endpoint,
+                  config.activation.secret,
+                )
+              : {
+                  async begin() {},
+                  async binding() {},
+                  async evidence() {},
+                  async own() {},
+                },
+        },
+        {
+          provide: SourceGroupProof,
+          useFactory: () =>
+            new SourceGroupProof(
+              config.activation?.sources ?? [],
+              config.activation?.enabled && config.botToken
+                ? new GrammyMembershipAdapter(config.botToken)
+                : new DisabledTelegramMembership(),
+            ),
+        },
+
         {
           provide: TELEGRAM_CALLBACK_ANSWERS,
           useFactory: () =>
@@ -209,6 +240,24 @@ export class AppModule {
               authorization,
               chat,
               {
+                ...(applicationConfig.botToken
+                  ? {
+                      botTelegramUserId:
+                        applicationConfig.botToken.split(":")[0],
+                    }
+                  : {}),
+                ...(applicationConfig.communityContractVersion
+                  ? {
+                      contractVersion:
+                        applicationConfig.communityContractVersion,
+                    }
+                  : {}),
+                ...(applicationConfig.communityRemovalsEnabled !== undefined
+                  ? {
+                      removalsEnabled:
+                        applicationConfig.communityRemovalsEnabled,
+                    }
+                  : {}),
                 reconciliationCadenceMs:
                   applicationConfig.communityReconciliationCadenceMilliseconds,
               },

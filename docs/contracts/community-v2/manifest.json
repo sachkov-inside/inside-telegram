@@ -1,0 +1,8 @@
+{
+  "contractVersion": "inside.community-entitlement.v2",
+  "dispatchEnvelope": "inside.billing-dispatch.v1",
+  "schema": "schema.json",
+  "fixtures": "fixtures.json",
+  "scenarios": "scenarios.json",
+  "protocol": "protocol.md"
+}

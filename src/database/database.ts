@@ -1,3 +1,5 @@
+import type { ActivationTables } from "../modules/subscription-activation/activation-storage.js";
+import type { TelegramButton } from "../modules/outbound/telegram-messages.js";
 import type { CommunityTables } from "../modules/community/community-storage.js";
 import type { NotificationTables } from "../modules/notifications/notification-storage.js";
 import type { ColumnType, Generated, Kysely } from "kysely";
@@ -77,6 +79,11 @@ export interface BotContactEventsTable {
 }
 
 export interface StartResponseDeliveriesTable {
+  buttons: ColumnType<
+    readonly TelegramButton[] | null,
+    readonly TelegramButton[] | null | undefined,
+    readonly TelegramButton[] | null
+  >;
   edit_message_id: ColumnType<
     string | null,
     string | null | undefined,
@@ -278,7 +285,8 @@ export interface SignInSubjectsTable {
   telegram_user_id: BigIntColumn;
 }
 
-export interface DatabaseSchema extends NotificationTables, CommunityTables {
+export interface DatabaseSchema
+  extends ActivationTables, NotificationTables, CommunityTables {
   communication_author_compositions: {
     bot_identity: string;
     owner_account_ref: string;

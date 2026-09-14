@@ -1,3 +1,4 @@
+import { SubscriptionActivation } from "../modules/subscription-activation/subscription-activation.js";
 import { AuthorDelivery } from "../modules/communications/author-delivery.js";
 import { FunnelScheduler } from "../modules/communications/funnel-scheduler.js";
 import {
@@ -39,11 +40,15 @@ export class BackgroundWorkers
   private membershipCycleRunning = false;
   private membershipCycle?: Promise<void>;
   private membershipTimer?: NodeJS.Timeout;
+  private activationTimer?: NodeJS.Timeout;
+  private activationCycle?: Promise<void>;
   private stopping = false;
   private updateCycleRunning = false;
   private updateTimer?: NodeJS.Timeout;
 
   constructor(
+    @Inject(SubscriptionActivation)
+    private readonly activation: SubscriptionActivation,
     @Inject(APPLICATION_CONFIG)
     private readonly config: ApplicationConfig,
     @Inject(TelegramUpdateProcessor)
@@ -68,6 +73,14 @@ export class BackgroundWorkers
     }
 
     await this.funnels.assertConfigured();
+    if (this.config.activation?.enabled) {
+      this.activationTimer = setInterval(
+        () => void this.runActivationCycle(),
+        1000,
+      );
+      this.activationTimer.unref();
+      void this.runActivationCycle();
+    }
 
     this.updateTimer = setInterval(() => void this.runUpdateCycle(), 250);
     this.updateTimer.unref();
@@ -114,6 +127,7 @@ export class BackgroundWorkers
 
   async onApplicationShutdown(): Promise<void> {
     this.stopping = true;
+    clearInterval(this.activationTimer);
     clearInterval(this.marketingTimer);
     clearInterval(this.updateTimer);
     clearInterval(this.deliveryTimer);
@@ -121,10 +135,28 @@ export class BackgroundWorkers
     clearInterval(this.membershipTimer);
     clearInterval(this.communityTimer);
     await Promise.all([
+      this.activationCycle,
       this.membershipCycle,
       this.marketingCycle,
       this.communityCycle,
     ]);
+  }
+
+  private runActivationCycle(): Promise<void> {
+    if (this.stopping || this.activationCycle)
+      return this.activationCycle ?? Promise.resolve();
+    this.activationCycle = this.activation
+      .processAvailable()
+      .then(async () => {
+        this.metrics.recordActivation(await this.activation.snapshot());
+      })
+      .catch(() => {
+        this.logger.error("Activation worker cycle failed");
+      })
+      .finally(() => {
+        this.activationCycle = undefined;
+      });
+    return this.activationCycle;
   }
 
   private async runUpdateCycle(): Promise<void> {

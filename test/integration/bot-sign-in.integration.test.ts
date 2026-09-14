@@ -436,6 +436,7 @@ describe("bot sign-in provider", () => {
       }
       claim.mockClear();
       const processor = new TelegramUpdateProcessor(
+        { async start() {}, async action() {} },
         inbox,
         config,
         application.get(BotContacts),
@@ -631,7 +632,9 @@ describe("bot sign-in provider", () => {
     ]);
     expect(
       messages[0]?.buttons?.every(
-        (button) => Buffer.byteLength(button.callbackData) <= 64,
+        (button) =>
+          button.callbackData !== undefined &&
+          Buffer.byteLength(button.callbackData) <= 64,
       ),
     ).toBe(true);
     await callback(challenge, 42);

@@ -22,12 +22,14 @@ export class GrammyMessagesAdapter implements TelegramMessages {
       const sent = message.buttons
         ? await this.api.sendMessage(chatId, message.text, {
             reply_markup: {
-              inline_keyboard: [
-                message.buttons.map((button) => ({
+              inline_keyboard: message.buttons.map((button) => [
+                {
                   text: button.text,
-                  callback_data: button.callbackData,
-                })),
-              ],
+                  ...(button.callbackData !== undefined
+                    ? { callback_data: button.callbackData }
+                    : { url: button.url }),
+                },
+              ]),
             },
           })
         : await this.api.sendMessage(chatId, message.text);
@@ -94,7 +96,9 @@ interface TelegramApi {
     text: string,
     options?: {
       reply_markup: {
-        inline_keyboard: { text: string; callback_data: string }[][];
+        inline_keyboard: ({ text: string } & (
+          { callback_data: string } | { url: string }
+        ))[][];
       };
     },
   ): Promise<{ message_id: number }>;

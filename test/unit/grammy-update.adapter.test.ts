@@ -170,6 +170,8 @@ describe("GrammyUpdateAdapter", () => {
       kind: "membership",
       value: {
         actorIsSubject: false,
+        actorTelegramUserId: "777",
+        actorIsBot: false,
         botIdentity: "inside",
         canonicalChatId: "-1000000000000",
         chatMember: { status: "left" },
