@@ -4,16 +4,11 @@
   "authority": "local synthetic Telegram; actual Platform HTTP, PostgreSQL, Logto and browser",
   "runs": [
     {
-      "scenario": "proof-existing-portable",
-      "checks": [
-        "PASS real email Account, local bank payment, saved paid rights/profile/progress after browser-owned Telegram linking and course Enrollment"
-      ]
-    },
-    {
-      "scenario": "proof-final-mobile15",
+      "scenario": "proof-head-desktop23",
       "source": "member",
-      "mobile": true,
+      "mobile": false,
       "checks": [
+        "PASS browser sign-in controls support keyboard focus and activation",
         "PASS real browser linking and one Platform course Enrollment",
         "PASS cabinet accessibility and viewport checks",
         "PASS protected guide material body is readable",
@@ -23,10 +18,11 @@
       ]
     },
     {
-      "scenario": "proof-final-desktop16",
+      "scenario": "proof-head-mobile21",
       "source": "member",
-      "mobile": false,
+      "mobile": true,
       "checks": [
+        "PASS browser sign-in controls support keyboard focus and activation",
         "PASS real browser linking and one Platform course Enrollment",
         "PASS cabinet accessibility and viewport checks",
         "PASS protected guide material body is readable",
@@ -44,6 +40,12 @@
         "PASS forwarded link to nonmember gives no Enrollment",
         "PASS cabinet accessibility and viewport checks",
         "PASS nonmember cannot read protected course material"
+      ]
+    },
+    {
+      "scenario": "proof-head-existing22",
+      "checks": [
+        "PASS real email Account, local bank payment, saved paid rights/profile/progress after browser-owned Telegram linking and course Enrollment"
       ]
     }
   ],

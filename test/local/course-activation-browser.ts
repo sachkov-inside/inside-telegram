@@ -94,7 +94,9 @@ try {
     m.buttons?.some((b) => b.url === `${web}/account`),
   )!;
   await page.goto(prompt.buttons!.find((b) => b.url)!.url!);
-  const signIn = page.getByRole("button", { name: "Войти", exact: true });
+  const signIn = page
+    .locator("#content")
+    .getByRole("button", { name: "Войти", exact: true });
   await signIn.focus();
   await expect(signIn).toBeFocused();
   await signIn.press("Enter");
