@@ -17,9 +17,7 @@
       "scenario": "proof-nonmember",
       "source": "left",
       "mobile": false,
-      "checks": [
-        "PASS forwarded link to nonmember gives no Enrollment"
-      ]
+      "checks": ["PASS forwarded link to nonmember gives no Enrollment"]
     },
     {
       "scenario": "proof-existing-portable",
