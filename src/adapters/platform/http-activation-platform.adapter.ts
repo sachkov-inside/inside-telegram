@@ -36,7 +36,14 @@ export class HttpActivationPlatform implements ActivationPlatform {
   evidence(
     input: ActivationEvidence,
   ): Promise<ActivationResult<ActivationResponse> | undefined> {
-    return this.post("evidence", input, validActivationResponse);
+    // PostgreSQL jsonb reorders keys. Keep the same wire bytes on initial send
+    // and durable replay without changing any evidence values or references.
+    const ordered = Object.fromEntries(
+      Object.keys(input)
+        .sort()
+        .map((key) => [key, input[key as keyof ActivationEvidence]]),
+    );
+    return this.post("evidence", ordered, validActivationResponse);
   }
   own(
     binding: ActivationBinding,

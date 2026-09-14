@@ -125,3 +125,21 @@ COURSE_PROOF_USER=6400104 COURSE_PROOF_OUTPUT=/tmp/course-proof-existing pnpm pr
 добавленное course основание ожидаемо отличается. Ни фиктивный Account, ни готовый grant в БД
 не подставляются. Артефакты остаются за пределами Git; отчёт публикует только отобранные synthetic
 скриншоты и результаты без auth cookies и токенов.
+
+
+## Tribute activation consumer (#66)
+
+Один опубликованный `a_<code>` может выбрать Platform `tribute_registry`; absent verificationMode
+сохраняет `course_membership`. Tribute registry не нужно добавлять как Telegram course chat:
+consumer не вызывает source membership и не вычисляет paid period. Период и основание возвращает
+Platform по exact binding. Unknown mode не откатывается на course. При pending_review бот показывает
+nonactive Enrollment, если он есть, и предлагает помощь; явный retry перечитывает registry через
+новое evidence. Source-ended latch не снимается retry/member.
+
+Контракт закреплён в [integration provenance](../integrations/subscription-activation-v1-provenance.json)
+на final portable SHA, без утверждения готовности runtime #625. Regression
+`test/integration/tribute-activation.integration.test.ts` запускает реальный Telegram AppModule,
+HTTP codec и PostgreSQL с контролируемым loopback provider. Проверяются no membership lookup,
+pending-to-confirmed, private recipient после forwarding, exact raw-body replay после 31 дня,
+новый binding после известного результата, nonactive сообщения и legacy course. Это не проверка
+платёжных фактов или registry/grant политики настоящей Platform; такие проверки принадлежат #625.

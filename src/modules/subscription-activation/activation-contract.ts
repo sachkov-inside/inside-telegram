@@ -25,7 +25,8 @@ export interface ActivationEvidence extends ActivationBinding {
   readonly ruleRevision: number;
   readonly checkedAt: string;
   readonly validUntil: string;
-  readonly decision: "member" | "not_member" | "unavailable";
+  readonly decision:
+    "member" | "not_member" | "unavailable" | "registry_lookup";
 }
 export type ActivationState =
   | "needs_account"
@@ -81,6 +82,7 @@ export interface ActivationResponse {
     readonly id: string;
     readonly revision: number;
     readonly sourceRef: string;
+    readonly verificationMode?: "course_membership" | "tribute_registry";
   };
 }
 export interface OwnAccess {

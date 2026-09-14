@@ -1,22 +1,25 @@
-# Активация тарифа за курс
+# Активация тарифа за курс и Tribute
 
 Telegram реализует сценарий [#64](https://github.com/sachkov-inside/inside-telegram/issues/64)
 из [Workspace #180](https://github.com/sachkov-inside/workspace/issues/180).
 Platform определяет Account, тариф, Enrollment, состав и срок каждого права. Telegram
-проверяет известного участника разрешённой группы курса и продолжает его обращение после входа.
+проверяет участника разрешённой группы курса либо запрашивает реестр Tribute на Platform
+по verified identity и продолжает обращение после входа.
 
 ## Версии и границы
 
 Переносимые файлы в `docs/contracts/subscription-activation-v1` обновлены для
 [Telegram #66](https://github.com/sachkov-inside/inside-telegram/issues/66) из неизменяемого
-provider snapshot `platform625-contract-draft-1` поставки Platform #625. Это uncommitted draft
-поверх accepted `a663f661e89dfb90270b93e871da81d37d476363`, **не окончательный provider SHA**.
-[Provenance и SHA-256 пяти файлов](subscription-activation-v1-provenance.json) фиксируют exact bytes;
-итоговая приёмка требует сверки с опубликованным final head Platform #625.
+контракта Platform #625, опубликованного на commit
+`de605c09f2afe5143dd96fb1c37ce5b6bd01e846`. Пять файлов проверены через GitHub по exact SHA
+и побайтно совпадают с final bundle и draft2.
+[Provenance и SHA-256 пяти файлов](subscription-activation-v1-provenance.json) фиксируют
+`contractFinal:true` и `platformAccepted:false`: commit содержит контракт, а не готовый runtime #625.
+Полная приёмка registry/grants и 39 сценариев остаётся у #625; consumer не зависит от его merge.
 
 Shared Enrollment.state добавляет `pending_verification` и `suspended_source` и в
 `ownAccessResponse.value.enrollments[]`, и в non-null `activationResponse.value.enrollment`.
-Activation outcome.state, binding и остальные поля не меняются. `pending_verification` означает,
+Activation outcome.state и binding не меняются; additive rule mode и evidence decision описаны ниже. `pending_verification` означает,
 что временное основание пока не подтверждено и само доступа не даёт; бот предлагает повторить
 проверку позже или обратиться за помощью. `suspended_source` означает зафиксированное окончание
 источника: повтор/member не восстанавливают его. Бот направляет к владельцу для подтверждения
@@ -27,13 +30,39 @@ Activation outcome.state, binding и остальные поля не меняю
 `docs/contracts/community-v2` остаётся из принятого Platform PR #626, commit
 `7ac1a7200489c822569435afeac88a6f16b76ef5`. Corpus читается локально; checkout и база Platform
 не входят в imports. [Прежнее evidence #64](../evidence/course-activation/README.md) относится
-к baseline до расширения #625, а не подтверждает этот draft.
+к baseline до расширения #625 и не подтверждает runtime Tribute.
 
 Все операции идут через authenticated HTTP. `binding` принимает только `contractVersion`
 и opaque `identityRef`; возвращает linked с точным binding либо unlinked. Используется существующий
 activation credential, отличный от linking/sign-in/community credentials. `unavailable` не означает
 отсутствие Account. `identity_conflict` прекращает автоматическую проверку. Никакого внутреннего
 Account UUID, угадывания `linkRef` или увеличения `linkRevision` на стороне Telegram нет.
+
+## Выбор проверки Tribute
+
+Optional `response.rule.verificationMode` имеет значения `course_membership` и `tribute_registry`;
+отсутствующее значение сохраняет legacy course path. Unknown mode отвергается строгим codec.
+Для `tribute_registry` consumer не вызывает course `getChatMember`: он получает актуальный binding
+и сохраняет fresh exact-bound evidence с `decision: registry_lookup`, текущими rule revision,
+checkedAt/validUntil и новым evidenceRef. Begin/binding/own-access query и credentials прежние.
+Эти timestamps ограничивают запрос, а не задают платёжный период. Правило выбирает Platform,
+пересланная ссылка всегда использует private identity получателя и не передаёт paid facts.
+
+Только Platform сопоставляет policy/identity с подтверждённым реестром, проверяет период и
+принимает grant/restore решения. Consumer сохраняет возвращённый Enrollment и срок без изменения.
+Известный `pending_review` ожидает явного retry, не выполняет автоматический registry lookup и
+очищается после 30 дней. Nonactive Enrollment в таком ответе показывается с фактическим состоянием,
+без сообщения об успешной активации. Явный retry известного pending/unavailable начинает свежую
+попытку с новым binding/evidenceRef; запрос с неопределённым исходом сначала повторяется точно.
+JSON keys evidence сериализуются стабильно, поэтому PostgreSQL jsonb не меняет bytes нового
+initial send и его replay. Для исторических receipts сохраняются исходные значения и evidenceRef.
+
+`activation_attempts.state` теперь также использует текстовое `pending_review`; существующая
+колонка text не имеет enum/check constraint, поэтому schema migration не нужна. Retry не меняет
+Platform grant. Срок очистки неизвестного evidence по-прежнему не отменяет его обязательный replay.
+HTTP+PG consumer tests используют настоящие AppModule/codec/storage и loopback authority с
+контролируемыми wire responses. Они проверяют consumer, а не подтверждают registry policy:
+positive/nonpaid/forwarded fixtures — примеры wire, не доказательство выдачи/отказа Platform.
 
 ## Обращение и доказательство
 

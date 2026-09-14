@@ -38,7 +38,7 @@ const CADENCE = 60_000;
 const expirableAttempt = sql<boolean>`coalesce(
   (evidence is null and result is null)
   or result->>'ok' = 'false'
-  or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account'), false)`;
+  or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account', 'pending_review'), false)`;
 export type AccessAction = "own" | "community" | "retry" | "help" | "platform";
 
 /** Durable Telegram continuation; Account and every grant remain Platform-owned. */
@@ -78,7 +78,12 @@ export class SubscriptionActivation {
         .where("bot_identity", "=", contact.botIdentity)
         .where("telegram_user_id", "=", contact.telegramUserId)
         .where("expires_at", "<=", now)
-        .where("state", "in", ["pending", "needs_account", "retry"])
+        .where("state", "in", [
+          "pending",
+          "needs_account",
+          "retry",
+          "pending_review",
+        ])
         .where(expirableAttempt)
         .where((eb) =>
           eb.or([eb("lease_until", "is", null), eb("lease_until", "<=", now)]),
@@ -130,7 +135,7 @@ export class SubscriptionActivation {
     if (action === "help") {
       await this.reply(
         contact,
-        "Если вы купили курс, но больше не состоите в его группе, обратитесь к владельцу для ручного подтверждения. При конфликте аккаунтов мы сохраняем историю и не переносим Telegram автоматически.",
+        "Если вы купили курс, но больше не состоите в его группе, обратитесь к владельцу для ручного подтверждения. Для Tribute владелец проверяет подтверждённый период в реестре; вступление в группу не подтверждает оплату. При конфликте аккаунтов мы сохраняем историю и не переносим Telegram автоматически.",
       );
       return;
     }
@@ -184,7 +189,9 @@ export class SubscriptionActivation {
           .execute();
         for (const row of rows) {
           if (row.lease_until && row.lease_until > this.clock.now()) continue;
-          const fresh = row.state === "rejected" && row.result !== null;
+          const fresh =
+            row.result !== null &&
+            ["rejected", "pending_review", "retry"].includes(row.state);
           await tx
             .updateTable("activation_attempts")
             .set({
@@ -300,7 +307,12 @@ export class SubscriptionActivation {
       .deleteFrom("activation_attempts")
       .where("bot_identity", "=", this.config.botIdentity)
       .where("expires_at", "<=", this.clock.now())
-      .where("state", "in", ["pending", "needs_account", "retry"])
+      .where("state", "in", [
+        "pending",
+        "needs_account",
+        "retry",
+        "pending_review",
+      ])
       .where(expirableAttempt)
       .where((eb) =>
         eb.or([
@@ -392,6 +404,14 @@ export class SubscriptionActivation {
       await this.finish(attempt, begun);
       return;
     }
+    if (
+      begun.value.attemptId === attempt.attempt_id &&
+      begun.value.state === "pending_review" &&
+      !begun.value.rule
+    ) {
+      await this.finish(attempt, begun);
+      return;
+    }
     if (begun.value.attemptId !== attempt.attempt_id || !begun.value.rule) {
       await this.defer(attempt, "invalid_attempt_response");
       return;
@@ -417,11 +437,17 @@ export class SubscriptionActivation {
     }
     const rule = begun.value.rule;
     const checkedAt = this.clock.now();
-    const proof = await this.proof.check(
-      rule.sourceRef,
-      binding.identityRef,
-      attempt.telegram_user_id,
-    );
+    const proof: {
+      decision: ActivationEvidence["decision"];
+      retryAfterSeconds?: number;
+    } =
+      rule.verificationMode === "tribute_registry"
+        ? { decision: "registry_lookup" }
+        : await this.proof.check(
+            rule.sourceRef,
+            binding.identityRef,
+            attempt.telegram_user_id,
+          );
     const evidence: ActivationEvidence = {
       contractVersion: ACTIVATION_VERSION,
       audience: "inside.platform.subscription-activation",
@@ -477,10 +503,12 @@ export class SubscriptionActivation {
           result,
           state: retry
             ? "retry"
-            : result.ok &&
-                ["active", "already_active"].includes(result.value.state)
-              ? "completed"
-              : "rejected",
+            : result.ok && result.value.state === "pending_review"
+              ? "pending_review"
+              : result.ok &&
+                  ["active", "already_active"].includes(result.value.state)
+                ? "completed"
+                : "rejected",
           due_at: new Date(this.clock.now().getTime() + delay),
           lease_token: null,
           lease_until: null,
@@ -504,7 +532,7 @@ export class SubscriptionActivation {
             )
             .digest(
               "hex",
-            )}:${result.ok ? result.value.state : result.error.code}`,
+            )}:${result.ok ? (result.value.state === "pending_review" ? `pending_review:${result.value.enrollment?.state ?? "none"}` : result.value.state) : result.error.code}`,
           buttons: activationMenu(this.config.activation!.accountUrl),
         },
         tx,
