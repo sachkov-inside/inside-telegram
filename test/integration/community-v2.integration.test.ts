@@ -319,6 +319,75 @@ describe("community v2 exact target, moderation and durable effects", () => {
     expect((await s.row()).removal_origin).toBe("operator_restore");
     expect((await s.row()).admission_restriction).toBe("none");
   });
+  it.each([
+    ["banned", "effect"],
+    ["not_member", "effect"],
+    ["banned", "reconcile"],
+    ["not_member", "reconcile"],
+  ] as const)(
+    "does not replace an operator restore with stale %s observation in %s",
+    async (observed, path) => {
+      const s = await stand();
+      await s.set();
+      // Prior bot-owned provenance gives the stale non-banned branch something to clear.
+      await db
+        .updateTable("community_desired_states")
+        .set({ removal_origin: "bot_expiry" })
+        .where("bot_identity", "=", s.bot)
+        .execute();
+      if (observed === "banned")
+        await db
+          .updateTable("community_desired_states")
+          .set({ removal_origin: "none" })
+          .where("bot_identity", "=", s.bot)
+          .execute();
+      s.chat.observeMember = async () => {
+        const row = await s.row();
+        expect(
+          await new CommunityRestrictions(db, s.clock).decide(
+            {
+              operationId: randomUUID(),
+              botIdentity: s.bot,
+              accountRef: s.binding.accountRef,
+              identityRef: s.binding.telegramIdentityRef,
+              expectedRevision: Number(row.restriction_revision),
+              action: "restore",
+              actorRef: "synthetic-owner",
+              reason: "Restore during observation",
+            },
+            true,
+          ),
+        ).toBe("applied");
+        return { kind: "observed", state: observed };
+      };
+      if (path === "effect") await s.provider().processDueEffects();
+      else await s.provider().reconcileDueStates();
+      expect((await s.row()).removal_origin).toBe("operator_restore");
+      expect((await s.row()).admission_restriction).toBe("none");
+    },
+  );
+  it("uses the exact persisted invite expiry despite clock advancing after commit", async () => {
+    const s = await stand();
+    const originalNow = s.clock.now.bind(s.clock);
+    s.clock.now = () => {
+      s.clock.value = new Date(s.clock.value.getTime() + 1);
+      return originalNow();
+    };
+    let actualExpiry: Date | undefined;
+    s.chat.createJoinRequestLink = async (_chat, expiresAt) => {
+      actualExpiry = expiresAt;
+      s.chat.calls.push({ method: "create_invite", expiresAt });
+      expect(expiresAt).toEqual((await s.row()).invite_expires_at);
+      throw new Error("Crash/lost response after Telegram created the invite");
+    };
+    await s.set();
+    await s.provider().processDueEffects();
+    s.clock.now = originalNow;
+    expect(actualExpiry).toBeDefined();
+    s.clock.value = new Date(actualExpiry!.getTime() - 1);
+    await s.provider().processDueEffects();
+    expect(s.chat.count("create_invite")).toBe(1);
+  });
   it("waits for the persisted invite horizon after throw or process death", async () => {
     const s = await stand();
     s.chat.createJoinRequestLink = async () => {

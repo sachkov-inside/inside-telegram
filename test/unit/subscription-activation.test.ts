@@ -1,3 +1,5 @@
+import { ownAccessText } from "../../src/modules/subscription-activation/activation-view.js";
+import type { OwnAccess } from "../../src/modules/subscription-activation/activation-contract.js";
 import { describe, expect, it } from "vitest";
 import {
   GrammyUpdateAdapter,
@@ -145,4 +147,36 @@ describe("activation ingress and separate source proof", () => {
       ),
     ).toThrow();
   });
+});
+
+it("keeps admission restriction and cabinet guidance visible with maximum-length access details", () => {
+  const access: OwnAccess = {
+    contractVersion: "inside.subscription-activation.v1",
+    enrollments: Array.from({ length: 8 }, (_, index) => ({
+      id: String(index),
+      tier: {
+        name: "Длинное имя тарифа ".repeat(15),
+        benefits: ["materials", "community", "support", "reviews"],
+      },
+      origin: "course",
+      startsAt: "2026-09-14T10:00:00.000Z",
+      endsAt: null,
+      state: "active",
+      renewal: "not_applicable",
+      benefitTerms: Array.from({ length: 20 }, () => ({
+        capability: "community",
+        startsAt: "2026-09-14T10:00:00.000Z",
+        endsAt: null,
+        revoked: false,
+      })),
+    })),
+    grounds: [],
+    admission: { state: "checking", admissionRestriction: "external_unknown" },
+  };
+  const text = ownAccessText(access);
+  expect(text.length).toBeLessThanOrEqual(3900);
+  expect(text).toContain("Вступление ограничено");
+  expect(text).toContain(
+    "Срок каждого отдельного права, полный состав и история — в кабинете.",
+  );
 });

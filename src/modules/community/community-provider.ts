@@ -679,13 +679,19 @@ export class CommunityProvider {
     }
 
     if (observation.state !== "banned" && desired.removal_origin !== "none") {
-      await this.db
+      const cleared = await this.db
         .updateTable("community_desired_states")
         .set({ removal_origin: "none" })
         .where("bot_identity", "=", this.bot)
         .where("account_ref", "=", desired.account_ref)
         .where("entitlement_revision", "=", desired.entitlement_revision)
-        .execute();
+        .where("restriction_revision", "=", desired.restriction_revision)
+        .where("telegram_identity_ref", "=", desired.telegram_identity_ref)
+        .where("link_ref", "=", desired.link_ref)
+        .where("link_revision", "=", desired.link_revision)
+        .returning("account_ref")
+        .executeTakeFirst();
+      if (!cleared) return;
     }
     if (await this.blockUnsafeAdmission(effect, desired, observation.state))
       return;
@@ -890,14 +896,7 @@ export class CommunityProvider {
     await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, effect.account_ref);
       const current = await desiredFor(tx, this.bot, effect.account_ref);
-      if (
-        Number(current.entitlement_revision) !==
-          Number(desired.entitlement_revision) ||
-        current.telegram_identity_ref !== desired.telegram_identity_ref ||
-        current.link_ref !== desired.link_ref ||
-        current.link_revision !== desired.link_revision
-      )
-        return;
+      if (!sameDesiredSnapshot(current, desired)) return;
       const restriction =
         current.admission_restriction === "none"
           ? "external_unknown"
@@ -965,6 +964,7 @@ export class CommunityProvider {
         .forUpdate()
         .executeTakeFirstOrThrow();
       const state = await desiredFor(tx, this.bot, effect.account_ref);
+      if (!sameDesiredSnapshot(state, desired)) return;
       const now = this.clock.now();
       if (
         !isOpen(current.state) ||
@@ -1052,10 +1052,12 @@ export class CommunityProvider {
         })
         .where("effect_ref", "=", current.effect_ref)
         .execute();
-      if (action === "create_invite")
+      const inviteExpiresAt =
+        action === "create_invite" ? this.inviteExpiry(state) : undefined;
+      if (inviteExpiresAt)
         await this.storeInvite(tx, state, {
           invite_state: "unknown",
-          invite_expires_at: this.inviteExpiry(state),
+          invite_expires_at: inviteExpiresAt,
         });
       return {
         until:
@@ -1063,6 +1065,7 @@ export class CommunityProvider {
             ? Math.min(until, current.join_invite_expires_at.getTime())
             : until,
         inviteLink: state.invite_link,
+        inviteExpiresAt,
       };
     });
     if (!started) return;
@@ -1078,7 +1081,7 @@ export class CommunityProvider {
       action,
       telegramUserId,
       started.inviteLink,
-      desired,
+      started.inviteExpiresAt,
     );
     await this.settle(effect.effect_ref, request.attemptId, action, outcome);
   }
@@ -1087,11 +1090,9 @@ export class CommunityProvider {
     action: CommunityMutation,
     telegramUserId: string,
     inviteLink: string | null,
-    desired: DesiredRow,
+    expiry: Date | undefined,
   ): Promise<CallResult> {
     const chat = this.canonicalChatId;
-    const expiry =
-      action === "create_invite" ? this.inviteExpiry(desired) : undefined;
     try {
       switch (action) {
         case "unban":
@@ -1343,12 +1344,7 @@ export class CommunityProvider {
       await lockAccount(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
       const current = await desiredFor(tx, this.bot, effect.account_ref);
-      if (
-        Number(current.entitlement_revision) !==
-          Number(desired.entitlement_revision) ||
-        current.telegram_identity_ref !== desired.telegram_identity_ref
-      )
-        return;
+      if (!sameDesiredSnapshot(current, desired)) return;
       await tx
         .updateTable("community_effects")
         .set({
@@ -1380,12 +1376,7 @@ export class CommunityProvider {
       await lockAccount(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
       const current = await desiredFor(tx, this.bot, effect.account_ref);
-      if (
-        Number(current.entitlement_revision) !==
-          Number(desired.entitlement_revision) ||
-        current.telegram_identity_ref !== desired.telegram_identity_ref
-      )
-        return;
+      if (!sameDesiredSnapshot(current, desired)) return;
       await closeEffect(tx, this.clock, effect.effect_ref, "completed", null);
       await setDesired(
         tx,
@@ -1557,11 +1548,7 @@ export class CommunityProvider {
       await lockAccount(tx, this.bot, accountRef);
       const desired = await desiredFor(tx, this.bot, accountRef);
       const now = this.clock.now();
-      if (
-        Number(desired.entitlement_revision) !==
-        Number(claimed.desired.entitlement_revision)
-      )
-        return;
+      if (!sameDesiredSnapshot(desired, claimed.desired)) return;
       if (observation.kind === "unavailable") {
         // An outage is never hidden behind an earlier applied status.
         await setDesired(
@@ -1692,5 +1679,20 @@ function validJoinInvite(
     digest(desired.invite_link) === effect.join_invite_digest &&
     effect.join_invite_expires_at !== null &&
     effect.join_invite_expires_at > now
+  );
+}
+
+/** Observations cannot rewrite a newer binding, entitlement or operator decision. */
+function sameDesiredSnapshot(
+  current: DesiredRow,
+  observed: DesiredRow,
+): boolean {
+  return (
+    current.entitlement_revision === observed.entitlement_revision &&
+    current.latest_operation === observed.latest_operation &&
+    current.telegram_identity_ref === observed.telegram_identity_ref &&
+    current.link_ref === observed.link_ref &&
+    current.link_revision === observed.link_revision &&
+    current.restriction_revision === observed.restriction_revision
   );
 }

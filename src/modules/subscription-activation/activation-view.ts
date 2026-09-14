@@ -83,21 +83,22 @@ export function ownAccessText(access: OwnAccess): string {
     rows.push(
       "Действующие права не найдены. Кабинет и история доступны; это не мешает обратиться за подтверждением прежней покупки.",
     );
-  rows.push(
+  const admission =
     access.admission.admissionRestriction === "moderation" ||
-      access.admission.admissionRestriction === "external_unknown" ||
-      access.admission.state === "moderation_blocked"
+    access.admission.admissionRestriction === "external_unknown" ||
+    access.admission.state === "moderation_blocked"
       ? "Вступление ограничено. Обратитесь к владельцу; доступ к материалам не снимается этим запретом."
       : access.admission.state === "ready"
         ? "Право на сообщество действует. Запросите вступление отдельной кнопкой."
         : access.admission.state === "checking"
           ? "Состояние сообщества уточняется."
-          : "Сейчас нет действующего права на сообщество.",
-  );
-  return `Мои доступы\n\n${rows.join("\n\n")}\n\nСрок каждого отдельного права, полный состав и история — в кабинете.`.slice(
-    0,
-    3900,
-  );
+          : "Сейчас нет действующего права на сообщество.";
+  const footer =
+    "Срок каждого отдельного права, полный состав и история — в кабинете.";
+  const heading = `Мои доступы\n\n${admission}\n\n`;
+  const details = rows.join("\n\n");
+  const room = 3900 - heading.length - footer.length - 3;
+  return `${heading}${details.length > room ? details.slice(0, room - 1) + "…" : details}\n\n${footer}`;
 }
 function date(value: string): string {
   return (
