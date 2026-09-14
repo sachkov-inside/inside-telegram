@@ -1,0 +1,62 @@
+{
+  "platformCommit": "a663f661e89dfb90270b93e871da81d37d476363",
+  "platformAccepted": true,
+  "authority": "local synthetic Telegram; actual Platform HTTP, PostgreSQL, Logto and browser",
+  "runs": [
+    {
+      "scenario": "proof-accepted-desktop30",
+      "source": "member",
+      "mobile": false,
+      "checks": [
+        "PASS browser sign-in controls support keyboard focus and activation",
+        "PASS real browser linking and one Platform course Enrollment",
+        "PASS cabinet accessibility and viewport checks",
+        "PASS protected guide material body is readable",
+        "PASS intended join via actual Platform v2 dispatch permit",
+        "PASS repeated start and source exit preserve Enrollment identity, revision and dates",
+        "PASS moderation reaches bot and cabinet; repeated start cannot unban; course content remains readable"
+      ]
+    },
+    {
+      "scenario": "proof-accepted-mobile31",
+      "source": "member",
+      "mobile": true,
+      "checks": [
+        "PASS browser sign-in controls support keyboard focus and activation",
+        "PASS real browser linking and one Platform course Enrollment",
+        "PASS cabinet accessibility and viewport checks",
+        "PASS protected guide material body is readable",
+        "PASS intended join via actual Platform v2 dispatch permit",
+        "PASS repeated start and source exit preserve Enrollment identity, revision and dates",
+        "PASS moderation reaches bot and cabinet; repeated start cannot unban; course content remains readable"
+      ]
+    },
+    {
+      "scenario": "proof-accepted-nonmember34",
+      "source": "left",
+      "mobile": false,
+      "checks": [
+        "PASS browser sign-in controls support keyboard focus and activation",
+        "PASS forwarded link to nonmember gives no Enrollment",
+        "PASS cabinet accessibility and viewport checks",
+        "PASS nonmember cannot read protected course material"
+      ]
+    },
+    {
+      "scenario": "proof-accepted-existing33",
+      "checks": [
+        "PASS real email Account, local bank payment, saved paid rights/profile/progress after browser-owned Telegram linking and course Enrollment"
+      ]
+    }
+  ],
+  "operator": {
+    "command": "pnpm owner:community-restriction --preview / --apply through stdin",
+    "authority": "synthetic local user only",
+    "results": ["ready", "applied", "duplicate"],
+    "auditChecks": [
+      "PASS immutable reconstructable restore snapshot after later hold, duplicate and conflicting replay",
+      "PASS atomic audit/projection rollback and legacy receipt upgrade in PostgreSQL"
+    ]
+  },
+  "providerProvenance": "provider-provenance.json"
+}

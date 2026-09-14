@@ -93,3 +93,18 @@ _Avoid_: Lock, token, approval
 A short-lived bot-created join-request invite bound in our own database to one intended identity
 and desired revision. Holding it is not membership.
 _Avoid_: Invite, referral link, access link
+
+**Course Activation Attempt**:
+A durable private Telegram request to check a Platform course rule and continue after browser-owned
+Account linking.
+_Avoid_: Grant, login credential
+
+**Activation Source**:
+An owner-configured course group and participant policy, addressed by an opaque sourceRef. Its
+bounded proof is separate from the Canonical Membership Chat and MembershipEvidence.
+_Avoid_: Canonical Membership Chat, entitlement
+
+**Admission Restriction**:
+A moderation or unknown-origin hold on joining the canonical community. It never revokes a
+Platform content right.
+_Avoid_: Revoked entitlement, expired subscription

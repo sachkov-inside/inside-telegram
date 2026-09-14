@@ -1,4 +1,13 @@
 import {
+  loadActivationConfig,
+  type ActivationConfig,
+} from "./activation-config.js";
+import {
+  COMMUNITY_CONTRACT_VERSION,
+  COMMUNITY_V2,
+  type CommunityVersion,
+} from "../modules/community/community-contract.js";
+import {
   loadNotificationConfig,
   type NotificationConfig,
 } from "./notification-config.js";
@@ -16,11 +25,14 @@ export interface CommunityTexts {
 }
 
 export interface ApplicationConfig {
+  readonly activation?: ActivationConfig;
   readonly notifications?: NotificationConfig;
   readonly botIdentity: string;
   readonly botToken?: string;
   readonly canonicalChatId: string;
   readonly communityMode: CommunityMode;
+  readonly communityContractVersion?: CommunityVersion;
+  readonly communityRemovalsEnabled?: boolean;
   readonly communityIntegrationSecret?: string;
   readonly communityDispatchUrl?: string;
   readonly communityDispatchSecret?: string;
@@ -132,6 +144,18 @@ export function loadApplicationConfig(
     );
   }
 
+  const communityContractVersion =
+    environment.TELEGRAM_COMMUNITY_CONTRACT_VERSION ??
+    COMMUNITY_CONTRACT_VERSION;
+  if (
+    communityContractVersion !== COMMUNITY_CONTRACT_VERSION &&
+    communityContractVersion !== COMMUNITY_V2
+  )
+    throw new Error("Unsupported TELEGRAM_COMMUNITY_CONTRACT_VERSION");
+  const communityRemovalsEnabled = parseBoolean(
+    environment.TELEGRAM_COMMUNITY_REMOVALS_ENABLED,
+    false,
+  );
   const communityMode = environment.TELEGRAM_COMMUNITY_MODE ?? "disabled";
   assertExternalMode(communityMode, "TELEGRAM_COMMUNITY_MODE");
   const communityReconciliationCadenceMilliseconds = parseBoundedInteger(
@@ -357,7 +381,20 @@ export function loadApplicationConfig(
     )
       throw new Error("Tracking redirect cannot be a tracking destination");
   }
+  const activation = loadActivationConfig(
+    environment,
+    [
+      platformIntegrationSecret,
+      signInIntegrationSecret,
+      communityIntegrationSecret,
+      communityDispatchSecret,
+      platformEvidenceDeliverySecret,
+      platformAuthorAuthorizationSecret,
+    ],
+    canonicalChatId,
+  );
   return Object.freeze({
+    ...(activation ? { activation } : {}),
     notifications: loadNotificationConfig(environment),
     ...(platformTrackingRedirectUrl
       ? { platformTrackingRedirectUrl, platformTrackingTargetPrefixes }
@@ -372,6 +409,8 @@ export function loadApplicationConfig(
     ...(botToken ? { botToken } : {}),
     canonicalChatId,
     communityMode,
+    communityContractVersion,
+    communityRemovalsEnabled,
     ...(communityIntegrationSecret ? { communityIntegrationSecret } : {}),
     ...(communityDispatchUrl ? { communityDispatchUrl } : {}),
     ...(communityDispatchSecret ? { communityDispatchSecret } : {}),

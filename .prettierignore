@@ -10,3 +10,8 @@ docs/contracts/billing-v1/
 docs/contracts/notifications-v1/
 src/modules/community/contracts/
 src/modules/notifications/contracts/
+
+# Immutable Platform-owned versioned corpora.
+docs/contracts/community-v2/
+docs/contracts/subscription-activation-v1/
+src/modules/subscription-activation/contracts/

@@ -5,6 +5,7 @@ import { sql, type Selectable, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 import type { Clock } from "../identity-linking/clock.js";
 import {
+  COMMUNITY_V2,
   accessAllows,
   assertCommunityResult,
   type CommunityEffect,
@@ -82,6 +83,9 @@ export async function setDesired(
   for (const operation of current) {
     const result = assertCommunityResult({
       ...operation.result,
+      ...(operation.result.contractVersion === COMMUNITY_V2
+        ? { admissionRestriction: desired.admission_restriction }
+        : {}),
       status,
       observedMembership: observed,
       updatedAt: clock.now().toISOString(),

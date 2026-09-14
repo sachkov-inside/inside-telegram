@@ -1,9 +1,10 @@
+import type { DurableMembershipEnvelope } from "../membership-evidence/membership-evidence-provider.js";
 import { randomUUID } from "node:crypto";
 
 import { sql } from "kysely";
 
 import type { Database } from "../../database/database.js";
-import { canonicalJson } from "../../security/payload-digest.js";
+import { canonicalJson, digest } from "../../security/payload-digest.js";
 import type { Clock } from "../identity-linking/clock.js";
 import {
   accessAllows,
@@ -12,6 +13,8 @@ import {
   communityError,
   communityErrorStatus,
   COMMUNITY_CONTRACT_VERSION,
+  COMMUNITY_V2,
+  type CommunityVersion,
   DISPATCH_CONTRACT_VERSION,
   parseCommunityRequest,
   type CommunityResponse,
@@ -63,6 +66,7 @@ export interface CommunityJoinRequest {
   readonly telegramUserId: string;
   readonly requestedAt: Date;
   readonly updateId: string;
+  readonly inviteLink?: string;
 }
 
 export interface CommunityHandled {
@@ -74,6 +78,8 @@ export interface CommunitySnapshot {
   readonly dueStates: number;
   readonly oldestDueAgeMs: number;
   readonly effectBacklog: number;
+  readonly unknownEffects: number;
+  readonly restricted: number;
 }
 
 /** What the intended contact may be told when they ask to join themselves. */
@@ -81,10 +87,14 @@ export type CommunityAdmission =
   | { readonly kind: "link"; readonly inviteLink: string }
   | { readonly kind: "preparing" }
   | { readonly kind: "member" }
-  | { readonly kind: "none" };
+  | { readonly kind: "none" }
+  | { readonly kind: "moderation_blocked" };
 
 export interface CommunityProviderOptions {
   readonly reconciliationCadenceMs?: number;
+  readonly contractVersion?: CommunityVersion;
+  readonly removalsEnabled?: boolean;
+  readonly botTelegramUserId?: string;
 }
 
 /**
@@ -94,6 +104,8 @@ export interface CommunityProviderOptions {
  */
 export class CommunityProvider {
   private readonly cadence: number;
+  private readonly version: CommunityVersion;
+  private readonly removalsEnabled: boolean;
   private capability?: {
     readonly at: number;
     readonly diagnosticCode: string | null;
@@ -106,22 +118,25 @@ export class CommunityProvider {
     private readonly clock: Clock,
     private readonly authorization: CommunityDispatchAuthorization,
     private readonly chat: TelegramCommunityChat,
-    options: CommunityProviderOptions = {},
+    private readonly options: CommunityProviderOptions = {},
   ) {
     this.cadence = options.reconciliationCadenceMs ?? 60_000;
+    this.version = options.contractVersion ?? COMMUNITY_CONTRACT_VERSION;
+    this.removalsEnabled =
+      options.removalsEnabled ?? this.version === COMMUNITY_CONTRACT_VERSION;
   }
 
   // ---------------------------------------------------------------- inbound
 
   async handle(body: unknown): Promise<CommunityHandled> {
-    const parsed = parseCommunityRequest(body);
+    const parsed = parseCommunityRequest(body, this.version);
     if (parsed.kind === "rejected") {
       // Without a parseable operationId there is no correlation to invent.
       if (!parsed.operationId)
         return { status: communityErrorStatus[parsed.error] };
       return {
         status: communityErrorStatus[parsed.error],
-        body: communityError(parsed.operationId, parsed.error),
+        body: communityError(parsed.operationId, parsed.error, this.version),
       };
     }
     if (parsed.kind === "status") {
@@ -133,7 +148,7 @@ export class CommunityProvider {
       if (!stored || stored.bot_identity !== this.bot)
         return {
           status: communityErrorStatus.not_found,
-          body: communityError(parsed.operationId, "not_found"),
+          body: communityError(parsed.operationId, "not_found", this.version),
         };
       return { status: 200, body: stored.result };
     }
@@ -156,7 +171,11 @@ export class CommunityProvider {
           replay.payload_digest !== payloadDigest ||
           replay.bot_identity !== this.bot
         )
-          return conflict(command.operationId, "operation_conflict");
+          return conflict(
+            command.operationId,
+            "operation_conflict",
+            this.version,
+          );
         return { status: 200, body: replay.result };
       }
 
@@ -183,16 +202,26 @@ export class CommunityProvider {
           );
         if (command.entitlementRevision === current) {
           if (!sameDesiredState(desired, command))
-            return conflict(command.operationId, "revision_conflict");
-          // Identical state at the same revision does not create a second record.
-          return this.recordOperation(
-            tx,
-            command,
-            payloadDigest,
-            desired.status,
-            desired.observed_membership,
-            now,
-          );
+            return conflict(
+              command.operationId,
+              "revision_conflict",
+              this.version,
+            );
+          const previous = await tx
+            .selectFrom("community_operations")
+            .select("command")
+            .where("operation_id", "=", desired.latest_operation)
+            .executeTakeFirstOrThrow();
+          // A coordinated version upgrade replaces the effect target even at the same rights revision.
+          if (previous.command.contractVersion === command.contractVersion)
+            return this.recordOperation(
+              tx,
+              command,
+              payloadDigest,
+              desired.status,
+              desired.observed_membership,
+              now,
+            );
         }
         await this.supersedePrevious(tx, command, now);
       }
@@ -338,7 +367,14 @@ export class CommunityProvider {
     now: Date,
   ): Promise<CommunityHandled> {
     const result = assertCommunityResult({
-      contractVersion: COMMUNITY_CONTRACT_VERSION,
+      contractVersion: command.contractVersion,
+      ...(command.contractVersion === COMMUNITY_V2
+        ? {
+            admissionRestriction: (
+              await desiredFor(tx, this.bot, command.binding.accountRef)
+            ).admission_restriction,
+          }
+        : {}),
       operation: "entitlement.result",
       operationId: command.operationId,
       binding: command.binding,
@@ -404,7 +440,18 @@ export class CommunityProvider {
       .where("platform_links.telegram_user_id", "=", request.telegramUserId)
       .executeTakeFirst();
 
-    if (!intended || !accessAllows(intended.access, now)) {
+    if (
+      !intended ||
+      !accessAllows(intended.access, now) ||
+      (this.version === COMMUNITY_V2 &&
+        (intended.admission_restriction !== "none" ||
+          !reusableInvite(intended, now) ||
+          !request.inviteLink ||
+          request.inviteLink !== intended.invite_link ||
+          request.requestedAt > now ||
+          request.requestedAt <
+            new Date(now.getTime() - INVITE_WINDOW_MILLISECONDS)))
+    ) {
       // Declining a foreign or lapsed request is a local decision; it grants nothing.
       await this.chat.declineJoinRequest(
         this.canonicalChatId,
@@ -422,14 +469,32 @@ export class CommunityProvider {
         .where("join_request_key", "=", key)
         .executeTakeFirst();
       if (existing) return;
-      await openEffect(
+      const current = await desiredFor(tx, this.bot, intended.account_ref);
+      if (
+        Number(current.entitlement_revision) !==
+          Number(intended.entitlement_revision) ||
+        !accessAllows(current.access, this.clock.now()) ||
+        (this.version === COMMUNITY_V2 &&
+          current.admission_restriction !== "none")
+      )
+        return;
+      const effectRef = await openEffect(
         tx,
         this.bot,
         this.clock,
-        targetOf(intended),
+        targetOf(current),
         "community.approve_join",
         key,
       );
+      if (this.version === COMMUNITY_V2)
+        await tx
+          .updateTable("community_effects")
+          .set({
+            join_invite_digest: digest(request.inviteLink),
+            join_invite_expires_at: current.invite_expires_at,
+          })
+          .where("effect_ref", "=", effectRef)
+          .execute();
     });
   }
 
@@ -455,10 +520,136 @@ export class CommunityProvider {
       .executeTakeFirst();
     const now = this.clock.now();
     if (!desired || !accessAllows(desired.access, now)) return { kind: "none" };
+    if (desired.admission_restriction !== "none")
+      return { kind: "moderation_blocked" };
     if (desired.observed_membership === "member") return { kind: "member" };
     if (reusableInvite(desired, now) && desired.invite_link)
       return { kind: "link", inviteLink: desired.invite_link };
     return { kind: "preparing" };
+  }
+
+  /** Trusted canonical events distinguish moderator actions from our recorded removals. */
+  async observeMembershipEvent(
+    event: DurableMembershipEnvelope,
+  ): Promise<void> {
+    if (
+      this.version !== COMMUNITY_V2 ||
+      event.kind !== "subject" ||
+      event.botIdentity !== this.bot ||
+      event.canonicalChatId !== this.canonicalChatId
+    )
+      return;
+    const link = await this.db
+      .selectFrom("platform_links")
+      .select(["account_ref", "telegram_identity_ref"])
+      .where("bot_identity", "=", this.bot)
+      .where("telegram_user_id", "=", event.subjectTelegramUserId)
+      .executeTakeFirst();
+    if (!link) return;
+    await this.db.transaction().execute(async (tx) => {
+      await lockAccount(tx, this.bot, link.account_ref);
+      const current = await tx
+        .selectFrom("community_desired_states")
+        .selectAll()
+        .where("bot_identity", "=", this.bot)
+        .where("account_ref", "=", link.account_ref)
+        .forUpdate()
+        .executeTakeFirst();
+      if (
+        !current ||
+        current.telegram_identity_ref !== link.telegram_identity_ref ||
+        (current.last_membership_event_at &&
+          (current.last_membership_event_at > event.eventAt ||
+            (current.last_membership_event_at.getTime() ===
+              event.eventAt.getTime() &&
+              current.last_membership_update_id !== null &&
+              BigInt(current.last_membership_update_id) >=
+                BigInt(event.updateId)))) ||
+        event.eventAt > this.clock.now()
+      )
+        return;
+      let restriction = current.admission_restriction;
+      let origin = current.removal_origin;
+      let confirmedBanAttempt: string | null = null;
+      if (event.chatMember.status === "kicked") {
+        const own =
+          event.actorTelegramUserId !== undefined &&
+          event.actorTelegramUserId === this.options.botTelegramUserId;
+        const attempt = own
+          ? await tx
+              .selectFrom("community_effect_attempts")
+              .innerJoin(
+                "community_effects",
+                "community_effects.effect_ref",
+                "community_effect_attempts.effect_ref",
+              )
+              .select([
+                "community_effect_attempts.outcome",
+                "community_effect_attempts.attempt_id",
+              ])
+              .where("community_effects.bot_identity", "=", this.bot)
+              .where(
+                "community_effects.telegram_identity_ref",
+                "=",
+                current.telegram_identity_ref,
+              )
+              .where("community_effect_attempts.action", "=", "ban")
+              .where(
+                "community_effect_attempts.started_at",
+                ">=",
+                new Date(event.eventAt.getTime() - 60_000),
+              )
+              .where(
+                "community_effect_attempts.started_at",
+                "<=",
+                new Date(event.eventAt.getTime() + 1000),
+              )
+              .orderBy("community_effect_attempts.started_at", "desc")
+              .executeTakeFirst()
+          : undefined;
+        if (
+          attempt &&
+          ["succeeded", "started", "unknown"].includes(attempt.outcome) &&
+          restriction === "none"
+        ) {
+          origin = "bot_expiry";
+          confirmedBanAttempt = attempt.attempt_id;
+        } else {
+          restriction =
+            !own && event.actorIsBot === false
+              ? "moderation"
+              : "external_unknown";
+          origin = "external_unknown";
+        }
+      } else if (
+        ["left", "member", "administrator", "creator", "restricted"].includes(
+          event.chatMember.status,
+        )
+      )
+        origin = "none";
+      await tx
+        .updateTable("community_desired_states")
+        .set({
+          admission_restriction: restriction,
+          removal_origin: origin,
+          restriction_revision: Number(current.restriction_revision) + 1,
+          last_membership_event_at: event.eventAt,
+          last_membership_update_id: event.updateId,
+          confirmed_ban_attempt_id: confirmedBanAttempt,
+          due_at: this.clock.now(),
+        })
+        .where("bot_identity", "=", this.bot)
+        .where("account_ref", "=", link.account_ref)
+        .execute();
+      await setDesired(
+        tx,
+        this.bot,
+        this.clock,
+        { ...current, admission_restriction: restriction },
+        {},
+        this.clock.now(),
+      );
+    });
   }
 
   // ----------------------------------------------------------------- worker
@@ -487,6 +678,41 @@ export class CommunityProvider {
       return;
     }
 
+    if (observation.state !== "banned" && desired.removal_origin !== "none") {
+      const cleared = await this.db
+        .updateTable("community_desired_states")
+        .set({ removal_origin: "none" })
+        .where("bot_identity", "=", this.bot)
+        .where("account_ref", "=", desired.account_ref)
+        .where("entitlement_revision", "=", desired.entitlement_revision)
+        .where("restriction_revision", "=", desired.restriction_revision)
+        .where("telegram_identity_ref", "=", desired.telegram_identity_ref)
+        .where("link_ref", "=", desired.link_ref)
+        .where("link_revision", "=", desired.link_revision)
+        .returning("account_ref")
+        .executeTakeFirst();
+      if (!cleared) return;
+    }
+    if (await this.blockUnsafeAdmission(effect, desired, observation.state))
+      return;
+    if (
+      this.version === COMMUNITY_V2 &&
+      effect.effect === "community.approve_join" &&
+      !validJoinInvite(effect, desired, this.clock.now())
+    ) {
+      await this.db
+        .transaction()
+        .execute((tx) =>
+          closeEffect(
+            tx,
+            this.clock,
+            effect.effect_ref,
+            "failed",
+            "join_invite_expired",
+          ),
+        );
+      return;
+    }
     const action = nextAction(
       effect,
       desired,
@@ -499,6 +725,10 @@ export class CommunityProvider {
     }
     if (action === "done") {
       await this.complete(effect, desired, observation.state);
+      return;
+    }
+    if (action === "ban" && !this.removalsEnabled) {
+      await this.defer(effect.effect_ref, "removals_disabled");
       return;
     }
     await this.dispatch(effect, desired, action, telegramUserId, payloadDigest);
@@ -625,9 +855,19 @@ export class CommunityProvider {
       }
       const operation = await tx
         .selectFrom("community_operations")
-        .select("payload_digest")
+        .select(["payload_digest", "command"])
         .where("operation_id", "=", effect.operation_id)
         .executeTakeFirstOrThrow();
+      if (operation.command.contractVersion !== this.version) {
+        await closeEffect(
+          tx,
+          this.clock,
+          effectRef,
+          "superseded",
+          "contract_version_changed",
+        );
+        return;
+      }
       return {
         effect,
         desired,
@@ -635,6 +875,58 @@ export class CommunityProvider {
         payloadDigest: operation.payload_digest,
       };
     });
+  }
+
+  private async blockUnsafeAdmission(
+    effect: EffectRow,
+    desired: DesiredRow,
+    observed: ObservedState,
+  ): Promise<boolean> {
+    if (
+      this.version !== COMMUNITY_V2 ||
+      effect.effect === "community.ensure_absence"
+    )
+      return false;
+    if (
+      desired.admission_restriction === "none" &&
+      (observed !== "banned" ||
+        ["bot_expiry", "operator_restore"].includes(desired.removal_origin))
+    )
+      return false;
+    await this.db.transaction().execute(async (tx) => {
+      await lockAccount(tx, this.bot, effect.account_ref);
+      const current = await desiredFor(tx, this.bot, effect.account_ref);
+      if (!sameDesiredSnapshot(current, desired)) return;
+      const restriction =
+        current.admission_restriction === "none"
+          ? "external_unknown"
+          : current.admission_restriction;
+      await tx
+        .updateTable("community_desired_states")
+        .set({
+          admission_restriction: restriction,
+          restriction_revision: Number(current.restriction_revision) + 1,
+        })
+        .where("bot_identity", "=", this.bot)
+        .where("account_ref", "=", effect.account_ref)
+        .execute();
+      await setDesired(
+        tx,
+        this.bot,
+        this.clock,
+        { ...current, admission_restriction: restriction },
+        { status: "failed", observed: observedMembership(observed) },
+        this.clock.now(),
+      );
+      await closeEffect(
+        tx,
+        this.clock,
+        effect.effect_ref,
+        "failed",
+        "admission_restricted",
+      );
+    });
+    return true;
   }
 
   private async dispatch(
@@ -649,7 +941,7 @@ export class CommunityProvider {
       operation: "dispatch.authorize",
       operationId: randomUUID(),
       dispatchId: effect.operation_id,
-      dispatchContractVersion: COMMUNITY_CONTRACT_VERSION,
+      dispatchContractVersion: this.version,
       attemptId: randomUUID(),
       effectRef: effect.effect_ref,
       effect: effect.effect,
@@ -672,6 +964,7 @@ export class CommunityProvider {
         .forUpdate()
         .executeTakeFirstOrThrow();
       const state = await desiredFor(tx, this.bot, effect.account_ref);
+      if (!sameDesiredSnapshot(state, desired)) return;
       const now = this.clock.now();
       if (
         !isOpen(current.state) ||
@@ -689,7 +982,27 @@ export class CommunityProvider {
         return;
       }
       if (
+        current.effect !== "community.ensure_absence" &&
+        state.admission_restriction !== "none"
+      )
+        return;
+      if (
+        this.version === COMMUNITY_V2 &&
+        action === "approve" &&
+        !validJoinInvite(current, state, now)
+      ) {
+        await closeEffect(
+          tx,
+          this.clock,
+          current.effect_ref,
+          "failed",
+          "join_invite_expired",
+        );
+        return;
+      }
+      if (
         !response ||
+        response.contractVersion !== DISPATCH_CONTRACT_VERSION ||
         response.operation !== "dispatch.result" ||
         response.operationId !== request.operationId ||
         response.dispatchId !== request.dispatchId ||
@@ -716,6 +1029,7 @@ export class CommunityProvider {
         .insertInto("community_effect_attempts")
         .values({
           attempt_id: request.attemptId,
+          restriction_revision: state.restriction_revision,
           effect_ref: current.effect_ref,
           permit_ref: response.decision.permitRef,
           action,
@@ -738,7 +1052,21 @@ export class CommunityProvider {
         })
         .where("effect_ref", "=", current.effect_ref)
         .execute();
-      return { until, inviteLink: state.invite_link };
+      const inviteExpiresAt =
+        action === "create_invite" ? this.inviteExpiry(state) : undefined;
+      if (inviteExpiresAt)
+        await this.storeInvite(tx, state, {
+          invite_state: "unknown",
+          invite_expires_at: inviteExpiresAt,
+        });
+      return {
+        until:
+          action === "approve" && current.join_invite_expires_at
+            ? Math.min(until, current.join_invite_expires_at.getTime())
+            : until,
+        inviteLink: state.invite_link,
+        inviteExpiresAt,
+      };
     });
     if (!started) return;
 
@@ -753,7 +1081,7 @@ export class CommunityProvider {
       action,
       telegramUserId,
       started.inviteLink,
-      desired,
+      started.inviteExpiresAt,
     );
     await this.settle(effect.effect_ref, request.attemptId, action, outcome);
   }
@@ -762,7 +1090,7 @@ export class CommunityProvider {
     action: CommunityMutation,
     telegramUserId: string,
     inviteLink: string | null,
-    desired: DesiredRow,
+    expiry: Date | undefined,
   ): Promise<CallResult> {
     const chat = this.canonicalChatId;
     try {
@@ -778,7 +1106,7 @@ export class CommunityProvider {
             ? await this.chat.revokeInviteLink(chat, inviteLink)
             : { kind: "succeeded" };
         case "create_invite": {
-          const expiresAt = this.inviteExpiry(desired);
+          const expiresAt = expiry!;
           const created = await this.chat.createJoinRequestLink(
             chat,
             expiresAt,
@@ -787,7 +1115,7 @@ export class CommunityProvider {
         }
       }
     } catch {
-      return { kind: "unknown" };
+      return { kind: "unknown", ...(expiry ? { expiresAt: expiry } : {}) };
     }
   }
 
@@ -840,6 +1168,35 @@ export class CommunityProvider {
         .execute();
       if (!isOpen(current.state)) return;
       const desired = await desiredFor(tx, this.bot, current.account_ref);
+      const attempt = await tx
+        .selectFrom("community_effect_attempts")
+        .select("restriction_revision")
+        .where("attempt_id", "=", attemptId)
+        .executeTakeFirstOrThrow();
+      if (
+        (action === "ban" || action === "unban") &&
+        (succeeded || outcome.kind === "unknown") &&
+        desired.entitlement_revision === current.entitlement_revision &&
+        desired.latest_operation === current.operation_id &&
+        desired.telegram_identity_ref === current.telegram_identity_ref &&
+        (desired.restriction_revision === attempt.restriction_revision ||
+          desired.confirmed_ban_attempt_id === attemptId)
+      ) {
+        await tx
+          .updateTable("community_desired_states")
+          .set({
+            removal_origin:
+              action === "ban" &&
+              (succeeded || desired.confirmed_ban_attempt_id === attemptId)
+                ? "bot_expiry"
+                : succeeded
+                  ? "none"
+                  : "external_unknown",
+          })
+          .where("bot_identity", "=", this.bot)
+          .where("account_ref", "=", current.account_ref)
+          .execute();
+      }
 
       if (outcome.kind === "created") {
         await tx
@@ -987,11 +1344,7 @@ export class CommunityProvider {
       await lockAccount(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
       const current = await desiredFor(tx, this.bot, effect.account_ref);
-      if (
-        Number(current.entitlement_revision) !==
-        Number(desired.entitlement_revision)
-      )
-        return;
+      if (!sameDesiredSnapshot(current, desired)) return;
       await tx
         .updateTable("community_effects")
         .set({
@@ -1023,11 +1376,7 @@ export class CommunityProvider {
       await lockAccount(tx, this.bot, effect.account_ref);
       const now = this.clock.now();
       const current = await desiredFor(tx, this.bot, effect.account_ref);
-      if (
-        Number(current.entitlement_revision) !==
-        Number(desired.entitlement_revision)
-      )
-        return;
+      if (!sameDesiredSnapshot(current, desired)) return;
       await closeEffect(tx, this.clock, effect.effect_ref, "completed", null);
       await setDesired(
         tx,
@@ -1199,11 +1548,7 @@ export class CommunityProvider {
       await lockAccount(tx, this.bot, accountRef);
       const desired = await desiredFor(tx, this.bot, accountRef);
       const now = this.clock.now();
-      if (
-        Number(desired.entitlement_revision) !==
-        Number(claimed.desired.entitlement_revision)
-      )
-        return;
+      if (!sameDesiredSnapshot(desired, claimed.desired)) return;
       if (observation.kind === "unavailable") {
         // An outage is never hidden behind an earlier applied status.
         await setDesired(
@@ -1216,6 +1561,13 @@ export class CommunityProvider {
         );
         return;
       }
+      if (observation.state !== "banned" && desired.removal_origin !== "none")
+        await tx
+          .updateTable("community_desired_states")
+          .set({ removal_origin: "none" })
+          .where("bot_identity", "=", this.bot)
+          .where("account_ref", "=", accountRef)
+          .execute();
       const observed = observedMembership(observation.state);
       await setDesired(
         tx,
@@ -1255,11 +1607,17 @@ export class CommunityProvider {
       from community_desired_states
       where bot_identity = ${this.bot} and due_at <= ${now}
     `.execute(this.db);
-    const effects = await sql<{ backlog: string }>`
-      select count(*)::text as backlog from community_effects
+    const effects = await sql<{ backlog: string; unknown_count: string }>`
+      select count(*)::text as backlog, count(*) filter (where state = 'unknown')::text as unknown_count from community_effects
       where bot_identity = ${this.bot}
         and state in ('pending', 'started', 'unknown')
     `.execute(this.db);
+    const restrictions = await this.db
+      .selectFrom("community_desired_states")
+      .select(this.db.fn.countAll<string>().as("count"))
+      .where("bot_identity", "=", this.bot)
+      .where("admission_restriction", "!=", "none")
+      .executeTakeFirstOrThrow();
     const oldest = states.rows[0]?.oldest_due_at;
     return {
       dueStates: Number(states.rows[0]?.due_count ?? 0),
@@ -1267,6 +1625,8 @@ export class CommunityProvider {
         ? Math.max(0, now.getTime() - oldest.getTime())
         : 0,
       effectBacklog: Number(effects.rows[0]?.backlog ?? 0),
+      unknownEffects: Number(effects.rows[0]?.unknown_count ?? 0),
+      restricted: Number(restrictions.count),
     };
   }
 }
@@ -1299,9 +1659,40 @@ function sameDesiredState(
 function conflict(
   operationId: string,
   error: "operation_conflict" | "revision_conflict",
+  version: CommunityVersion,
 ): CommunityHandled {
   return {
     status: communityErrorStatus[error],
-    body: communityError(operationId, error),
+    body: communityError(operationId, error, version),
   };
+}
+
+function validJoinInvite(
+  effect: EffectRow,
+  desired: DesiredRow,
+  now: Date,
+): boolean {
+  return (
+    reusableInvite(desired, now) &&
+    effect.join_invite_digest !== null &&
+    desired.invite_link !== null &&
+    digest(desired.invite_link) === effect.join_invite_digest &&
+    effect.join_invite_expires_at !== null &&
+    effect.join_invite_expires_at > now
+  );
+}
+
+/** Observations cannot rewrite a newer binding, entitlement or operator decision. */
+function sameDesiredSnapshot(
+  current: DesiredRow,
+  observed: DesiredRow,
+): boolean {
+  return (
+    current.entitlement_revision === observed.entitlement_revision &&
+    current.latest_operation === observed.latest_operation &&
+    current.telegram_identity_ref === observed.telegram_identity_ref &&
+    current.link_ref === observed.link_ref &&
+    current.link_revision === observed.link_revision &&
+    current.restriction_revision === observed.restriction_revision
+  );
 }

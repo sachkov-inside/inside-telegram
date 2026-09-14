@@ -1,0 +1,10 @@
+{
+  "runtimeAssertions": [
+    "wrong digest denied without effect",
+    "v1 target for v2 stored operation rejected",
+    "unsupported version never downgrades",
+    "moderation never grants or revokes content",
+    "exact binding revision required",
+    "historical v1 receipt read without new v1 effect"
+  ]
+}

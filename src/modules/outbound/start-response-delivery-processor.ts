@@ -43,6 +43,7 @@ export class StartResponseDeliveryProcessor {
         : await this.messages.sendText({
             chatId: delivery.privateChatId,
             text: delivery.messageText,
+            ...(delivery.buttons ? { buttons: delivery.buttons } : {}),
             ...(delivery.signInRequestRef
               ? {
                   buttons: [

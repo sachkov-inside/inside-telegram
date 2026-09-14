@@ -71,6 +71,8 @@ interface DurableMembershipEnvelopeBase {
 export type DurableMembershipEnvelope =
   | (DurableMembershipEnvelopeBase & {
       readonly actorIsSubject: boolean;
+      readonly actorTelegramUserId?: string;
+      readonly actorIsBot?: boolean;
       readonly kind: "subject";
       readonly subjectTelegramUserId: string;
     })

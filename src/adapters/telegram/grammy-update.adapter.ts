@@ -1,3 +1,4 @@
+import type { AccessAction } from "../../modules/subscription-activation/subscription-activation.js";
 import { createHash } from "node:crypto";
 
 import type { Update } from "grammy/types";
@@ -12,6 +13,12 @@ import type { VerifiedSignInDecision } from "../../modules/bot-sign-in/bot-sign-
 import { toTelegramChatMember } from "./grammy-membership.adapter.js";
 
 export type TelegramUpdateCommand =
+  | {
+      readonly kind: "access-action";
+      readonly value: VerifiedPrivateStart;
+      readonly action: AccessAction;
+      readonly callbackQueryId?: string;
+    }
   | {
       readonly kind: "sign-in-decision";
       readonly value: VerifiedSignInDecision;
@@ -43,6 +50,7 @@ export type TelegramUpdateCommand =
           | { readonly digest: string; readonly kind: "digest" }
           | { readonly kind: "malformed" };
         readonly marketingSource?: string;
+        readonly activationCode?: string | null;
         readonly linkToken?:
           | { readonly digest: string; readonly kind: "digest" }
           | { readonly kind: "malformed" };
@@ -61,6 +69,7 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
   delete message[LINK_TOKEN_FIELD];
   delete message[SIGN_IN_TOKEN_FIELD];
   delete message._inside_marketing_source;
+  delete message._inside_activation;
   const text = message.text;
   if (typeof text !== "string") {
     return { ...payload, message };
@@ -71,6 +80,20 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
     return { ...payload, message };
   }
 
+  if (start.argument.startsWith("a_") && start.argument.length < 43) {
+    return {
+      ...payload,
+      message: {
+        ...message,
+        text: start.command,
+        _inside_activation: {
+          code: /^a_[A-Za-z0-9_-]{1,40}$/.test(start.argument)
+            ? start.argument.slice(2)
+            : null,
+        },
+      },
+    };
+  }
   // Never reinterpret any legacy auth token, including ones starting with m_.
   if (start.argument.startsWith("m_") && start.argument.length < 43) {
     return {
@@ -130,6 +153,52 @@ export class GrammyUpdateAdapter {
         value: decision,
         callbackQueryId: update.callback_query.id,
       };
+    const access = this.privateCommand(
+      /^(\/access|Мои доступы|\/platform|Открыть платформу|\/retry|Повторить проверку|\/help|Нужна помощь|Вступить в сообщество)$/,
+      botIdentity,
+      updateId,
+      update,
+      observedAt,
+    );
+    if (access) {
+      const text = access.match[1]!;
+      const action: AccessAction = ["/access", "Мои доступы"].includes(text)
+        ? "own"
+        : ["/platform", "Открыть платформу"].includes(text)
+          ? "platform"
+          : ["/retry", "Повторить проверку"].includes(text)
+            ? "retry"
+            : text === "Вступить в сообщество"
+              ? "community"
+              : "help";
+      return { kind: "access-action", value: access.contact, action };
+    }
+    const callback = update.callback_query;
+    if (
+      callback &&
+      "data" in callback &&
+      typeof callback.data === "string" &&
+      /^access:(own|community|retry|help|platform)$/.test(callback.data) &&
+      callback.from.is_bot === false &&
+      callback.message?.chat.type === "private" &&
+      callback.from.id === callback.message.chat.id &&
+      callback.id.length <= 128
+    ) {
+      const user = telegramId(callback.from.id);
+      if (user)
+        return {
+          kind: "access-action",
+          value: {
+            botIdentity,
+            updateId,
+            observedAt,
+            telegramUserId: user,
+            privateChatId: user,
+          },
+          action: callback.data.slice(7) as AccessAction,
+          callbackQueryId: callback.id,
+        };
+    }
     // The contact asks for their own admission; nobody else selects a recipient.
     const admission = this.privateCommand(
       /^\/community(?:@[A-Za-z0-9_]+)?$/,
@@ -263,6 +332,10 @@ export class GrammyUpdateAdapter {
       botIdentity,
       canonicalChatId,
       telegramUserId,
+      ...(isRecord(request.invite_link) &&
+      typeof request.invite_link.invite_link === "string"
+        ? { inviteLink: request.invite_link.invite_link }
+        : {}),
       requestedAt: new Date(request.date * 1000),
       updateId,
     };
@@ -290,6 +363,10 @@ export class GrammyUpdateAdapter {
 
     return {
       actorIsSubject: actorTelegramUserId === subjectTelegramUserId,
+      actorTelegramUserId,
+      ...(typeof actor.is_bot === "boolean"
+        ? { actorIsBot: actor.is_bot }
+        : {}),
       botIdentity,
       canonicalChatId: parsed.chatId,
       chatMember: parsed.chatMember,
@@ -350,7 +427,7 @@ export class GrammyUpdateAdapter {
 
     const telegramUserId = telegramId(from.id);
     const privateChatId = telegramId(chat.id);
-    if (!telegramUserId || !privateChatId) {
+    if (!telegramUserId || !privateChatId || telegramUserId !== privateChatId) {
       return undefined;
     }
 
@@ -364,6 +441,11 @@ export class GrammyUpdateAdapter {
         telegramUserId,
         updateId,
       },
+      ...(isRecord(message._inside_activation) &&
+      (message._inside_activation.code === null ||
+        typeof message._inside_activation.code === "string")
+        ? { activationCode: message._inside_activation.code as string | null }
+        : {}),
       ...(linkToken ? { linkToken } : {}),
       ...(signInToken ? { signInToken } : {}),
       ...(typeof message._inside_marketing_source === "string"

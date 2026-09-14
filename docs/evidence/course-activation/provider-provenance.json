@@ -1,0 +1,47 @@
+{
+  "platformCommit": "a663f661e89dfb90270b93e871da81d37d476363",
+  "ancestorOfOriginMain": true,
+  "providerTreeEqualsReviewedHead": true,
+  "files": [
+    {
+      "path": "docs/contracts/subscription-activation-v1/fixtures.json",
+      "sha256": "d403bb48ab4bc0743d30bc795f9c418929041455e896960af9fa695903c100c6"
+    },
+    {
+      "path": "docs/contracts/subscription-activation-v1/manifest.json",
+      "sha256": "0775b65ef6ffd407a819cbf9581c05573cdde4643397922264a894b4b7fa2be0"
+    },
+    {
+      "path": "docs/contracts/subscription-activation-v1/protocol.md",
+      "sha256": "149be58b86346887d2668d9a9908c611c332ede1b453a684b62badfeccb29b09"
+    },
+    {
+      "path": "docs/contracts/subscription-activation-v1/scenarios.json",
+      "sha256": "fcb148cded57d950e5b5deaae04584a8a75cc99fb45d7a5c3c8d9b1646040b99"
+    },
+    {
+      "path": "docs/contracts/subscription-activation-v1/schema.json",
+      "sha256": "3148a1e29cd5c5365f9d37bdcff70af6a19faec6d3b6792676e559bff95e0768"
+    },
+    {
+      "path": "docs/contracts/community-v2/fixtures.json",
+      "sha256": "5c65129fdb61483fa6ea85d75508c3c7848f26168969e06e4019d155f74669c3"
+    },
+    {
+      "path": "docs/contracts/community-v2/manifest.json",
+      "sha256": "ea0ee874bf4d36578e14753c41c11e6cc426eadcf0cdbfe37e9d12bc111c8793"
+    },
+    {
+      "path": "docs/contracts/community-v2/protocol.md",
+      "sha256": "a3d7b69c0ac465f473e2faf98751dc4104fb18035df703c3b1ab6400f5b41d4a"
+    },
+    {
+      "path": "docs/contracts/community-v2/scenarios.json",
+      "sha256": "623627ac28661b88a9ef50ea10d31a593f1c2c134cd472308bbce8054edec98d"
+    },
+    {
+      "path": "docs/contracts/community-v2/schema.json",
+      "sha256": "0bb438f210e37f2df5fb3f82229d4df39c7f1802ea6f3b144605ec7b82314a6a"
+    }
+  ]
+}

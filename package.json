@@ -28,7 +28,11 @@
     "start": "node dist/main.js",
     "test": "vitest run --config vitest.config.ts",
     "test:integration": "vitest run --config vitest.integration.config.ts",
-    "typecheck": "tsc --noEmit -p tsconfig.json"
+    "typecheck": "tsc --noEmit -p tsconfig.json",
+    "proof:course:provider": "tsx test/local/course-activation-provider.ts",
+    "owner:community-restriction": "tsx src/operations/community-restriction-cli.ts",
+    "proof:course:browser": "tsx test/local/course-activation-browser.ts",
+    "proof:course:existing": "node test/local/course-existing-browser.mjs"
   },
   "dependencies": {
     "@nestjs/common": "12.0.1",
@@ -46,8 +50,10 @@
     "rxjs": "7.8.2"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "10.0.1",
     "@nestjs/testing": "12.0.1",
+    "@playwright/test": "1.62.1",
     "@types/node": "24.13.3",
     "@types/pg": "8.23.1",
     "eslint": "10.9.1",

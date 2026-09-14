@@ -2,6 +2,7 @@ import type { ColumnType } from "kysely";
 
 import type {
   CommunityAccess,
+  AdmissionRestriction,
   CommunityEffect,
   CommunityResult,
   CommunitySetCommand,
@@ -41,8 +42,71 @@ export type CommunityMutation = Exclude<
 export type CommunityAttemptOutcome =
   "started" | "unknown" | "succeeded" | "not_started" | "rejected";
 
+export type CommunityRemovalOrigin =
+  "none" | "bot_expiry" | "operator_restore" | "external_unknown";
+
+export interface RestrictionAuditState {
+  readonly admissionRestriction: AdmissionRestriction;
+  readonly removalOrigin: CommunityRemovalOrigin;
+  readonly confirmedBanAttemptId: string | null;
+  readonly status: CommunityStatus;
+}
+
+/** Immutable decision context; never copied from the later mutable projection. */
+export interface RestrictionDecisionAudit {
+  readonly version: 1;
+  readonly target: {
+    readonly botIdentity: string;
+    readonly accountRef: string;
+    readonly identityRef: string;
+    readonly linkRef: string;
+    readonly linkRevision: string;
+  };
+  readonly action: "hold" | "restore";
+  readonly expectedRevision: number;
+  readonly appliedRevision: number;
+  readonly before: RestrictionAuditState;
+  readonly after: RestrictionAuditState;
+  readonly communityOperation: {
+    readonly operationId: string;
+    readonly correlationRef: string;
+    readonly contractVersion: CommunitySetCommand["contractVersion"];
+    readonly entitlementRevision: string;
+  };
+}
+
 export interface CommunityTables {
   community_desired_states: {
+    last_membership_update_id: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    confirmed_ban_attempt_id: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    restriction_revision: ColumnType<
+      string,
+      number | undefined,
+      number | string
+    >;
+    last_membership_event_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
+    admission_restriction: ColumnType<
+      AdmissionRestriction,
+      AdmissionRestriction | undefined,
+      AdmissionRestriction
+    >;
+    removal_origin: ColumnType<
+      CommunityRemovalOrigin,
+      CommunityRemovalOrigin | undefined,
+      CommunityRemovalOrigin
+    >;
     bot_identity: string;
     account_ref: string;
     entitlement_revision: RevisionColumn;
@@ -83,7 +147,29 @@ export interface CommunityTables {
     first_seen_at: Timestamp;
     last_seen_at: Timestamp;
   };
+  community_restriction_decisions: {
+    audit: ColumnType<
+      RestrictionDecisionAudit | null,
+      RestrictionDecisionAudit,
+      never
+    >;
+    operation_id: string;
+    fingerprint: string;
+    actor_ref: string;
+    reason: string;
+    created_at: Timestamp;
+  };
   community_effects: {
+    join_invite_digest: ColumnType<
+      string | null,
+      string | null | undefined,
+      string | null
+    >;
+    join_invite_expires_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
     effect_ref: string;
     bot_identity: string;
     account_ref: string;
@@ -102,6 +188,11 @@ export interface CommunityTables {
     updated_at: Timestamp;
   };
   community_effect_attempts: {
+    restriction_revision: ColumnType<
+      string,
+      string | number | undefined,
+      string | number
+    >;
     attempt_id: string;
     effect_ref: string;
     permit_ref: string;

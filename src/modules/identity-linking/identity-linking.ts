@@ -1,3 +1,4 @@
+import { reserveTelegramIdentity } from "./stable-telegram-identity.js";
 import { randomUUID } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
@@ -341,7 +342,11 @@ export class IdentityLinking {
         );
         return { ...base, status: "recovery-required" };
       }
-      const telegramIdentityRef = randomUUID();
+      const telegramIdentityRef = await reserveTelegramIdentity(
+        transaction,
+        linkTransaction.bot_identity,
+        linkTransaction.candidate_telegram_user_id,
+      );
       const inserted = await transaction
         .insertInto("platform_links")
         .values({

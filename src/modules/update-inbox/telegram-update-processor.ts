@@ -1,3 +1,4 @@
+import { SubscriptionActivation } from "../subscription-activation/subscription-activation.js";
 import { AuthorAdmin } from "../communications/author-admin.js";
 import { translateAuthorInput } from "../../adapters/telegram/grammy-author-admin.adapter.js";
 import { MarketingEntry } from "../communications/marketing-entry.js";
@@ -31,6 +32,11 @@ export class TelegramUpdateProcessor {
   private readonly adapter = new GrammyUpdateAdapter();
 
   constructor(
+    @Inject(SubscriptionActivation)
+    private readonly activation: Pick<
+      SubscriptionActivation,
+      "start" | "action"
+    >,
     @Inject(TelegramUpdateInbox) private readonly inbox: TelegramUpdateInbox,
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
     @Inject(BotContacts) private readonly botContacts: BotContacts,
@@ -69,7 +75,12 @@ export class TelegramUpdateProcessor {
           update.receivedAt,
         );
 
-        if (command.kind === "marketing_preference") {
+        if (command.kind === "access-action") {
+          await this.botContacts.observeStart(command.value, "none");
+          await this.activation.action(command.value, command.action);
+          if (command.callbackQueryId)
+            await this.callbackAnswers.answer(command.callbackQueryId);
+        } else if (command.kind === "marketing_preference") {
           await this.botContacts.observeStart(command.value.contact, "none");
           await this.marketing.setPreference(
             command.value.contact,
@@ -78,14 +89,21 @@ export class TelegramUpdateProcessor {
         } else if (command.kind === "start") {
           await this.botContacts.observeStart(
             command.value.contact,
-            command.value.signInToken
+            command.value.activationCode !== undefined
               ? "none"
-              : command.value.linkToken
-                ? "link-receipt"
-                : this.marketing.enabled()
-                  ? "none"
-                  : "welcome",
+              : command.value.signInToken
+                ? "none"
+                : command.value.linkToken
+                  ? "link-receipt"
+                  : this.marketing.enabled()
+                    ? "none"
+                    : "welcome",
           );
+          if (command.value.activationCode !== undefined)
+            await this.activation.start(
+              command.value.contact,
+              command.value.activationCode,
+            );
           if (command.value.signInToken?.kind === "digest") {
             await this.signIn.acceptStart(
               command.value.contact,
@@ -101,6 +119,7 @@ export class TelegramUpdateProcessor {
             });
           }
           if (
+            command.value.activationCode === undefined &&
             !command.value.linkToken &&
             !command.value.signInToken &&
             this.marketing.enabled()
@@ -116,12 +135,15 @@ export class TelegramUpdateProcessor {
         } else if (command.kind === "contactability") {
           await this.botContacts.observeContactability(command.value);
         } else if (command.kind === "membership") {
+          await this.community.observeMembershipEvent(command.value);
           await this.membershipEvidence.accept(command.value);
         } else if (command.kind === "join-request") {
           await this.community.acceptJoinRequest(command.value);
         } else if (command.kind === "community-request") {
           // The command exists only while community effects are enabled.
-          if (this.config.communityMode === "live")
+          if (this.config.activation?.enabled)
+            await this.activation.action(command.value, "community");
+          else if (this.config.communityMode === "live")
             await this.answerAdmission(command.value);
         } else if (command.kind === "ignored") {
           const authorInput = translateAuthorInput(
@@ -172,6 +194,10 @@ export class TelegramUpdateProcessor {
         break;
       case "preparing":
         messageText = texts.preparing;
+        break;
+      case "moderation_blocked":
+        messageText =
+          "Вступление ограничено модератором или требует проверки оператора. Обратитесь к владельцу. Доступ к материалам проверяется отдельно.";
         break;
       case "none":
         messageText = texts.unavailable;
