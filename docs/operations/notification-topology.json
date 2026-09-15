@@ -34,8 +34,8 @@
         "x-queue-type": "quorum",
         "x-delivery-limit": -1,
         "x-overflow": "reject-publish",
-        "x-max-length": 10000,
-        "x-max-length-bytes": 16777216
+        "x-max-length": 1000,
+        "x-max-length-bytes": 16384000
       }
     },
     {
@@ -47,8 +47,8 @@
         "x-queue-type": "quorum",
         "x-delivery-limit": -1,
         "x-overflow": "reject-publish",
-        "x-max-length": 10000,
-        "x-max-length-bytes": 16777216
+        "x-max-length": 1000,
+        "x-max-length-bytes": 16384000
       }
     },
     {
@@ -60,8 +60,8 @@
         "x-queue-type": "quorum",
         "x-delivery-limit": -1,
         "x-overflow": "reject-publish",
-        "x-max-length": 10000,
-        "x-max-length-bytes": 16777216
+        "x-max-length": 1000,
+        "x-max-length-bytes": 16384000
       }
     }
   ],

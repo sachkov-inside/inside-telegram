@@ -58,7 +58,8 @@ const config = loadApplicationConfig({
   TELEGRAM_LINKED_UNAVAILABLE_TEXT: "synthetic unavailable",
   WORKERS_ENABLED: "false",
   TELEGRAM_MARKETING_ENABLED: "true",
-  PLATFORM_TRACKING_REDIRECT_URL: "https://platform.example/communications/go",
+  PLATFORM_TRACKING_REDIRECT_URL:
+    "https://platform.example/communications/visit",
   PLATFORM_TRACKING_TARGET_PREFIXES:
     '["https://platform.example/materials/","https://platform.example/series/"]',
 });

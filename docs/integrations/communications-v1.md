@@ -207,8 +207,11 @@ The optional paired `PLATFORM_TRACKING_REDIRECT_URL` and `PLATFORM_TRACKING_TARG
 one Platform redirect route and a JSON array of trusted content URL prefixes. Prefixes are normalized
 HTTPS URLs with non-root paths ending in `/`; configure only actual content routes, never generic
 redirect/auth endpoints. No credential, query or fragment is accepted. Absent configuration leaves
-original links intact; partial or unrestricted configuration fails startup. Prefix examples in
-`.env.example` are synthetic and do not assert the consumer's final route names.
+original links intact; partial or unrestricted configuration fails startup. Platform's
+communications contract names the consumer route: set the redirect URL to the Platform
+`TELEGRAM_TRACKING_ORIGIN` plus `/communications/visit` and the prefixes to its `/materials/` and
+`/series/` routes. Hosts in `.env.example` are synthetic; `platform-release-alignment.test.ts` pins
+the route.
 
 Before a shared delivery claim commits, matching URL buttons and text-link/URL entities receive
 opaque random tokens bound to the delivery, part and frozen destination. Text/entities retain their

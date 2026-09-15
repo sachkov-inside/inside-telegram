@@ -12,7 +12,8 @@ const environment = {
   TELEGRAM_LINKED_MEMBER_TEXT: "test",
   TELEGRAM_LINKED_NON_MEMBER_TEXT: "test",
   TELEGRAM_LINKED_UNAVAILABLE_TEXT: "test",
-  PLATFORM_TRACKING_REDIRECT_URL: "https://platform.example/communications/go",
+  PLATFORM_TRACKING_REDIRECT_URL:
+    "https://platform.example/communications/visit",
   PLATFORM_TRACKING_TARGET_PREFIXES:
     '["https://platform.example/materials/","https://platform.example/series/"]',
 };
@@ -33,7 +34,7 @@ describe("tracking destination seam", () => {
       "https://platform.example@evil.test/materials/test",
       "https://user:secret@platform.example/materials/test",
       "https://platform.example/materials/",
-      "https://platform.example/communications/go",
+      "https://platform.example/communications/visit",
       "https://api.telegram.org/file/botSynthetic/example",
       "http://platform.example/materials/test",
       "javascript:alert(1)",
