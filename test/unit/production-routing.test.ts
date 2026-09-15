@@ -21,6 +21,7 @@ describe("production provider routes", () => {
     "/webhooks/telegram",
     "/integrations/platform/v1/identity-links",
     "/integrations/platform/v1/community-entitlements",
+    "/integrations/platform/v1/communications",
     "/integrations/platform/v1/identity-links/reference/confirm",
     "/integrations/identity/v1/sign-in",
     "/integrations/identity/v1/sign-in/reference/status",
@@ -41,7 +42,8 @@ describe("production provider routes", () => {
     "/integrations/identity/v1/sign-in/reference/status/extra",
     "/integrations/identity/v1/sign-in/reference/complete",
     "/integrations/platform/v1/identity-links/a/b/confirm",
-    "/integrations/platform/v1/communications",
+    "/integrations/platform/v1/communications/extra",
+    "/integrations/platform/v1/communications/",
     "/integrations/platform/v1/community-entitlements/extra",
     "/prefix/integrations/identity/v1/sign-in",
   ])("rejects paths outside the production boundary: %s", (path) => {

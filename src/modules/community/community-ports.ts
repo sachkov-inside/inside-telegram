@@ -1,7 +1,14 @@
+import type { StartResponseDeliveryQueue } from "../outbound/start-response-delivery-queue.js";
 import type {
   DispatchAuthorizationRequest,
   DispatchAuthorizationResponse,
 } from "./community-contract.js";
+
+/** The durable private-chat outbox; the provider enqueues inside its own transaction. */
+export type CommunityReadmissionReplies = Pick<
+  StartResponseDeliveryQueue,
+  "enqueue"
+>;
 
 export interface CommunityDispatchAuthorization {
   authorize(

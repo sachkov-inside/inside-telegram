@@ -43,7 +43,19 @@ export type CommunityAttemptOutcome =
   "started" | "unknown" | "succeeded" | "not_started" | "rejected";
 
 export type CommunityRemovalOrigin =
-  "none" | "bot_expiry" | "operator_restore" | "external_unknown";
+  | "none"
+  | "bot_expiry"
+  | "operator_restore"
+  | "external_unknown"
+  | "tribute_expiry"
+  | "unexplained_ban";
+
+/** Known removal origins that let a current right lift a ban automatically. */
+export const RESTORABLE_REMOVAL_ORIGINS: readonly CommunityRemovalOrigin[] = [
+  "bot_expiry",
+  "operator_restore",
+  "tribute_expiry",
+];
 
 export interface RestrictionAuditState {
   readonly admissionRestriction: AdmissionRestriction;
@@ -93,6 +105,12 @@ export interface CommunityTables {
       number | string
     >;
     last_membership_event_at: ColumnType<
+      Date | null,
+      Date | null | undefined,
+      Date | null
+    >;
+    /** Set by a Tribute removal until the return invite is offered or the person is back. */
+    readmission_requested_at: ColumnType<
       Date | null,
       Date | null | undefined,
       Date | null

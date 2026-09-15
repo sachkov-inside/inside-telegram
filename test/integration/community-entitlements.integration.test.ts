@@ -1186,6 +1186,7 @@ describe("handing the link over in the private chat", () => {
       preparing: "Synthetic community preparing",
       member: "Synthetic community member",
       unavailable: "Synthetic community unavailable",
+      readmission: "Synthetic community readmission",
     },
     membershipMode: "disabled",
     membershipReconciliationCadenceMilliseconds: 240_000,

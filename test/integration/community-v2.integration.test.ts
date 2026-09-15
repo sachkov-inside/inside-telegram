@@ -10,6 +10,7 @@ import {
   type DispatchAuthorizationRequest,
   type DispatchAuthorizationResponse,
 } from "../../src/modules/community/community-contract.js";
+import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-response-delivery-queue.js";
 import { digest } from "../../src/security/payload-digest.js";
 import { seedCommunityBinding } from "../support/community-binding.js";
 import { FakeCommunityChat } from "../support/community-chat.js";
@@ -20,7 +21,12 @@ beforeAll(async () => {
 afterAll(async () => {
   await db.destroy();
 });
-async function stand() {
+async function stand(
+  options: {
+    readonly removalsEnabled?: boolean;
+    readonly tributeBotTelegramUserId?: string;
+  } = {},
+) {
   const bot = `v2-${randomUUID()}`;
   const user = "70099";
   const clock = {
@@ -68,8 +74,17 @@ async function stand() {
   const provider = () =>
     new CommunityProvider(db, bot, "-1000000000000", clock, auth, chat, {
       contractVersion: COMMUNITY_V2,
-      removalsEnabled: true,
+      removalsEnabled: options.removalsEnabled ?? true,
       botTelegramUserId: "1234",
+      ...(options.tributeBotTelegramUserId
+        ? {
+            tributeBotTelegramUserId: options.tributeBotTelegramUserId,
+            readmission: {
+              replies: new StartResponseDeliveryQueue(db),
+              text: "Synthetic readmission",
+            },
+          }
+        : {}),
     });
   let revision = 0;
   async function set(
@@ -579,5 +594,225 @@ describe("community v2 exact target, moderation and durable effects", () => {
     expect(s.chat.count("approve")).toBe(1);
     await s.provider().processDueEffects();
     expect(await s.provider().admissionFor(s.user)).toEqual({ kind: "member" });
+  });
+});
+
+describe("community v2 removal by the configured Tribute bot", () => {
+  const tribute = "7000001";
+  type Stand = Awaited<ReturnType<typeof stand>>;
+  const removal = (
+    s: Stand,
+    status: "kicked" | "left",
+    actor: { readonly id: string; readonly isBot: boolean },
+    updateId: string,
+  ) =>
+    s.provider().observeMembershipEvent({
+      kind: "subject",
+      botIdentity: s.bot,
+      canonicalChatId: "-1000000000000",
+      subjectTelegramUserId: s.user,
+      actorIsSubject: false,
+      actorIsBot: actor.isBot,
+      actorTelegramUserId: actor.id,
+      chatMember: { status },
+      eventAt: s.clock.now(),
+      updateId,
+    });
+  const notices = async (s: Stand) =>
+    (
+      await db
+        .selectFrom("start_response_deliveries")
+        .select(["private_chat_id", "message_text"])
+        .where("bot_identity", "=", s.bot)
+        .where("source_key", "like", "community-readmission:%")
+        .execute()
+    ).map((row) => ({
+      chat: String(row.private_chat_id),
+      text: row.message_text,
+    }));
+  const advance = (s: Stand, milliseconds: number) => {
+    s.clock.value = new Date(s.clock.now().getTime() + milliseconds);
+  };
+  async function sweep(s: Stand) {
+    await s.provider().reconcileDueStates();
+    await s.provider().processDueEffects();
+    await s.provider().processDueEffects();
+  }
+  async function memberWithRight() {
+    const s = await stand({ tributeBotTelegramUserId: tribute });
+    s.chat.membership = "member";
+    await s.set();
+    await s.provider().processDueEffects();
+    advance(s, 1000);
+    return s;
+  }
+  const blocked = async (s: Stand) => {
+    expect(s.chat.count("unban")).toBe(0);
+    expect(s.chat.count("create_invite")).toBe(0);
+    expect(await notices(s)).toEqual([]);
+    expect(await s.provider().admissionFor(s.user)).toEqual({
+      kind: "moderation_blocked",
+    });
+  };
+
+  it("returns a person removed by Tribute while the Platform right is current", async () => {
+    const s = await memberWithRight();
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: tribute, isBot: true }, "200");
+    expect(await s.row()).toMatchObject({
+      admission_restriction: "none",
+      removal_origin: "tribute_expiry",
+    });
+
+    await sweep(s);
+
+    expect(s.chat.count("unban")).toBe(1);
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await s.provider().admissionFor(s.user)).toEqual({
+      kind: "link",
+      inviteLink: "https://t.me/+synthetic",
+    });
+    expect(await notices(s)).toEqual([
+      { chat: s.user, text: "Synthetic readmission\nhttps://t.me/+synthetic" },
+    ]);
+    advance(s, 60_000);
+    await sweep(s);
+    expect(await notices(s)).toHaveLength(1);
+  });
+
+  it("invites a person whom Tribute banned and unbanned, because leaving does not return them", async () => {
+    const s = await memberWithRight();
+    await removal(s, "kicked", { id: tribute, isBot: true }, "200");
+    await removal(s, "left", { id: tribute, isBot: true }, "201");
+    s.chat.membership = "not_member";
+
+    await sweep(s);
+
+    expect(s.chat.count("unban")).toBe(0);
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await notices(s)).toHaveLength(1);
+  });
+
+  it("keeps a removal by a human moderator as a ban without automatic return", async () => {
+    const s = await memberWithRight();
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: "998", isBot: false }, "200");
+
+    await sweep(s);
+
+    expect((await s.row()).admission_restriction).toBe("moderation");
+    await blocked(s);
+  });
+
+  it("keeps a removal by an unconfigured bot restricted as unknown", async () => {
+    const s = await memberWithRight();
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: "555000", isBot: true }, "200");
+
+    await sweep(s);
+
+    expect((await s.row()).admission_restriction).toBe("external_unknown");
+    await blocked(s);
+  });
+
+  it("does nothing without a Platform right and returns the person once a right appears", async () => {
+    const s = await stand({
+      tributeBotTelegramUserId: tribute,
+      removalsEnabled: false,
+    });
+    s.chat.membership = "member";
+    await s.set({ kind: "denied" });
+    await s.provider().processDueEffects();
+    advance(s, 1000);
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: tribute, isBot: true }, "300");
+    advance(s, 60_000);
+
+    await sweep(s);
+
+    expect(s.chat.count("ban")).toBe(0);
+    expect(s.chat.count("unban")).toBe(0);
+    expect(s.chat.count("create_invite")).toBe(0);
+    expect(await notices(s)).toEqual([]);
+
+    await s.set();
+    await sweep(s);
+
+    expect(s.chat.count("unban")).toBe(1);
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await notices(s)).toHaveLength(1);
+  });
+
+  it("lets a late Tribute event lift the restriction set by an unexplained ban observation", async () => {
+    const s = await memberWithRight();
+    s.chat.membership = "banned";
+    advance(s, 60_000);
+    await sweep(s);
+    expect((await s.row()).admission_restriction).toBe("external_unknown");
+    expect(s.chat.count("unban")).toBe(0);
+
+    await removal(s, "kicked", { id: tribute, isBot: true }, "200");
+    await sweep(s);
+
+    expect((await s.row()).admission_restriction).toBe("none");
+    expect(s.chat.count("unban")).toBe(1);
+    expect(s.chat.count("create_invite")).toBe(1);
+  });
+
+  it("does not lift a moderator ban when Tribute reports a later removal event", async () => {
+    const s = await memberWithRight();
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: "998", isBot: false }, "200");
+    await removal(s, "kicked", { id: tribute, isBot: true }, "201");
+
+    await sweep(s);
+
+    expect((await s.row()).admission_restriction).toBe("moderation");
+    await blocked(s);
+  });
+
+  it("invites a person whom Tribute removed with a single unban", async () => {
+    const s = await memberWithRight();
+    await removal(s, "left", { id: tribute, isBot: true }, "200");
+    s.chat.membership = "not_member";
+
+    await sweep(s);
+
+    expect(s.chat.count("unban")).toBe(0);
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await notices(s)).toHaveLength(1);
+  });
+
+  it("keeps an unknown bot's ban restricted after a manual unban and a later Tribute removal", async () => {
+    const s = await memberWithRight();
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: "555000", isBot: true }, "200");
+    await removal(s, "left", { id: "998", isBot: false }, "201");
+    await removal(s, "kicked", { id: tribute, isBot: true }, "202");
+
+    await sweep(s);
+
+    expect((await s.row()).admission_restriction).toBe("external_unknown");
+    await blocked(s);
+  });
+
+  it("keeps the invite available in the bot but sends no message to an unreachable contact", async () => {
+    const s = await memberWithRight();
+    await db
+      .updateTable("bot_contacts")
+      .set({ contactability: "blocked" })
+      .where("bot_identity", "=", s.bot)
+      .execute();
+    s.chat.membership = "banned";
+    await removal(s, "kicked", { id: tribute, isBot: true }, "200");
+
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await notices(s)).toEqual([]);
+    expect(await s.provider().admissionFor(s.user)).toEqual({
+      kind: "link",
+      inviteLink: "https://t.me/+synthetic",
+    });
   });
 });

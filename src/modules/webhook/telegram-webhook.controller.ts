@@ -8,9 +8,9 @@ import {
   Post,
 } from "@nestjs/common";
 
-import { TelegramWebhook } from "./telegram-webhook.js";
+import { TELEGRAM_WEBHOOK_PATH, TelegramWebhook } from "./telegram-webhook.js";
 
-@Controller("webhooks/telegram")
+@Controller(TELEGRAM_WEBHOOK_PATH)
 export class TelegramWebhookController {
   constructor(
     @Inject(TelegramWebhook) private readonly webhook: TelegramWebhook,

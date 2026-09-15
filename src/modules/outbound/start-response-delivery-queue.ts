@@ -54,7 +54,7 @@ export class StartResponseDeliveryQueue {
       readonly privateChatId: string;
       readonly messageText: string;
       readonly sourceKey: string;
-      readonly triggerUpdateId: string;
+      readonly triggerUpdateId?: string;
       readonly now: Date;
     },
     database: Database | Transaction<DatabaseSchema> = this.database,
@@ -79,7 +79,7 @@ export class StartResponseDeliveryQueue {
         source_key: delivery.sourceKey,
         state: "pending",
         telegram_user_id: delivery.telegramUserId,
-        trigger_update_id: delivery.triggerUpdateId,
+        trigger_update_id: delivery.triggerUpdateId ?? null,
         updated_at: delivery.now,
       })
       .onConflict((conflict) => conflict.doNothing())

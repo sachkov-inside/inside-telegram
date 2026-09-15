@@ -46,8 +46,13 @@ TELEGRAM_WEBHOOK_ORIGIN=<application IPv4>:443
 - hostname и путь сохраняются, в HTTPS URL добавляется порт 88;
 - `ip_address` указывает на relay IPv4; DNS hostname менять не нужно;
 - `secret_token` берётся из текущей production-конфигурации и не меняется;
-- `allowed_updates` и `max_connections` берутся из сверенного состояния;
+- `max_connections` берётся из сверенного состояния, `allowed_updates` — точный список приложения
+  (`TELEGRAM_WEBHOOK_ALLOWED_UPDATES` в `src/modules/webhook/telegram-webhook.ts`);
 - `drop_pending_updates=false` обязателен.
+
+Если relay уже работает и нужно изменить только список обновлений, используйте команду
+`webhook-registration` из [production.md](production.md#webhook): она сохраняет URL с портом 88,
+`ip_address` и `max_connections` и подтверждает результат повторным чтением.
 
 Не вызывайте `deleteWebhook`, `getUpdates` или сброс очереди. При timeout операции
 сначала прочитайте фактический `getWebhookInfo`; не повторяйте изменение вслепую.

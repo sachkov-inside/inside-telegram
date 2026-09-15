@@ -47,7 +47,8 @@ export function loadNotificationConfig(
     [
       env.PLATFORM_INTEGRATION_SECRET,
       env.PLATFORM_AUTHOR_AUTHORIZATION_SECRET,
-      env.COMMUNITY_DISPATCH_SECRET,
+      env.PLATFORM_COMMUNITY_INTEGRATION_SECRET,
+      env.PLATFORM_COMMUNITY_DISPATCH_SECRET,
     ].includes(authorizeSecret)
   )
     throw new Error("Notifications require a separate service secret");

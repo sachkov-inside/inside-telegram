@@ -211,6 +211,7 @@ describe("application configuration", () => {
   it("requires a bot token and both dispatch credentials for live community effects", () => {
     const community = {
       ...validEnvironment,
+      TELEGRAM_COMMUNITY_CONTRACT_VERSION: "inside.community-entitlement.v2",
       TELEGRAM_COMMUNITY_MODE: "live",
       PLATFORM_COMMUNITY_INTEGRATION_SECRET:
         "synthetic_community_inbound_secret",
@@ -274,5 +275,98 @@ describe("application configuration", () => {
         TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS: "120000",
       }),
     ).toThrow("TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS");
+  });
+
+  it("requires community v2 to be named explicitly once the community integration is configured", () => {
+    const configured = {
+      ...validEnvironment,
+      PLATFORM_COMMUNITY_INTEGRATION_SECRET:
+        "synthetic_community_inbound_secret",
+    };
+    expect(() => loadApplicationConfig(configured)).toThrow(
+      "TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2 is required",
+    );
+    expect(
+      loadApplicationConfig({
+        ...configured,
+        TELEGRAM_COMMUNITY_CONTRACT_VERSION: "inside.community-entitlement.v2",
+      }).communityContractVersion,
+    ).toBe("inside.community-entitlement.v2");
+    expect(
+      loadApplicationConfig(validEnvironment).communityContractVersion,
+    ).toBeUndefined();
+  });
+
+  it("refuses to start with an incompatible community contract version", () => {
+    for (const version of [
+      "inside.community-entitlement.v1",
+      "inside.community-entitlement.v3",
+      "v2",
+    ]) {
+      expect(() =>
+        loadApplicationConfig({
+          ...validEnvironment,
+          TELEGRAM_COMMUNITY_CONTRACT_VERSION: version,
+        }),
+      ).toThrow(
+        "TELEGRAM_COMMUNITY_CONTRACT_VERSION must be inside.community-entitlement.v2",
+      );
+    }
+  });
+
+  it("keeps community removals off by default and names the flag it rejects", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).communityRemovalsEnabled,
+    ).toBe(false);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_COMMUNITY_REMOVALS_ENABLED: "no",
+      }),
+    ).toThrow("TELEGRAM_COMMUNITY_REMOVALS_ENABLED must be true or false");
+  });
+
+  it("accepts an explicit Tribute bot identity only as a Telegram user id distinct from this bot", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).communityTributeBotTelegramUserId,
+    ).toBeUndefined();
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID: "7000001",
+      }).communityTributeBotTelegramUserId,
+    ).toBe("7000001");
+    for (const bad of ["-7000001", "0", "tribute", "7000001.5"]) {
+      expect(() =>
+        loadApplicationConfig({
+          ...validEnvironment,
+          TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID: bad,
+        }),
+      ).toThrow("TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID");
+    }
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_BOT_TOKEN: "7000001:synthetic",
+        TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID: "7000001",
+      }),
+    ).toThrow("TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID");
+  });
+
+  it("refuses a Notifications secret shared with the community dispatch direction", () => {
+    const dispatchSecret = "synthetic_community_dispatch_secret_value";
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COMMUNITY_DISPATCH_SECRET: dispatchSecret,
+        TELEGRAM_COMMUNITY_CONTRACT_VERSION: "inside.community-entitlement.v2",
+        TELEGRAM_NOTIFICATIONS_ENABLED: "true",
+        NOTIFICATION_AMQP_URL: "amqp://127.0.0.1:5673/inside-notifications",
+        NOTIFICATION_AUTHORIZE_URL:
+          "http://127.0.0.1:3001/internal/notifications/dispatch/authorize",
+        NOTIFICATION_AUTHORIZE_SECRET: dispatchSecret,
+        NOTIFICATION_QUARANTINE_KEY: "a".repeat(64),
+      }),
+    ).toThrow("Notifications require a separate service secret");
   });
 });
