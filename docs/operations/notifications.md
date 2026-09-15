@@ -41,6 +41,30 @@ Platform может использовать отдельные principals дл�
 exchange, чужие exchanges, alternate exchanges, exchange-to-exchange bindings или configure
 в runtime permissions. Отдельные email/events lanes принадлежат Platform.
 
+### Production
+
+На production брокер — RabbitMQ Platform на том же VPS
+([Platform #527](https://github.com/sachkov-inside/platform/issues/527)). Единственный источник
+definitions — генератор Platform `notificationTopology`
+(`apps/backend/src/infrastructure/notification-transport/topology.ts`): один vhost окружения, пять
+principals (Billing, Materials, Notifications, email, Telegram), шесть exchanges и восемь quorum
+queues. На Platform `origin/main` от 15.09.2026 он вызывается только для локального стенда;
+production definitions, vhost, пароли и ёмкость очередей выпускает #527. Этот файл
+`notification-topology.json` на production не импортируется: он описывает подмножество Telegram
+для локальной и тестовой проверки. Имена exchanges, queues, routing keys и права principal Telegram
+в нём совпадают с генератором Platform.
+
+- `NOTIFICATION_AMQP_URL` — `amqps://<principal Telegram>:<пароль>@<host брокера>:5671/<vhost>`.
+  Vhost в URL кодируется (`/` → `%2F`). Пароль principal Telegram выдаёт Platform при генерации
+  definitions и передаёт только в `application.env` Telegram.
+- Права principal Telegram: `configure ^$`, `write` только `inside.results.telegram.v1`, `read` только
+  `telegram.notifications.subscription.v1` и `telegram.notifications.material.v1`. Генератор Platform
+  записывает то же в форме `^(?:a|b)$`.
+- Ёмкость очередей задаёт Platform параметром `queueCapacity` (локальный стенд — 1000 сообщений и
+  16 MiB; production-значение выбирает #527). Значение 10000 в локальном файле используется только
+  тестами Telegram.
+- TLS, host в URL и CA — в [production.md](production.md#сеть-до-брокера).
+
 Quorum queues: persistent messages, максимум 10000 сообщений/16 MiB, `reject-publish`,
 `x-delivery-limit=-1`, без TTL. Фактический quorum limit может кратко превышаться на уже летящие
 сообщения. Эти настройки и scoped ACL проверяются на настоящем RabbitMQ.

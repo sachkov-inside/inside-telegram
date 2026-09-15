@@ -13,25 +13,78 @@
 | `PLATFORM_ACTIVATION_SECRET` | Отдельный activation credential; совпадает с Platform ingress credential |
 | `PLATFORM_ACCOUNT_URL` | Обычный browser Account URL, без токенов, query или fragment |
 | `TELEGRAM_ACTIVATION_SOURCES` | JSON registry: sourceRef, chatId, policy; для confirmed_list — confirmedIdentityRefs |
-| `TELEGRAM_COMMUNITY_CONTRACT_VERSION` | Явный `inside.community-entitlement.v2` на обеих сторонах |
-| `TELEGRAM_COMMUNITY_REMOVALS_ENABLED` | По умолчанию false; включение требует согласованного управления группой |
+| `TELEGRAM_COMMUNITY_CONTRACT_VERSION` | Явный `inside.community-entitlement.v2` на обеих сторонах; другое значение или его отсутствие при настроенном сообществе — отказ при старте |
+| `TELEGRAM_COMMUNITY_REMOVALS_ENABLED` | `false` до переноса участников (#150): бот Inside никого не исключает |
+| `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | Числовой id бота Tribute; его исключения — окончание подписки Tribute, а не модерация |
+| `TELEGRAM_COMMUNITY_READMISSION_TEXT` | Необязательный текст личного сообщения со ссылкой для возвращения |
 
-Остальные linking/sign-in/community secrets и URLs остаются по действующим integration runbooks.
-Platform dispatch endpoint — `/internal/billing-dispatch/authorize`. Source chat identifiers и
-списки identity находятся только в защищённой конфигурации, не в Git или отчёте PR.
+Остальные настройки и пары секретов с Platform — в [production.md](production.md#конфигурация).
+Source chat identifiers, id ботов и списки identity находятся только в защищённой конфигурации,
+не в Git или отчёте PR.
 
 Перед включением: принятые версии обоих приложений, миграции, проверенный versioned corpus,
 отдельные credentials, source policy владельца и проверенные права бота-администратора. Canonical
 чат не меняется. Условия курса, scope тарифа и публичная продажа остаются решениями Platform/владельца.
 
-## Согласование двух ботов
+## Два бота в общей группе
 
-Зафиксировать для сохранённой группы, какой бот вправе исключать участника и при каком основании.
-Сопоставить платные остатки Tribute с независимыми Guide/course правами. Подтвердить, что Tribute
-не исключает людей, имеющих другое действующее основание. Неизвестное поведение означает, что
-массовое смешанное включение и `TELEGRAM_COMMUNITY_REMOVALS_ENABLED=true` ещё не разрешены.
-Протокол не считается заполненным наличием этого текста. Реальные roster/feed, полномочия,
-отключение продлений и сообщения участникам проверяются отдельно по разрешению владельца.
+Схема действует до переноса участников Tribute и курса
+([#150](https://github.com/sachkov-inside/workspace/issues/150)), после которого владелец убирает
+бота Tribute. Решение владельца от 15.09.2026: бот Inside приглашает покупателей, удаления с нашей
+стороны выключены, бот Tribute работает как раньше.
+
+| Бот | Права в группе | Кого впускает | Кого исключает | Основание |
+| --- | --- | --- | --- | --- |
+| Inside | administrator: `can_invite_users`, `can_restrict_members` | держателя права Platform по его личной ссылке с заявкой | никого (`TELEGRAM_COMMUNITY_REMOVALS_ENABLED=false`) | право Platform, community v2 |
+| Tribute | прежние | новых не принимает | участника, у которого закончилась подписка Tribute | подписка Tribute |
+
+Бот Inside различает, кто исключил человека, по событию `chat_member` и его автору:
+
+| Кто исключил | Действующее право Platform | Что делает бот Inside |
+| --- | --- | --- |
+| Бот Tribute (`TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID`): ban, ban+unban или одиночный unban | есть | при необходимости снимает бан, создаёт личную ссылку и отправляет её в личный чат |
+| Бот Tribute | нет | ничего; когда право появится, возвращает так же |
+| Человек-модератор | любое | запрет `moderation`: автоматического unban нет |
+| Неизвестный бот | любое | запрет `external_unknown`: автоматического unban нет |
+| Бан замечен сверкой раньше события | любое | `external_unknown`, пока не придёт событие; событие бота Tribute снимает этот запрет |
+
+Почему неизвестный бот не возвращает человека. В группах работают anti-spam и модераторские боты,
+которые исключают по решению администраторов. Автоматический unban отменил бы их решение. Протокол
+v2 запрещает автоматическое снятие бана при неизвестном происхождении. Доверие получает только бот,
+явно названный в конфигурации.
+
+Что происходит после исключения ботом Tribute:
+
+1. Если Tribute оставил бан (`kicked`), бот Inside сначала снимает его — с обычным разрешением
+   Platform на эффект. После unban человек в статусе `left` и сам в группу не возвращается.
+2. Если Tribute исключил через ban и unban или одним unban, человек уже `left`: снимать нечего.
+3. В обоих случаях бот создаёт личную ссылку с заявкой на 10 минут. При доступном BotContact ссылка
+   уходит в личный чат один раз, с подсказкой отправить `/community` за новой ссылкой.
+4. Без BotContact или при заблокированном боте сообщение не отправляется: ссылку выдают `/community`
+   и путь активации в боте.
+5. Заявка по этой ссылке одобряется как обычно, запрет `admissionRestriction` остаётся `none`.
+
+Запрет модератора снимает только решение владельца через `community-restriction restore`. Событие
+бота Tribute после модераторского бана запрет не меняет.
+
+Известные ограничения схемы:
+
+- Без `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` каждое исключение ботом Tribute становится
+  `external_unknown`. Настройку нужно задать до `TELEGRAM_COMMUNITY_MODE=live`.
+- Событие бота Tribute снимает только запрет, поставленный сверкой без известного автора бана. Запрет
+  после исключения неизвестным ботом или модератором остаётся, даже если кто-то потом вручную снял бан
+  и человека позже исключил бот Tribute. Снять его может только решение владельца.
+- Бот Inside отклоняет заявки не по своей текущей ссылке. Это безопасно, пока бот Tribute новых
+  участников не принимает. Если Tribute снова начнёт принимать заявки по своим ссылкам, бот Inside
+  будет их отклонять — это нужно пересмотреть до такого изменения.
+- Контракт community v2 с Platform не меняется: значения `admissionRestriction` те же.
+
+Проверка механизма — synthetic Telegram на настоящей PostgreSQL:
+`test/integration/community-v2.integration.test.ts`, блок «removal by the configured Tribute bot».
+Покрыты возврат при праве, ban+unban, одиночный unban, модератор, неизвестный бот, отсутствие права и
+его появление, гонка сверки и события, модераторский бан перед событием Tribute, бан неизвестного
+бота с ручным unban перед событием Tribute, недоступный контакт. Ручная
+проверка на тестовой группе снята решением владельца от 15.09.2026.
 
 ## Разбор ограничений и неизвестного исхода
 
@@ -39,14 +92,27 @@ Platform dispatch endpoint — `/internal/billing-dispatch/authorize`. Source ch
 операторские средства. Не изменять таблицы вручную для повторения Telegram эффекта. При `unknown`
 дать reconciliation проверить фактический roster; неизвестную ссылку не создавать заново до expiry.
 
-Для hold/restore подготовить JSON с `operationId` (UUID), `botIdentity`, opaque `accountRef`,
+Для hold/restore подготовить JSON с `operationId` (UUID v4), `botIdentity`, opaque `accountRef`,
 `identityRef`, `expectedRevision`, `action`, `actorRef`, `reason`. Не передавать реальные данные в
-командной строке или логах. Передать файл через stdin:
+командной строке или логах. Передать файл через stdin.
+
+На production — из runtime-образа, в котором нет pnpm (`telegram_compose` — из
+[production.md](production.md#сборка-и-запуск)):
+
+```bash
+"${telegram_compose[@]}" --profile operations run --rm -T community-restriction --preview < decision.json
+"${telegram_compose[@]}" --profile operations run --rm -T community-restriction --apply < decision.json
+```
+
+В checkout разработчика с `DATABASE_URL` в `.env`:
 
 ```bash
 pnpm owner:community-restriction --preview < decision.json
 pnpm owner:community-restriction --apply < decision.json
 ```
+
+Вывод — только `{"status": ...}`: `ready`, `applied`, `duplicate`, `conflict` (код 2). Неверное
+решение или отсутствие состояния — код 1 без references.
 
 Apply выполняет только отдельно разрешённое решение владельца. Между preview/apply изменение
 revision возвращает conflict: прочитать новое состояние и заново согласовать решение. Повтор

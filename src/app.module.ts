@@ -57,6 +57,7 @@ import {
 } from "./modules/bot-sign-in/telegram-callback-answers.js";
 import { HttpPlatformEvidenceAdapter } from "./adapters/platform/http-platform-evidence.adapter.js";
 import {
+  botTelegramUserIdFromToken,
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "./config/application-config.js";
@@ -224,6 +225,7 @@ export class AppModule {
             CLOCK,
             COMMUNITY_DISPATCH_AUTHORIZATION,
             TELEGRAM_COMMUNITY_CHAT,
+            StartResponseDeliveryQueue,
           ],
           useFactory: (
             database: Database,
@@ -231,6 +233,7 @@ export class AppModule {
             clock: Clock,
             authorization: CommunityDispatchAuthorization,
             chat: TelegramCommunityChat,
+            replies: StartResponseDeliveryQueue,
           ) =>
             new CommunityProvider(
               database,
@@ -242,8 +245,9 @@ export class AppModule {
               {
                 ...(applicationConfig.botToken
                   ? {
-                      botTelegramUserId:
-                        applicationConfig.botToken.split(":")[0],
+                      botTelegramUserId: botTelegramUserIdFromToken(
+                        applicationConfig.botToken,
+                      ),
                     }
                   : {}),
                 ...(applicationConfig.communityContractVersion
@@ -256,6 +260,16 @@ export class AppModule {
                   ? {
                       removalsEnabled:
                         applicationConfig.communityRemovalsEnabled,
+                    }
+                  : {}),
+                ...(applicationConfig.communityTributeBotTelegramUserId
+                  ? {
+                      tributeBotTelegramUserId:
+                        applicationConfig.communityTributeBotTelegramUserId,
+                      readmission: {
+                        replies,
+                        text: applicationConfig.communityTexts.readmission,
+                      },
                     }
                   : {}),
                 reconciliationCadenceMs:

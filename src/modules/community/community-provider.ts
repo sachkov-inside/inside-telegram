@@ -50,9 +50,13 @@ import {
 import type {
   CommunityDispatchAuthorization,
   CommunityObservation,
+  CommunityReadmissionReplies,
   TelegramCommunityChat,
 } from "./community-ports.js";
-import type { CommunityMutation } from "./community-storage.js";
+import {
+  RESTORABLE_REMOVAL_ORIGINS,
+  type CommunityMutation,
+} from "./community-storage.js";
 
 const ATTEMPT_BUDGET = 5;
 const PERMIT_WINDOW_MILLISECONDS = 5000;
@@ -95,6 +99,12 @@ export interface CommunityProviderOptions {
   readonly contractVersion?: CommunityVersion;
   readonly removalsEnabled?: boolean;
   readonly botTelegramUserId?: string;
+  /** Removals by this bot end the Tribute basis only; they are never moderation. */
+  readonly tributeBotTelegramUserId?: string;
+  readonly readmission?: {
+    readonly replies: CommunityReadmissionReplies;
+    readonly text: string;
+  };
 }
 
 /**
@@ -571,67 +581,87 @@ export class CommunityProvider {
       let restriction = current.admission_restriction;
       let origin = current.removal_origin;
       let confirmedBanAttempt: string | null = null;
+      let readmissionRequestedAt = current.readmission_requested_at;
       if (event.chatMember.status === "kicked") {
-        const own =
-          event.actorTelegramUserId !== undefined &&
-          event.actorTelegramUserId === this.options.botTelegramUserId;
-        const attempt = own
-          ? await tx
-              .selectFrom("community_effect_attempts")
-              .innerJoin(
-                "community_effects",
-                "community_effects.effect_ref",
-                "community_effect_attempts.effect_ref",
-              )
-              .select([
-                "community_effect_attempts.outcome",
-                "community_effect_attempts.attempt_id",
-              ])
-              .where("community_effects.bot_identity", "=", this.bot)
-              .where(
-                "community_effects.telegram_identity_ref",
-                "=",
-                current.telegram_identity_ref,
-              )
-              .where("community_effect_attempts.action", "=", "ban")
-              .where(
-                "community_effect_attempts.started_at",
-                ">=",
-                new Date(event.eventAt.getTime() - 60_000),
-              )
-              .where(
-                "community_effect_attempts.started_at",
-                "<=",
-                new Date(event.eventAt.getTime() + 1000),
-              )
-              .orderBy("community_effect_attempts.started_at", "desc")
-              .executeTakeFirst()
-          : undefined;
-        if (
-          attempt &&
-          ["succeeded", "started", "unknown"].includes(attempt.outcome) &&
-          restriction === "none"
-        ) {
-          origin = "bot_expiry";
-          confirmedBanAttempt = attempt.attempt_id;
+        if (this.removedByTribute(event)) {
+          // Tribute ends only its own basis. A ban observed before this event arrived is lifted;
+          // a restriction with a recorded actor or a moderator stays in force.
+          if (
+            restriction === "none" ||
+            (restriction === "external_unknown" && origin === "unexplained_ban")
+          ) {
+            restriction = "none";
+            origin = "tribute_expiry";
+            readmissionRequestedAt = event.eventAt;
+          }
         } else {
-          restriction =
-            !own && event.actorIsBot === false
-              ? "moderation"
-              : "external_unknown";
-          origin = "external_unknown";
+          const own =
+            event.actorTelegramUserId !== undefined &&
+            event.actorTelegramUserId === this.options.botTelegramUserId;
+          const attempt = own
+            ? await tx
+                .selectFrom("community_effect_attempts")
+                .innerJoin(
+                  "community_effects",
+                  "community_effects.effect_ref",
+                  "community_effect_attempts.effect_ref",
+                )
+                .select([
+                  "community_effect_attempts.outcome",
+                  "community_effect_attempts.attempt_id",
+                ])
+                .where("community_effects.bot_identity", "=", this.bot)
+                .where(
+                  "community_effects.telegram_identity_ref",
+                  "=",
+                  current.telegram_identity_ref,
+                )
+                .where("community_effect_attempts.action", "=", "ban")
+                .where(
+                  "community_effect_attempts.started_at",
+                  ">=",
+                  new Date(event.eventAt.getTime() - 60_000),
+                )
+                .where(
+                  "community_effect_attempts.started_at",
+                  "<=",
+                  new Date(event.eventAt.getTime() + 1000),
+                )
+                .orderBy("community_effect_attempts.started_at", "desc")
+                .executeTakeFirst()
+            : undefined;
+          if (
+            attempt &&
+            ["succeeded", "started", "unknown"].includes(attempt.outcome) &&
+            restriction === "none"
+          ) {
+            origin = "bot_expiry";
+            confirmedBanAttempt = attempt.attempt_id;
+          } else {
+            restriction =
+              !own && event.actorIsBot === false
+                ? "moderation"
+                : "external_unknown";
+            origin = "external_unknown";
+          }
         }
       } else if (
         ["left", "member", "administrator", "creator", "restricted"].includes(
           event.chatMember.status,
         )
-      )
+      ) {
         origin = "none";
+        // Tribute's unban leaves the person outside; only a return ends the request.
+        if (event.chatMember.status !== "left") readmissionRequestedAt = null;
+        else if (this.removedByTribute(event) && restriction === "none")
+          readmissionRequestedAt ??= event.eventAt;
+      }
       await tx
         .updateTable("community_desired_states")
         .set({
           admission_restriction: restriction,
           removal_origin: origin,
+          readmission_requested_at: readmissionRequestedAt,
           restriction_revision: Number(current.restriction_revision) + 1,
           last_membership_event_at: event.eventAt,
           last_membership_update_id: event.updateId,
@@ -890,21 +920,25 @@ export class CommunityProvider {
     if (
       desired.admission_restriction === "none" &&
       (observed !== "banned" ||
-        ["bot_expiry", "operator_restore"].includes(desired.removal_origin))
+        RESTORABLE_REMOVAL_ORIGINS.includes(desired.removal_origin))
     )
       return false;
     await this.db.transaction().execute(async (tx) => {
       await lockAccount(tx, this.bot, effect.account_ref);
       const current = await desiredFor(tx, this.bot, effect.account_ref);
       if (!sameDesiredSnapshot(current, desired)) return;
-      const restriction =
-        current.admission_restriction === "none"
-          ? "external_unknown"
-          : current.admission_restriction;
+      const unexplained = current.admission_restriction === "none";
+      const restriction = unexplained
+        ? "external_unknown"
+        : current.admission_restriction;
       await tx
         .updateTable("community_desired_states")
         .set({
           admission_restriction: restriction,
+          // No actor is known yet; a later trusted event may still explain this ban.
+          ...(unexplained
+            ? { removal_origin: "unexplained_ban" as const }
+            : {}),
           restriction_revision: Number(current.restriction_revision) + 1,
         })
         .where("bot_identity", "=", this.bot)
@@ -1226,6 +1260,13 @@ export class CommunityProvider {
           { status: "waiting_for_join" },
           now,
         );
+        await this.offerReadmission(
+          tx,
+          desired,
+          effectRef,
+          outcome.inviteLink,
+          now,
+        );
         return;
       }
       if (outcome.kind === "unknown") {
@@ -1330,6 +1371,70 @@ export class CommunityProvider {
     await tx
       .updateTable("community_desired_states")
       .set({ ...invite, invite_revision: desired.entitlement_revision })
+      .where("bot_identity", "=", this.bot)
+      .where("account_ref", "=", desired.account_ref)
+      .execute();
+  }
+
+  private removedByTribute(event: {
+    readonly actorIsBot?: boolean;
+    readonly actorTelegramUserId?: string;
+  }): boolean {
+    return (
+      this.options.tributeBotTelegramUserId !== undefined &&
+      event.actorIsBot === true &&
+      event.actorTelegramUserId === this.options.tributeBotTelegramUserId
+    );
+  }
+
+  /**
+   * A person removed by Tribute does not come back on their own, so the first link
+   * created for them is also sent privately. Without a reachable BotContact the link
+   * stays available through /community; either way the request is answered once.
+   */
+  private async offerReadmission(
+    tx: Tx,
+    desired: DesiredRow,
+    effectRef: string,
+    inviteLink: string,
+    now: Date,
+  ): Promise<void> {
+    const readmission = this.options.readmission;
+    if (!readmission || desired.readmission_requested_at === null) return;
+    const telegramUserId = await resolveIdentity(
+      tx,
+      this.bot,
+      desired.account_ref,
+      desired.telegram_identity_ref,
+      false,
+    );
+    const contact = telegramUserId
+      ? await tx
+          .selectFrom("bot_contacts")
+          .select("private_chat_id")
+          .where("bot_identity", "=", this.bot)
+          .where("telegram_user_id", "=", telegramUserId)
+          .where("contactability", "=", "reachable")
+          .executeTakeFirst()
+      : undefined;
+    if (telegramUserId && contact)
+      await readmission.replies.enqueue(
+        {
+          botIdentity: this.bot,
+          telegramUserId,
+          privateChatId: contact.private_chat_id,
+          messageText: `${readmission.text}\n${inviteLink}`,
+          sourceKey: `community-readmission:${this.bot}:${effectRef}`,
+          ...(desired.last_membership_update_id
+            ? { triggerUpdateId: desired.last_membership_update_id }
+            : {}),
+          now,
+        },
+        tx,
+      );
+    await tx
+      .updateTable("community_desired_states")
+      .set({ readmission_requested_at: null })
       .where("bot_identity", "=", this.bot)
       .where("account_ref", "=", desired.account_ref)
       .execute();

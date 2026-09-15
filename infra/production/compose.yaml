@@ -27,6 +27,22 @@ services:
     profiles: [operations]
     restart: "no"
 
+  # Owner decision JSON arrives on stdin: run --rm -T community-restriction --preview < decision.json
+  community-restriction:
+    <<: *runtime
+    entrypoint: [node, dist/operations/community-restriction-cli.js]
+    networks: [database]
+    profiles: [operations]
+    restart: "no"
+
+  # Reads the bot token and webhook secret from application.env; the expected URL is passed with -e.
+  webhook-registration:
+    <<: *runtime
+    entrypoint: [node, dist/operations/webhook-registration-cli.js]
+    networks: [egress]
+    profiles: [operations]
+    restart: "no"
+
   app:
     <<: *runtime
     ports:

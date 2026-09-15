@@ -111,5 +111,6 @@ _Avoid_: Canonical Membership Chat, entitlement
 
 **Admission Restriction**:
 A moderation or unknown-origin hold on joining the canonical community. It never revokes a
-Platform content right.
+Platform content right. A removal by the configured Tribute bot is a known subscription end, not a
+restriction: with a current Platform right the bot readmits the person with a private invite.
 _Avoid_: Revoked entitlement, expired subscription

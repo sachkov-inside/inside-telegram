@@ -3,7 +3,6 @@ import {
   type ActivationConfig,
 } from "./activation-config.js";
 import {
-  COMMUNITY_CONTRACT_VERSION,
   COMMUNITY_V2,
   type CommunityVersion,
 } from "../modules/community/community-contract.js";
@@ -22,6 +21,8 @@ export interface CommunityTexts {
   readonly preparing: string;
   readonly member: string;
   readonly unavailable: string;
+  /** Sent with a fresh link to a person whom Tribute removed while a Platform right is current. */
+  readonly readmission: string;
 }
 
 export interface ApplicationConfig {
@@ -33,6 +34,8 @@ export interface ApplicationConfig {
   readonly communityMode: CommunityMode;
   readonly communityContractVersion?: CommunityVersion;
   readonly communityRemovalsEnabled?: boolean;
+  /** The Tribute bot whose own removals are expiry, not moderation. */
+  readonly communityTributeBotTelegramUserId?: string;
   readonly communityIntegrationSecret?: string;
   readonly communityDispatchUrl?: string;
   readonly communityDispatchSecret?: string;
@@ -144,18 +147,33 @@ export function loadApplicationConfig(
     );
   }
 
+  // Startup accepts only v2: an absent or older version never silently selects v1 semantics.
   const communityContractVersion =
-    environment.TELEGRAM_COMMUNITY_CONTRACT_VERSION ??
-    COMMUNITY_CONTRACT_VERSION;
+    environment.TELEGRAM_COMMUNITY_CONTRACT_VERSION?.trim() || undefined;
   if (
-    communityContractVersion !== COMMUNITY_CONTRACT_VERSION &&
+    communityContractVersion !== undefined &&
     communityContractVersion !== COMMUNITY_V2
   )
-    throw new Error("Unsupported TELEGRAM_COMMUNITY_CONTRACT_VERSION");
+    throw new Error(
+      `TELEGRAM_COMMUNITY_CONTRACT_VERSION must be ${COMMUNITY_V2}`,
+    );
   const communityRemovalsEnabled = parseBoolean(
     environment.TELEGRAM_COMMUNITY_REMOVALS_ENABLED,
     false,
+    "TELEGRAM_COMMUNITY_REMOVALS_ENABLED",
   );
+  const communityTributeBotTelegramUserId =
+    environment.TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID?.trim() || undefined;
+  if (
+    communityTributeBotTelegramUserId !== undefined &&
+    (!isSafeTelegramId(communityTributeBotTelegramUserId) ||
+      communityTributeBotTelegramUserId.startsWith("-") ||
+      communityTributeBotTelegramUserId ===
+        botTelegramUserIdFromToken(botToken))
+  )
+    throw new Error(
+      "TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID must be the positive Telegram user id of another bot",
+    );
   const communityMode = environment.TELEGRAM_COMMUNITY_MODE ?? "disabled";
   assertExternalMode(communityMode, "TELEGRAM_COMMUNITY_MODE");
   const communityReconciliationCadenceMilliseconds = parseBoundedInteger(
@@ -178,6 +196,9 @@ export function loadApplicationConfig(
     unavailable:
       environment.TELEGRAM_COMMUNITY_UNAVAILABLE_TEXT?.trim() ||
       "Сейчас у вас нет действующего права на участие в сообществе.",
+    readmission:
+      environment.TELEGRAM_COMMUNITY_READMISSION_TEXT?.trim() ||
+      "Ваше участие в сообществе Inside продолжается. Вернуться можно по личной ссылке, она действует несколько минут. Если не успеете, отправьте /community.",
   });
   const communityIntegrationSecret =
     environment.PLATFORM_COMMUNITY_INTEGRATION_SECRET?.trim() || undefined;
@@ -239,6 +260,17 @@ export function loadApplicationConfig(
         "Live community mode requires PLATFORM_COMMUNITY_INTEGRATION_SECRET, PLATFORM_COMMUNITY_DISPATCH_URL and PLATFORM_COMMUNITY_DISPATCH_SECRET",
       );
     }
+  }
+  if (
+    (communityMode === "live" ||
+      communityIntegrationSecret ||
+      communityDispatchUrl ||
+      communityDispatchSecret) &&
+    communityContractVersion === undefined
+  ) {
+    throw new Error(
+      `TELEGRAM_COMMUNITY_CONTRACT_VERSION=${COMMUNITY_V2} is required when the community integration is configured`,
+    );
   }
 
   let platformEvidenceDeliveryUrl: string | undefined;
@@ -411,6 +443,9 @@ export function loadApplicationConfig(
     communityMode,
     communityContractVersion,
     communityRemovalsEnabled,
+    ...(communityTributeBotTelegramUserId
+      ? { communityTributeBotTelegramUserId }
+      : {}),
     ...(communityIntegrationSecret ? { communityIntegrationSecret } : {}),
     ...(communityDispatchUrl ? { communityDispatchUrl } : {}),
     ...(communityDispatchSecret ? { communityDispatchSecret } : {}),
@@ -421,6 +456,7 @@ export function loadApplicationConfig(
     marketingEnabled: parseBoolean(
       environment.TELEGRAM_MARKETING_ENABLED,
       false,
+      "TELEGRAM_MARKETING_ENABLED",
     ),
     evidenceDeliveryMode,
     host: environment.HOST ?? "127.0.0.1",
@@ -446,8 +482,19 @@ export function loadApplicationConfig(
     ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
     webhookSecret,
     welcomeText: required(environment, "TELEGRAM_WELCOME_TEXT"),
-    workersEnabled: parseBoolean(environment.WORKERS_ENABLED, true),
+    workersEnabled: parseBoolean(
+      environment.WORKERS_ENABLED,
+      true,
+      "WORKERS_ENABLED",
+    ),
   });
+}
+
+/** A Bot API token starts with the bot's own Telegram user id. */
+export function botTelegramUserIdFromToken(
+  token: string | undefined,
+): string | undefined {
+  return token?.split(":")[0] || undefined;
 }
 
 function assertExternalMode(
@@ -507,7 +554,11 @@ function parsePort(value: string | undefined): number {
   return port;
 }
 
-function parseBoolean(value: string | undefined, fallback: boolean): boolean {
+function parseBoolean(
+  value: string | undefined,
+  fallback: boolean,
+  name: string,
+): boolean {
   if (value === undefined) {
     return fallback;
   }
@@ -517,7 +568,7 @@ function parseBoolean(value: string | undefined, fallback: boolean): boolean {
   if (value === "false") {
     return false;
   }
-  throw new Error("WORKERS_ENABLED must be true or false");
+  throw new Error(`${name} must be true or false`);
 }
 
 function parseBoundedInteger(

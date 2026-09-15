@@ -14,6 +14,9 @@ import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import { credentialsMatch } from "../../security/credentials.js";
 import { TelegramUpdateInbox } from "../update-inbox/telegram-update-inbox.js";
 
+/** The application path Telegram delivers updates to; registration refers to the same value. */
+export const TELEGRAM_WEBHOOK_PATH = "webhooks/telegram";
+
 export const TELEGRAM_WEBHOOK_ALLOWED_UPDATES = [
   "message",
   "chat_member",
