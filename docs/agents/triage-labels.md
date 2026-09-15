@@ -14,4 +14,5 @@ Every triaged delivery issue has exactly one role from this table. A Workspace o
 labelled `backlog:human` is an input to delivery rather than an implementation issue: it carries no
 readiness role until an agent promotes its outcome into repository-owned Specifications and
 Tickets. `backlog:human` routes the issue between Projects and never substitutes for readiness.
-Category labels are optional and independent from readiness.
+The kind of work is the issue's native type defined in `WORKFLOW.md`, not a category label; it is
+independent from readiness.

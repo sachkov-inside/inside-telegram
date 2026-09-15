@@ -16,7 +16,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from inside_tracker import CONTROLLER, REPOSITORIES, GitHub, MARKER, Reconciler, TrackerError, identity, snapshot
-from tracker_policy import ROLES, unfinished
+from tracker_policy import ROLES, open_items, unfinished
 
 SESSION_WORKFLOW = 'inside-agent-sessions.yml'
 # Existing automation credential owner; changing the writer is an explicit migration.
@@ -61,6 +61,10 @@ def validate_state(state, repo):
         raise ValueError('timestamp/reason missing')
 
 
+def github_reference(node):
+    return f"{node['repository']['nameWithOwner']}#{node['number']}"
+
+
 def fingerprint(values):
     return hashlib.sha256(json.dumps(values, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
 
@@ -79,13 +83,21 @@ def transition(item, state, command, session, branch, reason, request):
     if held and state['session'] != session:
         raise TrackerError(f"Task is occupied by session {state['session']}")
     if command == 'start':
+        if state and state['phase'] == 'active':
+            # A new request under an active identifier is either lost recovery or a second writer.
+            raise TrackerError(f"Session {session} is already active with request {state['request']}. The same "
+                               f"writer recovers with --request {state['request']}; another writer must choose "
+                               'a unique session identifier')
         if item['kind'] != 'Issue' or item['state'] != 'OPEN':
             raise TrackerError('Start requires an open issue')
         labels = set(item['labels'])
         if labels & ROLES != {'ready-for-agent'} or labels & {'backlog:human', 'tracker:gate', 'tracker:paused'}:
             raise TrackerError('Task is not ready for autonomous delivery')
-        if item.get('children') or unfinished(item.get('blockers', [])):
-            raise TrackerError('Task has children or unresolved blockers')
+        open_children = [github_reference(c) for c in open_items(item.get('children', []))]
+        if open_children:
+            raise TrackerError(f"Task has open children: {', '.join(open_children)}; work on a child instead")
+        if unfinished(item.get('blockers', [])):
+            raise TrackerError('Task has a blocker that is open or closed without completion; resolve the blocker or replan')
         if not state and (item['assignees'] or any(p['state'] == 'OPEN' for p in item['prs'])):
             raise TrackerError('Legacy assigned/PR work needs owner adoption; it is not free')
         if state and state['phase'] == 'released' and any(p['state'] == 'OPEN' for p in item['prs']):
@@ -102,11 +114,14 @@ def transition(item, state, command, session, branch, reason, request):
             raise TrackerError('block, handoff and release require a reason or verification summary')
         branch = state['branch']
         phase = {'block': 'blocked', 'handoff': 'review', 'release': 'released'}[command]
-        if command == 'handoff' and not any(p['state'] == 'OPEN' and not p['isDraft']
-                and p.get('headRefName') == branch and p.get('repository', {}).get('nameWithOwner')
-                in {f'sachkov-inside/{r}' for r in REPOSITORIES}
-                for p in item['prs']):
-            raise TrackerError('Review handoff requires a linked open non-draft PR')
+        if command == 'handoff':
+            own = [p for p in item['prs'] if p.get('headRefName') == branch and
+                   p.get('repository', {}).get('nameWithOwner') in {f'sachkov-inside/{r}' for r in REPOSITORIES}]
+            if not any(p['state'] == 'OPEN' and not p['isDraft'] for p in own):
+                merged = [github_reference(p) for p in own if p['state'] == 'MERGED']
+                if merged:
+                    raise TrackerError(f"PR {merged[0]} is already merged; record release instead of handoff")
+                raise TrackerError('Review handoff requires a linked open non-draft PR')
     return dict(session=session, request=request, command=command, phase=phase, branch=branch, reason=reason.strip(),
                 updated_at=datetime.now(timezone.utc).isoformat())
 
