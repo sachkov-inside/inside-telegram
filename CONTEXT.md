@@ -5,6 +5,11 @@ language used by the Sachkov Inside bot application.
 
 ## Language
 
+**Product**:
+A separate structured programme of Materials, called «продукт» in generic bot text; its author may
+name it a course, practicum or guide, while the existing technical Guide and `guide:<id>` scope remain unchanged.
+_Avoid_: Subscription, «руководство» as the generic name for every product
+
 **BotContact**:
 A Telegram person who has started the Sachkov Inside bot and can receive bot messages while
 Telegram permits delivery. A BotContact may be unlinked and may have no Membership.

@@ -185,7 +185,7 @@ describe("own-access next steps", () => {
       "Независимый курс\nПредоставлено за курс. Действует.",
     );
     expect(text).toContain("Действующее основание: покупка");
-    expect(text).toContain("купленное руководство");
+    expect(text).toContain("купленный продукт");
     expect(text).toContain("Право на сообщество действует");
   });
 });
