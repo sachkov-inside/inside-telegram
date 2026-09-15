@@ -135,6 +135,6 @@ function capability(value: string): string {
         reviews: "ревью",
       } as Record<string, string>
     )[value] ??
-    (value.startsWith("guide:") ? "купленное руководство" : "состав в кабинете")
+    (value.startsWith("guide:") ? "купленный продукт" : "состав в кабинете")
   );
 }
