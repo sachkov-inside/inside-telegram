@@ -9,7 +9,8 @@ editing so verification and review compare the whole implementation against one 
 
 Use /tdd where possible, at pre-agreed seams.
 
-Run typechecking regularly, single test files regularly, and the full test suite once at the end.
+While iterating, run typechecking and the single test files for what you change; `Ready and Done`
+in the repository-root `WORKFLOW.md` owns the rest of verification.
 
 ## Review closure
 
@@ -20,5 +21,5 @@ current-head CI ownership, learning promotion, and completion.
 
 Invoke `/code-review` from the original fixed point. When review changes code or durable documents,
 re-run the relevant verification and invoke `/code-review` from that same fixed point again. Commit
-only after the `WORKFLOW.md` readiness gate is satisfied. Before finishing, execute its authoritative
+and push as `Pull request CI closure` describes. Before finishing, execute its authoritative
 `Implementation report` section.

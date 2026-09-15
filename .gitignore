@@ -4,5 +4,7 @@
 coverage/
 dist/
 node_modules/
+__pycache__/
+*.py[cod]
 
 .env.sign-in-local

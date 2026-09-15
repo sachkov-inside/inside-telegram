@@ -94,9 +94,9 @@ def snapshot(api, repo, number):
         pr = api.call(f'repos/{repo}/pulls/{number}')
         result.update(state='MERGED' if pr['merged'] else pr['state'].upper(), draft=pr['draft'])
         return result
-    result['children'] = connection(api, result['id'], kind, 'subIssues', 'id state stateReason')
+    result['children'] = connection(api, result['id'], kind, 'subIssues', 'id number state stateReason repository { nameWithOwner }')
     result['blockers'] = connection(api, result['id'], kind, 'blockedBy', 'id state stateReason')
-    result['prs'] = connection(api, result['id'], kind, 'closedByPullRequestsReferences', 'id state isDraft headRefName repository { nameWithOwner }')
+    result['prs'] = connection(api, result['id'], kind, 'closedByPullRequestsReferences', 'id number state isDraft headRefName repository { nameWithOwner }')
     return result
 
 

@@ -18,6 +18,11 @@ def unfinished(items):
     return any(i['state'] != 'CLOSED' or i.get('stateReason') != 'COMPLETED' for i in items)
 
 
+def open_items(items):
+    """Children that still hold work; not_planned closure also ends a decomposition step."""
+    return [i for i in items if i['state'] != 'CLOSED']
+
+
 def decide(item, current=None):
     labels = set(item.get('labels', []))
     human = 'backlog:human' in labels
@@ -43,16 +48,16 @@ def decide(item, current=None):
         return Decision(1, 'Done', 'explicit aggregate policy; children and gates complete', close=True)
     session = item.get('session') or {}
     prs = item.get('prs', [])
-    if children and unfinished(children) and (
+    if open_items(children) and (
             current in {'In progress', 'Review', 'Blocked'} or session or prs):
         # An aggregate is active while a child, a session, or a pull request is. A
         # manual active state without any of them is preserved for owner adoption.
         return Decision(1, current if current and current != 'Done' else 'In progress',
                         'aggregate requires acceptance or remaining child work')
-    if children and unfinished(children):
-        # An aggregate with unfinished children is never itself ready to implement.
+    if open_items(children):
+        # An aggregate with open children is never itself ready to implement.
         return Decision(1, 'In progress', 'aggregate requires acceptance or remaining child work')
-    # Every child is complete, or nothing is active any more: decide this item's own
+    # Every child is closed, or nothing is active any more: decide this item's own
     # readiness instead of leaving the aggregate in a stale aggregate state.
     if blocked or gate or session.get('phase') == 'blocked':
         return Decision(1, 'Blocked', 'unresolved dependency, owner gate, or session blocker')
@@ -63,9 +68,9 @@ def decide(item, current=None):
     if session.get('phase') == 'review':
         return Decision(1, 'Blocked', 'review handoff has no open non-draft pull request')
     # Existing manual work has no session identity yet. Never take it over by inference.
-    # A fully completed aggregate is not such work: its readiness is derived above.
+    # A fully closed aggregate is not such work: its readiness is derived above.
     if not session and current in {'In progress', 'Review', 'Blocked'} and not (
-            children and not unfinished(children)):
+            children and not open_items(children)):
         return Decision(1, current, 'legacy state needs explicit session adoption')
     if labels & ROLES == {'ready-for-agent'}:
         return Decision(1, 'Ready', 'specified, unblocked, no active session')

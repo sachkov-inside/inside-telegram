@@ -96,8 +96,11 @@ This repository uses the versioned Sachkov Inside product harness.
 - The developer pipeline runs in owner-driven stages: sharpen the idea, then Specification, then
   Ticket breakdown, then Implementation. The owner starts each stage explicitly.
 - Do not chain stages. Finish a stage with its outcome, the next stage you recommend, and any
-  decision needed, then stop and wait. Start the next stage only after the owner asks for it. This
-  holds even when a runtime does not honor a skill's user-only invocation marker.
+  decision needed, then stop and wait. Start the next stage only after the owner asks for it; a
+  request that names several stages or a range of them asks for each. This holds even when a
+  runtime does not honor a skill's user-only invocation marker.
+- Keep an owner approval for the scope it names instead of asking again; `Owner gates` in
+  `WORKFLOW.md` defines its limits.
 - Start a development session in the repository that owns the outcome so its rules and skills load;
   a parent navigation directory does not carry the project pipeline.
 <!-- inside-product-harness:end -->
