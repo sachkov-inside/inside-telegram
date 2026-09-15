@@ -52,7 +52,7 @@ Git; зашифруйте файлы для host и отдельного recover
 | Активация курса и Tribute | `TELEGRAM_ACTIVATION_ENABLED`, `PLATFORM_ACTIVATION_URL`, `PLATFORM_ACTIVATION_SECRET`, `PLATFORM_ACCOUNT_URL`, `TELEGRAM_ACTIVATION_SOURCES` | `https://<platform>/integrations/telegram/v1/subscription-activation`; Account URL; реестр групп курса | `TELEGRAM_ACTIVATION_INGRESS_SECRET` |
 | Уведомления | `TELEGRAM_NOTIFICATIONS_ENABLED`, `NOTIFICATION_AMQP_URL`, `NOTIFICATION_AUTHORIZE_URL`, `NOTIFICATION_AUTHORIZE_SECRET`, `NOTIFICATION_QUARANTINE_KEY`, `NOTIFICATION_PREFETCH`, `NOTIFICATION_BATCH_SIZE` | AMQPS principal Telegram; `https://<platform>/internal/notifications/dispatch/authorize`; ключ 64 hex | `NOTIFICATIONS_TELEGRAM_SECRET`; principal и vhost из topology Platform |
 | Авторское меню, воронки, рассылки | `PLATFORM_AUTHOR_AUTHORIZATION_URL`, `PLATFORM_AUTHOR_AUTHORIZATION_SECRET`, `PLATFORM_AUTHOR_CONTENT_VALIDATION_URL`, `TELEGRAM_MARKETING_ENABLED` | `https://<platform>/integrations/telegram/v1/communications/authorize` и `/validate-content`; `false` | `TELEGRAM_AUTHOR_AUTHORIZATION_SECRET`, `TELEGRAM_COMMUNICATIONS_BOT_IDENTITY` |
-| Переходы по ссылкам | `PLATFORM_TRACKING_REDIRECT_URL`, `PLATFORM_TRACKING_TARGET_PREFIXES` | не задавать: маршрута-приёмника в Platform пока нет | — |
+| Переходы по ссылкам | `PLATFORM_TRACKING_REDIRECT_URL`, `PLATFORM_TRACKING_TARGET_PREFIXES` | `PLATFORM_TRACKING_REDIRECT_URL=https://<platform>/communications/visit`; `["https://<platform>/materials/","https://<platform>/series/"]` | `TELEGRAM_TRACKING_ORIGIN=https://<platform>` |
 
 Явные отказы при старте:
 
@@ -216,11 +216,12 @@ Telegram вызывает Platform по публичному HTTPS: `membership-
 `/integrations/telegram/v1/communications/authorize` и `/validate-content`. Каждый из них должен
 быть опубликован Caddy Platform, иначе соответствующая функция Telegram отказывает закрыто.
 
-Точка сверки с Platform #527: на Platform `origin/main` от 15.09.2026 `platform.caddy` отвечает
-`404` на любой неизвестный `/integrations/*`. Список #527 добавляет активацию и два dispatch-адреса,
-но не `communications/authorize` и `communications/validate-content`. Без них авторское меню,
-предпросмотр и публикация воронок не работают. Их нужно добавить в #527 или отложить
-авторское меню явным решением.
+Выпуск Platform #527 публикует в `platform.caddy` точные маршруты для каждого из этих адресов, включая
+`communications/authorize` и `communications/validate-content`; остальные `/integrations/*` отвечают
+`404`. Переходы по ссылкам воронок идут не от Telegram, а от читателя: публичный GET
+`https://<platform>/communications/visit?token=<opaque>` обслуживает web Platform. Неизвестный токен
+даёт `404`, найденный — `302` на материал или серию, недоступный provider или отсутствующий
+`TELEGRAM_TRACKING_ORIGIN` — `503`.
 
 ## Webhook
 
@@ -284,13 +285,18 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
    `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2`,
    `TELEGRAM_COMMUNITY_MODE=disabled`, `TELEGRAM_COMMUNITY_REMOVALS_ENABLED=false`,
    `TELEGRAM_ACTIVATION_ENABLED=false`, `TELEGRAM_NOTIFICATIONS_ENABLED=false`,
-   `TELEGRAM_MARKETING_ENABLED=false`. На Platform community и activation settings отсутствуют,
-   billing-worker и notifications-worker не запущены — по runbook Platform.
+   `TELEGRAM_MARKETING_ENABLED=false`. На Platform нет `TELEGRAM_COMMUNITY_*` и
+   `TELEGRAM_ACTIVATION_INGRESS_SECRET`; остальные группы, включая оплату, notifications и
+   communications, заполнены, продажа в каталоге выключена — по runbook Platform.
 3. **Backup обеих баз.** Полная проверенная копия кластера (Telegram и Platform), сохранённые
    конфигурации и прежние image id в deployment record.
-4. **Остановка старых поколений.** `stop app` Telegram и процессы Platform по его runbook.
-5. **Platform.** Migrations, RabbitMQ с definitions, где есть principal Telegram, маршруты Caddy.
-   Readiness всех процессов Platform.
+4. **Остановка старых поколений.** `stop app` Telegram; deploy Platform включает maintenance и
+   дренирует воркеры прежнего выпуска до migrations.
+5. **Platform.** Migrations, RabbitMQ с definitions, где есть principal Telegram, затем api, mcp,
+   воркеры, включая billing-worker и notifications-worker, и web; маршруты Caddy. Readiness всех
+   процессов Platform. С этого шага notifications-worker публикует в очереди Telegram; до шага 11
+   их никто не читает: при 1000 сообщений очередь отклоняет публикацию, и команды ждут в outbox
+   Platform без потерь.
 6. **Telegram.** `migrate`, `up --wait app`. Проверка маршрутов: `401` без credentials на каждом POST
    из allowlist, `404` на GET, постороннем и вложенном пути, нет внешнего порта.
 7. **Webhook.** `webhook-registration --preview`, затем `--apply`, итог `applied`.
@@ -302,11 +308,16 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
 10. **Активация.** Platform `TELEGRAM_ACTIVATION_INGRESS_SECRET`, затем Telegram
     `TELEGRAM_ACTIVATION_ENABLED=true` с URL, секретом, `PLATFORM_ACCOUNT_URL` и реестром. Проверка:
     `/start a_<code>` владельца.
-11. **Уведомления.** Platform notifications-worker подключён к брокеру. Telegram
+11. **Уведомления.** Platform notifications-worker подключён к брокеру с шага 5. Telegram
     `TELEGRAM_NOTIFICATIONS_ENABLED=true`, рестарт. Проверка: у очередей
     `telegram.notifications.subscription.v1` и `.material.v1` есть consumer, тестовое уведомление
     владельцу доставлено, `notification_result_outbox` пуст.
-12. **Авторское меню и воронки.** Author authorization и content validation, проверка меню владельца.
+12. **Авторское меню и воронки.** Маршруты Platform опубликованы с шага 5. Author authorization,
+    content validation и переходы по [таблице](#конфигурация), рестарт; проверка меню владельца.
+    Переходы: GET `https://<platform>/communications/visit?token=` с несуществующим токеном
+    правильного формата (43 символа `A`) отвечает `404`: запрос дошёл до provider. `503` означает
+    недоступный provider или отсутствующий `TELEGRAM_TRACKING_ORIGIN`; `503` на настоящей ссылке —
+    ещё и хост в `PLATFORM_TRACKING_*`, отличный от `TELEGRAM_TRACKING_ORIGIN`.
     `TELEGRAM_MARKETING_ENABLED=true` — только по отдельному решению владельца.
 
 Остановка идёт в обратном порядке флагами: marketing, notifications, activation, community mode.

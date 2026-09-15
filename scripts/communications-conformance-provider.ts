@@ -54,7 +54,8 @@ const config = {
     PLATFORM_AUTHOR_AUTHORIZATION_URL: `${platform}/integrations/telegram/v1/communications/authorize`,
     PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: `${platform}/integrations/telegram/v1/communications/validate-content`,
     PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic_authorization_secret",
-    PLATFORM_TRACKING_REDIRECT_URL: "https://inside.example/c",
+    PLATFORM_TRACKING_REDIRECT_URL:
+      "https://inside.example/communications/visit",
     PLATFORM_TRACKING_TARGET_PREFIXES: JSON.stringify([
       "https://inside.example/materials/",
       "https://inside.example/series/",
