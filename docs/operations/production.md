@@ -357,6 +357,26 @@ networks:
 `NODE_EXTRA_CA_CERTS` добавляет только доверие к CA; проверка сертификата и hostname остаётся
 включённой. Если брокер предъявляет публично доверенный сертификат, CA и volume не нужны.
 
+### Relay для operations-команд
+
+На production исходящий трафик к `api.telegram.org` идёт через relay `telegram-transport`
+([webhook-relay.md](webhook-relay.md)): override добавляет `app` запись в `/etc/hosts` и сеть
+relay. Одноразовые команды профиля `operations`, которые обращаются к Bot API, получают тот же
+маршрут, иначе они не доходят до Telegram и останавливаются без подробностей:
+
+```yaml
+services:
+  webhook-registration:
+    extra_hosts:
+      - "api.telegram.org:<адрес relay, как у app>"
+    networks:
+      egress: {}
+      telegram-transport: {}
+```
+
+Проверено в Workspace #184: без этого блока `webhook-registration --preview` на production
+отвечал «Webhook registration stopped», с ним — `status` из списка ниже.
+
 ## HTTPS и маршруты
 
 Маршруты задаёт `infra/production/telegram.caddy` (`telegram.sachkov.dev`, loopback port `3303`).
