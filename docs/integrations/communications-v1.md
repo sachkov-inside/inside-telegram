@@ -108,13 +108,16 @@ A claim reads due work from index pages with `LIMIT`. Replies to the BotContact'
 (intro, entry, fallback) go ahead of the step and broadcast backlog. A claim stops when the bot's
 shared capacity refuses or after a bounded scan; when a whole scan finds nothing sendable, the
 next claims continue after it and wrap at the end, so a head of waiting deliveries never stalls
-the queue. Claim cost no longer depends on the audience size.
+the queue. While continuing, a newly sendable delivery before that position waits for the wrap, so
+due order is kept only within one pass. Claim cost no longer depends on the audience size.
 
 Two locks order this work. The bot scheduler advisory lock belongs to planning, dispatch, results
-and author operations. A per-BotContact advisory lock serializes that contact's `/start` (including
-sign-in and linking), `/stop`/`/resume`, entry, contactability, operator decision, claim and
-result; these contact commands never take the scheduler lock, and a claim skips a contact whose
-command is in progress. Audience-wide writes (publication, broadcast launch and cancel) cannot hold
+and author operations. A per-BotContact advisory lock serializes everything that changes one
+contact: its commands (`/start` including sign-in and linking, `/stop`/`/resume`, entry and
+contactability) and, under the scheduler lock, an operator decision, claim or result for its
+delivery. Contact commands never take the scheduler lock. A claim checks a candidate before taking
+its contact lock, skips a contact whose command is in progress and commits at once when a locked
+candidate proves unsendable. Audience-wide writes (publication, broadcast launch and cancel) cannot hold
 thousands of advisory locks, so they lock the affected `communication_contacts` rows instead. A
 contact command locks its own row only when its availability actually changes, so an ordinary
 `/start` never waits for audience-wide work.

@@ -14,8 +14,9 @@ import {
 import { reconcileFunnels, terminal, deliveryView } from "./funnel-timeline.js";
 import {
   communicationLock,
-  contactLock,
   lockContactRows,
+  lockDeliveryContact,
+  schedulerLock,
 } from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
@@ -112,10 +113,7 @@ export class Funnels {
         tx,
         `communications-definitions:${this.config.botIdentity}`,
       );
-      await communicationLock(
-        tx,
-        `communications-scheduler:${this.config.botIdentity}`,
-      );
+      await schedulerLock(tx, this.config.botIdentity);
       const result = await this.apply(tx, request, actor);
       if (
         ![
@@ -249,18 +247,8 @@ export class Funnels {
       };
     }
     if (operation === "delivery.resolve") {
-      const target = await tx
-        .selectFrom("communication_deliveries as d")
-        .innerJoin(
-          "communication_contacts as c",
-          "c.contact_id",
-          "d.contact_id",
-        )
-        .select("c.telegram_user_id")
-        .where("d.delivery_id", "=", payload.deliveryId!)
-        .executeTakeFirst();
       // The decision is serialized with this contact's own commands, claim and result.
-      if (target) await contactLock(tx, bot, target.telegram_user_id);
+      await lockDeliveryContact(tx, bot, payload.deliveryId!);
       const row = await tx
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")

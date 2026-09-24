@@ -19,6 +19,7 @@ import {
 import { CLOCK, type Clock } from "../identity-linking/clock.js";
 import {
   admitTelegramSlot,
+  chatLaneBusy,
   deferTelegramSlot,
 } from "../outbound/telegram-transport-slots.js";
 import type { TelegramDeliveryResult } from "../outbound/telegram-messages.js";
@@ -28,8 +29,8 @@ import {
   type CommunicationTransport,
 } from "./communication-delivery.js";
 import {
-  communicationLock,
-  contactLock,
+  lockDeliveryContact,
+  schedulerLock,
   tryContactLock,
 } from "./communication-state.js";
 import type {
@@ -53,17 +54,20 @@ type Claim = {
   content: TemplateContent;
 };
 // `capacity_busy`: the bot's shared lane or fairness turn refuses every chat, so stop scanning.
+// `released`: a locked contact turned out unsendable; commit now so its /start never waits
+// for the rest of the scan.
 type CandidateOutcome =
   | { kind: "claimed"; claim: Claim }
   | { kind: "skipped" }
-  | { kind: "capacity_busy" };
+  | { kind: "capacity_busy" }
+  | { kind: "released" };
 const STALE_CLAIM_MS = 60_000;
 // A claim reads due work in index pages and gives up after a bounded scan, whatever the backlog.
 const CLAIM_PAGE = 50;
 const CLAIM_SCAN_LIMIT = 500;
 @Injectable()
 export class FunnelScheduler {
-  private readonly resumeAfter = new Map<Queue, QueuePosition>();
+  private resumeAfter = new Map<Queue, QueuePosition>();
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
@@ -121,7 +125,7 @@ export class FunnelScheduler {
   private async plan(): Promise<void> {
     const bot = this.config.botIdentity;
     await this.database.transaction().execute(async (tx) => {
-      await communicationLock(tx, `communications-scheduler:${bot}`);
+      await schedulerLock(tx, bot);
       const now = this.clock.now();
       const stale = await tx
         .selectFrom("communication_deliveries as d")
@@ -172,6 +176,11 @@ export class FunnelScheduler {
           .where("delivery_id", "=", delivery.delivery_id)
           .execute();
       }
+    });
+    // A separate transaction: a large launch must not hold the recovered contacts' locks.
+    await this.database.transaction().execute(async (tx) => {
+      await schedulerLock(tx, bot);
+      const now = this.clock.now();
       await launchDueBroadcasts(tx, bot, now);
       await completeBroadcasts(tx, bot);
     });
@@ -233,11 +242,10 @@ export class FunnelScheduler {
     );
   }
   private async claim(): Promise<Claim | undefined> {
-    return this.database.transaction().execute(async (tx) => {
-      await communicationLock(
-        tx,
-        `communications-scheduler:${this.config.botIdentity}`,
-      );
+    // Scan positions advance only when the claim transaction commits.
+    const resumeAfter = new Map(this.resumeAfter);
+    const claim = await this.database.transaction().execute(async (tx) => {
+      await schedulerLock(tx, this.config.botIdentity);
       const now = this.clock.now();
       // A marketing backlog must never reserve capacity ahead of a ready service response.
       const service = await tx
@@ -250,22 +258,25 @@ export class FunnelScheduler {
       if (service) return undefined;
       // Replies to a contact's own /start go ahead of the funnel and broadcast backlog.
       for (const queue of [REPLY_KINDS, BACKLOG_KINDS]) {
-        const outcome = await this.claimFrom(tx, queue, now);
+        const outcome = await this.claimFrom(tx, resumeAfter, queue, now);
         if (outcome.kind === "claimed") return outcome.claim;
-        if (outcome.kind === "capacity_busy") return undefined;
+        if (outcome.kind !== "skipped") return undefined;
       }
       return undefined;
     });
+    this.resumeAfter = resumeAfter;
+    return claim;
   }
   // Scans one queue in due order, at most CLAIM_SCAN_LIMIT rows per claim. When that many rows
   // at the head cannot be sent (a lane waiting for an earlier step, an intro not yet sent), the
   // next claims continue after them and wrap at the end, so the head never stalls the queue.
   private async claimFrom(
     tx: Transaction<DatabaseSchema>,
+    resumeAfter: Map<Queue, QueuePosition>,
     queue: Queue,
     now: Date,
   ): Promise<CandidateOutcome> {
-    const resumed = this.resumeAfter.get(queue);
+    const resumed = resumeAfter.get(queue);
     let after = resumed;
     let fromHead = !resumed;
     for (let scanned = 0; scanned < CLAIM_SCAN_LIMIT;) {
@@ -293,13 +304,13 @@ export class FunnelScheduler {
       for (const candidate of page) {
         const outcome = await this.claimCandidate(tx, candidate, now);
         if (outcome.kind === "claimed" && resumed)
-          this.resumeAfter.set(queue, candidate);
+          resumeAfter.set(queue, candidate);
         if (outcome.kind !== "skipped") return outcome;
       }
       scanned += page.length;
       if (page.length < CLAIM_PAGE) {
         // The end of the queue: the next claim starts from its head again.
-        this.resumeAfter.delete(queue);
+        resumeAfter.delete(queue);
         if (fromHead) return { kind: "skipped" };
         fromHead = true;
         after = undefined;
@@ -307,7 +318,7 @@ export class FunnelScheduler {
       }
       after = page.at(-1);
     }
-    if (after) this.resumeAfter.set(queue, after);
+    if (after) resumeAfter.set(queue, after);
     return { kind: "skipped" };
   }
   private async claimCandidate(
@@ -321,10 +332,19 @@ export class FunnelScheduler {
         .select(["b.private_chat_id", "c.marketing_enabled"])
         .where("d.delivery_id", "=", candidate.delivery_id)
         .executeTakeFirst();
-    // Check before locking, so a skipped contact is never held; a contact whose /start, stop or
-    // entry is in progress is skipped instead of awaited. The locked reread decides.
+    // Check before locking, so a skipped contact is normally never held; a contact whose /start,
+    // stop or entry is in progress is skipped instead of awaited. The locked reread decides.
     const unlocked = await read();
-    if (!unlocked || !(await this.nextPart(tx, unlocked, now)))
+    if (
+      !unlocked ||
+      (await chatLaneBusy(
+        tx,
+        this.config.botIdentity,
+        unlocked.private_chat_id,
+        now,
+      )) ||
+      !(await this.nextPart(tx, unlocked, now))
+    )
       return { kind: "skipped" };
     if (
       !(await tryContactLock(
@@ -336,7 +356,7 @@ export class FunnelScheduler {
       return { kind: "skipped" };
     const delivery = await read();
     const part = delivery && (await this.nextPart(tx, delivery, now));
-    if (!delivery || !part) return { kind: "skipped" };
+    if (!delivery || !part) return { kind: "released" };
     const admission = await admitTelegramSlot(
       tx,
       this.config.botIdentity,
@@ -344,7 +364,7 @@ export class FunnelScheduler {
       now,
     );
     if (admission === "bot_busy") return { kind: "capacity_busy" };
-    if (admission === "chat_busy") return { kind: "skipped" };
+    if (admission === "chat_busy") return { kind: "released" };
     const attemptId = randomUUID();
     const parts = delivery.parts as DeliveryPart[];
     parts.find((p) => p.partId === part.partId)!.state = "in_flight";
@@ -451,21 +471,8 @@ export class FunnelScheduler {
     result: TelegramDeliveryResult,
   ): Promise<void> {
     await this.database.transaction().execute(async (tx) => {
-      await communicationLock(
-        tx,
-        `communications-scheduler:${this.config.botIdentity}`,
-      );
-      const owner = await tx
-        .selectFrom("communication_deliveries as d")
-        .innerJoin(
-          "communication_contacts as c",
-          "c.contact_id",
-          "d.contact_id",
-        )
-        .select("c.telegram_user_id")
-        .where("d.delivery_id", "=", deliveryId)
-        .executeTakeFirstOrThrow();
-      await contactLock(tx, this.config.botIdentity, owner.telegram_user_id);
+      await schedulerLock(tx, this.config.botIdentity);
+      await lockDeliveryContact(tx, this.config.botIdentity, deliveryId);
       const delivery = await tx
         .selectFrom("communication_deliveries")
         .selectAll()

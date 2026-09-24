@@ -10,6 +10,13 @@ export async function communicationLock(
     tx,
   );
 }
+// Planning, dispatch, results and author operations of one bot.
+export async function schedulerLock(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+): Promise<void> {
+  await communicationLock(tx, `communications-scheduler:${bot}`);
+}
 // One BotContact's communication state: /start, stop/resume, contactability, entry, an operator
 // decision on its delivery and the dispatch claim/result. It never serializes other contacts.
 function contactKey(bot: string, telegramUserId: string): string {
@@ -33,6 +40,21 @@ export async function tryContactLock(
     tx,
   );
   return result.rows[0]!.locked;
+}
+// Locks the BotContact that owns this delivery, if the delivery exists.
+export async function lockDeliveryContact(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+  deliveryId: string,
+): Promise<void> {
+  const owner = await tx
+    .selectFrom("communication_deliveries as d")
+    .innerJoin("communication_contacts as c", "c.contact_id", "d.contact_id")
+    .select("c.telegram_user_id")
+    .where("d.bot_identity", "=", bot)
+    .where("d.delivery_id", "=", deliveryId)
+    .executeTakeFirst();
+  if (owner) await contactLock(tx, bot, owner.telegram_user_id);
 }
 // Audience-wide writes hold the bot scheduler lock and cannot take thousands of advisory locks.
 // Row locks, which need no shared lock memory, order them with a contact whose availability

@@ -110,6 +110,21 @@ export async function admitTelegramSlot(
     .execute();
   return "reserved";
 }
+// A lock-free hint: whether this chat's one-per-second lane is still taken.
+export async function chatLaneBusy(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+  chat: string,
+  now: Date,
+): Promise<boolean> {
+  const lane = await tx
+    .selectFrom("telegram_transport_slots")
+    .select("available_at")
+    .where("bot_identity", "=", bot)
+    .where("lane", "=", `chat:${chat}`)
+    .executeTakeFirst();
+  return lane !== undefined && lane.available_at > now;
+}
 export async function deferTelegramSlot(
   tx: Transaction<DatabaseSchema>,
   bot: string,
