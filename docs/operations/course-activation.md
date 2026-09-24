@@ -97,7 +97,7 @@ v2 запрещает автоматическое снятие бана при 
 командной строке или логах. Передать файл через stdin.
 
 На production — из runtime-образа, в котором нет pnpm (`telegram_compose` — из
-[production.md](production.md#сборка-и-запуск)):
+[production.md](production.md#команды-оператора-на-текущей-версии)):
 
 ```bash
 "${telegram_compose[@]}" --profile operations run --rm -T community-restriction --preview < decision.json

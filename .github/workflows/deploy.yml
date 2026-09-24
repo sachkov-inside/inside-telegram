@@ -1,0 +1,142 @@
+name: Deploy production release
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Deploy the selected release or roll back to it
+        required: true
+        type: choice
+        options:
+          - deploy
+          - rollback
+      version:
+        description: Existing immutable ordinal release (vN)
+        required: true
+        type: string
+
+permissions: {}
+
+concurrency:
+  group: telegram-production-deployment
+  queue: max
+
+jobs:
+  deploy:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    environment: Production
+    permissions:
+      actions: read
+      contents: read
+    steps:
+      - name: Verify and download the selected release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$OPERATION" == deploy || "$OPERATION" == rollback ]]
+          [[ "$VERSION" =~ ^v[1-9][0-9]*$ ]]
+          release_dir="$RUNNER_TEMP/production-release"
+          mkdir -m 700 "$release_dir"
+          gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json assets,isImmutable,tagName,targetCommitish \
+            | jq '{
+                assets: [.assets[].name] | sort,
+                isImmutable,
+                tagName,
+                targetCommitish
+              }' >"$release_dir/release.json"
+          jq --exit-status --arg version "$VERSION" '
+            .isImmutable == true and
+            .tagName == $version and
+            .assets == ["compose.yaml", "release-manifest.json", "telegram.caddy"]
+          ' "$release_dir/release.json" >/dev/null
+          gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --pattern release-manifest.json \
+            --pattern compose.yaml \
+            --pattern telegram.caddy \
+            --dir "$release_dir"
+          jq --exit-status \
+            --arg repository "$GITHUB_REPOSITORY" \
+            --arg version "$VERSION" '
+              .schemaVersion == "inside.telegram.release-manifest.v1" and
+              .version == $version and
+              .source.repository == $repository and
+              (.source.sha | test("^[0-9a-f]{40}$")) and
+              (.image | test("^ghcr\\.io/sachkov-inside/inside-telegram@sha256:[0-9a-f]{64}$")) and
+              (.migrations.identity | test("^sha256:[0-9a-f]{64}$")) and
+              .compose.asset == "compose.yaml" and
+              (.compose.sha256 | test("^sha256:[0-9a-f]{64}$")) and
+              .caddy.asset == "telegram.caddy" and
+              (.caddy.sha256 | test("^sha256:[0-9a-f]{64}$")) and
+              (.publication.workflowRunId | type == "number") and
+              .publication.workflowRunId > 0
+            ' "$release_dir/release-manifest.json" >/dev/null
+          expected_compose_sha="$(jq --raw-output .compose.sha256 "$release_dir/release-manifest.json")"
+          actual_compose_sha="sha256:$(sha256sum "$release_dir/compose.yaml" | cut -d' ' -f1)"
+          [[ "$actual_compose_sha" == "$expected_compose_sha" ]]
+          expected_caddy_sha="$(jq --raw-output .caddy.sha256 "$release_dir/release-manifest.json")"
+          actual_caddy_sha="sha256:$(sha256sum "$release_dir/telegram.caddy" | cut -d' ' -f1)"
+          [[ "$actual_caddy_sha" == "$expected_caddy_sha" ]]
+          source_sha="$(jq --raw-output .source.sha "$release_dir/release-manifest.json")"
+          [[ "$(jq --raw-output .targetCommitish "$release_dir/release.json")" == "$source_sha" ]]
+          publish_run_id="$(jq --raw-output .publication.workflowRunId "$release_dir/release-manifest.json")"
+          gh api "repos/$GITHUB_REPOSITORY/actions/runs/$publish_run_id" \
+            >"$release_dir/publication-run.json"
+          jq --exit-status --arg source_sha "$source_sha" '
+            .conclusion == "success" and
+            .event == "workflow_dispatch" and
+            .head_branch == "main" and
+            .head_sha == $source_sha and
+            .path == ".github/workflows/release.yml"
+          ' "$release_dir/publication-run.json" >/dev/null
+          echo "RELEASE_DIR=$release_dir" >>"$GITHUB_ENV"
+
+      - name: Install the restricted SSH identity
+        env:
+          PRIVATE_KEY: ${{ secrets.PRODUCTION_SSH_PRIVATE_KEY }}
+          SSH_HOST_KEYS: ${{ secrets.PRODUCTION_SSH_HOST_KEYS }}
+        run: |
+          set -euo pipefail
+          install -m 600 /dev/null "$RUNNER_TEMP/telegram-deploy-key"
+          printf '%s\n' "$PRIVATE_KEY" >"$RUNNER_TEMP/telegram-deploy-key"
+          install -m 600 /dev/null "$RUNNER_TEMP/telegram-known-hosts"
+          printf '%s\n' "$SSH_HOST_KEYS" >"$RUNNER_TEMP/telegram-known-hosts"
+
+      - name: Recheck the selected release after waiting in the queue
+        env:
+          GH_TOKEN: ${{ github.token }}
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" \
+            --json assets,isImmutable,tagName,targetCommitish \
+            | jq '{
+                assets: [.assets[].name] | sort,
+                isImmutable,
+                tagName,
+                targetCommitish
+              }' >"$RUNNER_TEMP/rechecked-release.json"
+          cmp "$RELEASE_DIR/release.json" "$RUNNER_TEMP/rechecked-release.json"
+
+      - name: Run the restricted server operation
+        env:
+          OPERATION: ${{ inputs.operation }}
+          VERSION: ${{ inputs.version }}
+          SSH_HOST: ${{ secrets.PRODUCTION_SSH_HOST }}
+        run: |
+          set -euo pipefail
+          tar -C "$RELEASE_DIR" -czf "$RUNNER_TEMP/payload.tar.gz" \
+            release-manifest.json compose.yaml telegram.caddy
+          ssh \
+            -i "$RUNNER_TEMP/telegram-deploy-key" \
+            -o BatchMode=yes \
+            -o IdentitiesOnly=yes \
+            -o StrictHostKeyChecking=yes \
+            -o "UserKnownHostsFile=$RUNNER_TEMP/telegram-known-hosts" \
+            "inside-telegram-deploy@$SSH_HOST" \
+            "$OPERATION $VERSION $GITHUB_RUN_ID" \
+            <"$RUNNER_TEMP/payload.tar.gz"

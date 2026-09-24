@@ -2,10 +2,7 @@ import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-const template = readFileSync(
-  "infra/production/telegram.caddy.example",
-  "utf8",
-);
+const template = readFileSync("infra/production/telegram.caddy", "utf8");
 const pattern = template.match(/^\s*path_regexp provider (\S+)$/m)?.[1];
 if (!pattern) throw new Error("Production provider route matcher is missing");
 const paths = new RegExp(pattern);
@@ -15,6 +12,10 @@ describe("production provider routes", () => {
     expect(template.match(/^\s*method (.+)$/m)?.[1]).toBe("POST");
     expect(template).toContain("respond 404");
     expect(template).toContain("reverse_proxy 127.0.0.1:3303");
+    expect(template).toMatch(/^telegram\.sachkov\.dev \{$/m);
+    expect(
+      readFileSync("infra/production/compose.env.example", "utf8"),
+    ).toContain("TELEGRAM_LOOPBACK_PORT=3303\n");
   });
 
   it.each([

@@ -1,4 +1,4 @@
-telegram.example.com {
+telegram.sachkov.dev {
 	@provider {
 		method POST
 		path_regexp provider ^/(webhooks/telegram|integrations/platform/v1/(identity-links(/[^/]+/confirm)?|community-entitlements|communications)|integrations/identity/v1/sign-in(/[^/]+/(status|consume|account-link))?)$

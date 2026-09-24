@@ -15,7 +15,7 @@
 Target path протокола `/internal/community-entitlements` не является путём приложения: Telegram
 владеет своим namespace и держит один endpoint в общем `integrations/platform/v1` префиксе.
 Platform настраивает у себя этот URL; production allowlist пропускает его в
-[telegram.caddy.example](../../infra/production/telegram.caddy.example).
+[telegram.caddy](../../infra/production/telegram.caddy).
 
 Endpoint fails closed. Без `PLATFORM_COMMUNITY_INTEGRATION_SECRET` любой запрос получает `401`.
 Secret этого направления обязан отличаться от linking, sign-in и dispatch secrets.
