@@ -12,16 +12,22 @@ import sys
 import tempfile
 import time
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
-from inside_tracker import CONTROLLER, REPOSITORIES, GitHub, MARKER, Reconciler, TrackerError, identity, snapshot
+from inside_tracker import (CONTROLLER, REPOSITORIES, GitHub, MARKER, Reconciler, TrackerError, TransientError,
+                           identity, run_gh, snapshot)
 from tracker_policy import ROLES, open_items, unfinished
 
 SESSION_WORKFLOW = 'inside-agent-sessions.yml'
 # Existing automation credential owner; changing the writer is an explicit migration.
 WRITER = 'KirillSachkov'
 PHASES = {'start': 'active', 'block': 'blocked', 'handoff': 'review', 'release': 'released'}
+REQUEST_TIME_FORMAT = '%Y%m%dT%H%M%SZ'
+# Runs are searched from shortly before the request's local creation time to absorb clock skew.
+REQUEST_CLOCK_MARGIN = timedelta(minutes=15)
+# GitHub returns at most 1,000 runs for a filtered listing.
+FILTERED_RUNS_CAP = 1000
 
 
 def read_session(api, repo, number):
@@ -190,25 +196,60 @@ def worker():
     print(json.dumps(result, ensure_ascii=False))
 
 
+def new_request_id():
+    """A request identifier starts with its UTC creation time, which bounds the run search."""
+    return f'{datetime.now(timezone.utc):{REQUEST_TIME_FORMAT}}-{uuid.uuid4().hex[:16]}'
+
+
+def request_issued_at(request_id):
+    """Creation time of a timestamped identifier; None for an identifier without that prefix."""
+    match = re.match(r'(\d{8}T\d{6}Z)-', request_id)
+    if not match:
+        return None
+    try:
+        return datetime.strptime(match[1], REQUEST_TIME_FORMAT).replace(tzinfo=timezone.utc)
+    except ValueError as error:
+        raise TrackerError('invalid request identifier') from error
+
+
+def download_receipt(run_id, temp):
+    """Download into a fresh directory per attempt so a torn download never blocks the retry."""
+    directories = []
+
+    def command():
+        directories.append(Path(tempfile.mkdtemp(dir=temp)))
+        return ['gh', 'run', 'download', str(run_id), '-R', CONTROLLER,
+                '--name', 'tracker-session-result', '--dir', str(directories[-1])]
+    run_gh(command, retry=True)
+    return json.loads((directories[-1] / 'tracker-session-result.json').read_text())
+
+
 def request_command(args):
     api = GitHub()
     repo, number = identity(args.issue)
-    request_id = args.request or uuid.uuid4().hex
+    request_id = args.request or new_request_id()
     values = dict(command=args.command, issue=f'{repo}#{number}', session=args.session,
                   branch=args.branch, reason=args.reason.strip(), request=request_id)
     if not re.fullmatch(r'[A-Za-z0-9_-]{8,100}', request_id):
         raise TrackerError('invalid request identifier')
     operation_hash = fingerprint(values)
     expected_title = f'session {request_id} {operation_hash}'
-    endpoint = f'repos/{CONTROLLER}/actions/workflows/{SESSION_WORKFLOW}/runs?per_page=100'
+    issued_at = request_issued_at(request_id)
+    window = issued_at - REQUEST_CLOCK_MARGIN if issued_at else None
 
-    def find_run():
+    def find_run(since=None):
+        endpoint = f'repos/{CONTROLLER}/actions/workflows/{SESSION_WORKFLOW}/runs?per_page=100'
+        if since:
+            endpoint += f"&created=%3E%3D{since:%Y-%m-%dT%H:%M:%SZ}"
         matches, scanned, total = [], 0, None
         for page in range(1, 10001):
             response = api.call(f'{endpoint}&page={page}')
             runs = response['workflow_runs']
             if total is None:
                 total = response['total_count']
+                if since and total >= FILTERED_RUNS_CAP:
+                    # The filtered listing is capped; only the complete history is conclusive.
+                    return find_run()
             scanned += len(runs)
             matches.extend(x for x in runs if x['display_title'].startswith(f'session {request_id} '))
             if len(runs) < 100:
@@ -224,7 +265,13 @@ def request_command(args):
             raise TrackerError('Request ID already belongs to another operation')
         return run
 
-    run, minimum_attempt = find_run(), 1
+    run, minimum_attempt = find_run(window), 1
+    if not run and window and args.request:
+        # A fast local clock can place the recovered run before its window. Confirm in the
+        # complete history that it never reached GitHub before dispatching it.
+        run = find_run()
+        if run:
+            window = None
     if run and run['status'] == 'completed' and run['conclusion'] != 'success':
         # --request is an explicit retry of these exact inputs, including a partial prior write.
         minimum_attempt = run['run_attempt'] + 1
@@ -236,20 +283,34 @@ def request_command(args):
         except TrackerError as error:
             print(f'Dispatch response unavailable ({error}); checking request {request_id}.', flush=True)
     print(f'Request {request_id}: waiting for central confirmation. Do not start work yet.', flush=True)
+    def finished(run):
+        if not run or run['run_attempt'] < minimum_attempt or run['status'] != 'completed':
+            return False
+        if run['conclusion'] != 'success':
+            raise TrackerError(f"Command {run['conclusion']}: {run['html_url']}; no grant to start work")
+        return True
+
     deadline = time.monotonic() + args.timeout
     while time.monotonic() < deadline:
-        run = find_run()
-        if run and run['run_attempt'] >= minimum_attempt and run['status'] == 'completed':
-            if run['conclusion'] != 'success':
-                raise TrackerError(f"Command {run['conclusion']}: {run['html_url']}; no grant to start work")
+        try:
+            run = find_run(window)
+        except TransientError as error:
+            print(f'Run history unavailable ({error}); still waiting.', flush=True)
+            time.sleep(3)
+            continue
+        if finished(run):
             break
         time.sleep(3)
     else:
-        raise TrackerError(f'Request {request_id} timed out; it may still execute. Do not start or steal the task.')
+        # A fast local clock places the run before its window; the complete history is conclusive.
+        try:
+            run = find_run() if window else None
+        except TransientError:
+            run = None
+        if not finished(run):
+            raise TrackerError(f'Request {request_id} timed out; it may still execute. Do not start or steal the task.')
     with tempfile.TemporaryDirectory(prefix='inside-session-receipt-') as temp:
-        subprocess.run(['gh', 'run', 'download', str(run['id']), '-R', CONTROLLER,
-                        '--name', 'tracker-session-result', '--dir', temp], check=True)
-        result = json.loads((Path(temp) / 'tracker-session-result.json').read_text())
+        result = download_receipt(run['id'], temp)
     state = {k: v for k, v in result.items() if k not in {'ok', 'issue'}}
     try:
         validate_state(state, repo)
