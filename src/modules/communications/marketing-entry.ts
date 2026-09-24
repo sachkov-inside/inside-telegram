@@ -9,7 +9,7 @@ import {
 } from "../../config/application-config.js";
 import { CLOCK, type Clock } from "../identity-linking/clock.js";
 import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
-import { communicationLock, planDelivery } from "./communication-state.js";
+import { contactLock, planDelivery } from "./communication-state.js";
 import type { FunnelDraft, IntroSnapshot } from "./funnel-types.js";
 
 @Injectable()
@@ -27,10 +27,7 @@ export class MarketingEntry {
     enabled: boolean,
   ): Promise<void> {
     await this.database.transaction().execute(async (tx) => {
-      await communicationLock(
-        tx,
-        `communications-scheduler:${start.botIdentity}`,
-      );
+      await contactLock(tx, this.config.botIdentity, start.telegramUserId);
       const prior = await tx
         .selectFrom("communication_preferences")
         .select("update_id")
@@ -101,14 +98,7 @@ export class MarketingEntry {
   }
   async enter(start: VerifiedPrivateStart, source?: string): Promise<void> {
     await this.database.transaction().execute(async (tx) => {
-      await communicationLock(
-        tx,
-        `communications-scheduler:${start.botIdentity}`,
-      );
-      await communicationLock(
-        tx,
-        `communications-contact:${start.botIdentity}:${start.telegramUserId}`,
-      );
+      await contactLock(tx, this.config.botIdentity, start.telegramUserId);
       const receipt = await tx
         .selectFrom("communication_entries")
         .select("outcome")

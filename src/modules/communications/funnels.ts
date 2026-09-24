@@ -12,7 +12,12 @@ import {
   type EntriesResult,
 } from "./communication-statistics.js";
 import { reconcileFunnels, terminal, deliveryView } from "./funnel-timeline.js";
-import { communicationLock } from "./communication-state.js";
+import {
+  communicationLock,
+  lockContactRows,
+  lockDeliveryContact,
+  schedulerLock,
+} from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
 import type { Transaction } from "kysely";
@@ -108,10 +113,7 @@ export class Funnels {
         tx,
         `communications-definitions:${this.config.botIdentity}`,
       );
-      await communicationLock(
-        tx,
-        `communications-scheduler:${this.config.botIdentity}`,
-      );
+      await schedulerLock(tx, this.config.botIdentity);
       const result = await this.apply(tx, request, actor);
       if (
         ![
@@ -245,6 +247,8 @@ export class Funnels {
       };
     }
     if (operation === "delivery.resolve") {
+      // The decision is serialized with this contact's own commands, claim and result.
+      await lockDeliveryContact(tx, bot, payload.deliveryId!);
       const row = await tx
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
@@ -298,6 +302,10 @@ export class Funnels {
         .where("delivery_id", "=", row.delivery_id)
         .returningAll()
         .executeTakeFirstOrThrow();
+      if (updated.completed_at)
+        await reconcileFunnels(tx, bot, this.clock.now(), {
+          contactId: updated.contact_id,
+        });
       return {
         deliveryId: updated.delivery_id,
         partId: part.partId,
@@ -577,12 +585,17 @@ export class Funnels {
     if (rollback) {
       // Only never-attempted deletion cancellations can return. Sent, skipped and
       // subscriber suppression remain durable markers across every revision.
-      const cancelled = await tx
+      const revivable = tx
         .selectFrom("communication_deliveries")
-        .selectAll()
         .where("funnel_id", "=", draft.funnelId)
-        .where("cancel_requested", "=", true)
-        .execute();
+        .where("cancel_requested", "=", true);
+      await lockContactRows(
+        tx,
+        (await revivable.select("contact_id").execute()).map(
+          (d) => d.contact_id,
+        ),
+      );
+      const cancelled = await revivable.selectAll().execute();
       for (const delivery of cancelled) {
         const parts = delivery.parts as DeliveryPart[];
         if (
@@ -612,7 +625,7 @@ export class Funnels {
             .execute();
       }
     }
-    await reconcileFunnels(tx, bot, now);
+    await reconcileFunnels(tx, bot, now, { funnelId: draft.funnelId });
     return {
       funnel: {
         ...draft,

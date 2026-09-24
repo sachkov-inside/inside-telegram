@@ -1,14 +1,29 @@
 import { sql, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 
+type Purpose = "general" | "subscription" | "material";
+function chatLane(chat: string): string {
+  return `chat:${chat}`;
+}
 // Shared by service and marketing dispatch. Reservations commit before external I/O.
 export async function reserveTelegramSlot(
   tx: Transaction<DatabaseSchema>,
   bot: string,
   chat: string,
   now: Date,
-  purpose: "general" | "subscription" | "material" = "general",
+  purpose: Purpose = "general",
 ): Promise<boolean> {
+  return (await admitTelegramSlot(tx, bot, chat, now, purpose)) === "reserved";
+}
+// `chat_busy` concerns only this chat; `bot_busy` (fairness turn or the global lane) refuses
+// every chat of this purpose until the next turn, so a sender stops looking for candidates.
+export async function admitTelegramSlot(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+  chat: string,
+  now: Date,
+  purpose: Purpose = "general",
+): Promise<"reserved" | "chat_busy" | "bot_busy"> {
   await sql`select pg_advisory_xact_lock(hashtextextended(${`telegram-transport:${bot}`}, 0))`.execute(
     tx,
   );
@@ -56,10 +71,10 @@ export async function reserveTelegramSlot(
     selected = (fairness.cursor + n) % turns.length;
     if (active.has(turns[selected]!)) break;
   }
-  if (turns[selected] !== purpose) return false;
+  if (turns[selected] !== purpose) return "bot_busy";
   const lanes = [
     { lane: "global", delay: 40 },
-    { lane: `chat:${chat}`, delay: 1000 },
+    { lane: chatLane(chat), delay: 1000 },
   ];
   const existing = await tx
     .selectFrom("telegram_transport_slots")
@@ -71,7 +86,9 @@ export async function reserveTelegramSlot(
       lanes.map((l) => l.lane),
     )
     .execute();
-  if (existing.some((r) => r.available_at > now)) return false;
+  const busy = existing.filter((r) => r.available_at > now);
+  if (busy.some((r) => r.lane === "global")) return "bot_busy";
+  if (busy.length) return "chat_busy";
   for (const lane of lanes)
     await tx
       .insertInto("telegram_transport_slots")
@@ -94,7 +111,22 @@ export async function reserveTelegramSlot(
     })
     .where("bot_identity", "=", bot)
     .execute();
-  return true;
+  return "reserved";
+}
+// A lock-free hint: whether this chat's one-per-second lane is still taken.
+export async function chatLaneBusy(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+  chat: string,
+  now: Date,
+): Promise<boolean> {
+  const lane = await tx
+    .selectFrom("telegram_transport_slots")
+    .select("available_at")
+    .where("bot_identity", "=", bot)
+    .where("lane", "=", chatLane(chat))
+    .executeTakeFirst();
+  return lane !== undefined && lane.available_at > now;
 }
 export async function deferTelegramSlot(
   tx: Transaction<DatabaseSchema>,

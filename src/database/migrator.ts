@@ -1,3 +1,4 @@
+import { communicationDispatchQueueMigration } from "./migrations/023-communication-dispatch-queue.js";
 import { communityTributeReadmissionMigration } from "./migrations/022-community-tribute-readmission.js";
 import { communityRestrictionAuditMigration } from "./migrations/021-community-restriction-audit.js";
 import { communityEffectProvenanceMigration } from "./migrations/020-community-effect-provenance.js";
@@ -31,6 +32,7 @@ import { communicationsTemplatesMigration } from "./migrations/010-communication
 import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
+  "023-communication-dispatch-queue": communicationDispatchQueueMigration,
   "022-community-tribute-readmission": communityTributeReadmissionMigration,
   "021-community-restriction-audit": communityRestrictionAuditMigration,
   "020-community-effect-provenance": communityEffectProvenanceMigration,
