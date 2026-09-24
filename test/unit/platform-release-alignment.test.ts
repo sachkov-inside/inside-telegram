@@ -17,10 +17,10 @@ const PLATFORM_NOTIFICATION_MESSAGE_MAX_BYTES = 16 * 1024;
 
 const baseEnvironment = {
   DATABASE_URL: "postgresql://inside:inside@127.0.0.1:5432/inside",
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
+  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
   TELEGRAM_BOT_IDENTITY: "inside",
   TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_secret",
+  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
   TELEGRAM_WELCOME_TEXT: "test",
   TELEGRAM_LINK_RECEIPT_TEXT: "test",
   TELEGRAM_LINKED_MEMBER_TEXT: "test",

@@ -47,7 +47,7 @@ if (!databaseUrl)
   throw new Error("DATABASE_URL is required for integration tests");
 const config = loadApplicationConfig({
   DATABASE_URL: databaseUrl,
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
+  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
   TELEGRAM_SIGN_IN_ENABLED: "true",
   TELEGRAM_SIGN_IN_INTEGRATION_SECRET:
     "synthetic_sign_in_credential_for_tests_only",
@@ -57,7 +57,7 @@ const config = loadApplicationConfig({
   TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member",
   TELEGRAM_LINKED_NON_MEMBER_TEXT: "Synthetic non-member",
   TELEGRAM_LINKED_UNAVAILABLE_TEXT: "Synthetic unavailable",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret",
+  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
   TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
   WORKERS_ENABLED: "false",
 });

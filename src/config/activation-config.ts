@@ -1,3 +1,4 @@
+import { assertServiceSecret } from "./service-secret.js";
 export interface ActivationSource {
   readonly sourceRef: string;
   readonly chatId: string;
@@ -13,7 +14,6 @@ export interface ActivationConfig {
 }
 export function loadActivationConfig(
   env: NodeJS.ProcessEnv,
-  otherSecrets: readonly (string | undefined)[],
   canonicalChatId: string,
 ): ActivationConfig | undefined {
   if (
@@ -24,10 +24,7 @@ export function loadActivationConfig(
   if (env.TELEGRAM_ACTIVATION_ENABLED !== "true")
     throw new Error("TELEGRAM_ACTIVATION_ENABLED must be true or false");
   const secret = env.PLATFORM_ACTIVATION_SECRET ?? "";
-  if (!/^[A-Za-z0-9_-]{32,256}$/.test(secret) || otherSecrets.includes(secret))
-    throw new Error(
-      "PLATFORM_ACTIVATION_SECRET requires a separate base64url credential",
-    );
+  assertServiceSecret(secret, "PLATFORM_ACTIVATION_SECRET");
   const endpoint = safeUrl(env.PLATFORM_ACTIVATION_URL);
   const accountUrl = safeUrl(env.PLATFORM_ACCOUNT_URL);
   let sources: unknown;

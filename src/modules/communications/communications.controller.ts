@@ -40,7 +40,7 @@ export class CommunicationsController {
     @Body() body: unknown,
   ) {
     try {
-      if (!bearerMatches(authorization, this.config.platformIntegrationSecret))
+      if (!bearerMatches(authorization, this.config.communicationsSecret))
         throw new CommunicationsError("unauthorized");
       if (!validRequest(body)) throw new CommunicationsError("malformed");
       return {

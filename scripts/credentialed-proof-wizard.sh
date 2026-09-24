@@ -449,7 +449,7 @@ if [[ "$PROOF_DRY_RUN" == "1" ]]; then
   TELEGRAM_PROOF_WEBHOOK_URL="https://proof.invalid/webhooks/telegram"
   PLATFORM_EVIDENCE_DELIVERY_URL="https://platform-proof.invalid/integrations/telegram/v1/membership-evidence"
   PLATFORM_INTEGRATION_SECRET="non_secret_fixture_platform_link"
-  PLATFORM_EVIDENCE_DELIVERY_SECRET="non_secret_fixture_evidence"
+  PLATFORM_EVIDENCE_DELIVERY_SECRET="non_secret_fixture_evidence_delivery"
 else
   step "Start the task database and Telegram application from this checkout; expose only /webhooks/telegram through a temporary HTTPS endpoint."
   ask_secret TELEGRAM_PROOF_WEBHOOK_URL "Full temporary HTTPS webhook URL (hidden):"

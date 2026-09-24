@@ -138,8 +138,8 @@ beforeAll(async () => {
     DATABASE_URL: process.env.DATABASE_URL,
     TELEGRAM_BOT_IDENTITY: bot,
     TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-    TELEGRAM_WEBHOOK_SECRET: "synthetic-tribute-webhook",
-    PLATFORM_INTEGRATION_SECRET: "synthetic-link-secret",
+    TELEGRAM_WEBHOOK_SECRET: "synthetic-tribute-webhook-secret-for-tests",
+    PLATFORM_INTEGRATION_SECRET: "synthetic-link-secret-for-tests-only",
     TELEGRAM_LINK_RECEIPT_TEXT: "Link receipt",
     TELEGRAM_LINKED_MEMBER_TEXT: "member",
     TELEGRAM_LINKED_NON_MEMBER_TEXT: "not member",
@@ -207,7 +207,10 @@ async function start(recipient: number) {
   const response = await app.inject({
     method: "POST",
     url: "/webhooks/telegram",
-    headers: { "x-telegram-bot-api-secret-token": "synthetic-tribute-webhook" },
+    headers: {
+      "x-telegram-bot-api-secret-token":
+        "synthetic-tribute-webhook-secret-for-tests",
+    },
     payload: privateStartUpdate(++update, recipient, {
       text: "/start a_tribute_existing",
     }),

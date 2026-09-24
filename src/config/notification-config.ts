@@ -1,3 +1,4 @@
+import { assertServiceSecret } from "./service-secret.js";
 export interface NotificationConfig {
   brokerUrl: string;
   authorizeUrl: string;
@@ -42,16 +43,7 @@ export function loadNotificationConfig(
   )
     throw new Error("Invalid Notification authorization endpoint");
   const authorizeSecret = required(env, "NOTIFICATION_AUTHORIZE_SECRET");
-  if (
-    !/^[A-Za-z0-9_-]{32,256}$/.test(authorizeSecret) ||
-    [
-      env.PLATFORM_INTEGRATION_SECRET,
-      env.PLATFORM_AUTHOR_AUTHORIZATION_SECRET,
-      env.PLATFORM_COMMUNITY_INTEGRATION_SECRET,
-      env.PLATFORM_COMMUNITY_DISPATCH_SECRET,
-    ].includes(authorizeSecret)
-  )
-    throw new Error("Notifications require a separate service secret");
+  assertServiceSecret(authorizeSecret, "NOTIFICATION_AUTHORIZE_SECRET");
   const quarantineKey = required(env, "NOTIFICATION_QUARANTINE_KEY");
   if (!/^[a-f0-9]{64}$/.test(quarantineKey))
     throw new Error(

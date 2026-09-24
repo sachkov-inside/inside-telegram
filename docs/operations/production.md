@@ -35,15 +35,16 @@ Git; зашифруйте файлы для host и отдельного recover
 ## Конфигурация
 
 `.env.example` перечисляет каждую переменную, которую читает приложение. Каждый секрет — отдельное
-случайное base64url значение не короче 32 символов (`TELEGRAM_WEBHOOK_SECRET` — до 256 символов
-того же алфавита). Приложение отказывается стартовать при повторе секрета между направлениями.
+случайное base64url значение длиной от 32 до 256 символов. Приложение отказывается стартовать с
+более коротким секретом и при повторе секрета между любыми двумя направлениями.
 
 | Группа | Telegram | Значение на выпуске | Пара на стороне Platform |
 | --- | --- | --- | --- |
 | Процесс | `DATABASE_URL`, `WORKERS_ENABLED` | внутренняя сеть БД; `true` | — |
 | Бот | `TELEGRAM_BOT_IDENTITY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CANONICAL_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET` | dedicated production bot; одна общая группа | `TELEGRAM_BOT_START_URL` |
 | Ответы в личном чате | `TELEGRAM_DELIVERY_MODE` и тексты `TELEGRAM_*_TEXT` | `live`; тексты по-русски | — |
-| Привязка и communications API | `PLATFORM_INTEGRATION_SECRET` | секрет | `TELEGRAM_LINKING_SECRET`, `TELEGRAM_COMMUNICATIONS_SECRET`; `TELEGRAM_LINKING_ENDPOINT=https://<telegram>/integrations/platform/v1/identity-links`, `TELEGRAM_COMMUNICATIONS_ENDPOINT=https://<telegram>/integrations/platform/v1/communications` |
+| Привязка | `PLATFORM_INTEGRATION_SECRET` | секрет | `TELEGRAM_LINKING_SECRET`; `TELEGRAM_LINKING_ENDPOINT=https://<telegram>/integrations/platform/v1/identity-links` |
+| Communications API | `PLATFORM_COMMUNICATIONS_SECRET` | отдельный секрет; без него API отвечает 401 | `TELEGRAM_COMMUNICATIONS_SECRET`; `TELEGRAM_COMMUNICATIONS_ENDPOINT=https://<telegram>/integrations/platform/v1/communications` |
 | Membership Evidence | `TELEGRAM_MEMBERSHIP_MODE`, `TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS`, `PLATFORM_EVIDENCE_DELIVERY_MODE`, `PLATFORM_EVIDENCE_DELIVERY_URL`, `PLATFORM_EVIDENCE_DELIVERY_SECRET` | `live`, `240000`, `live`, `https://<platform>/integrations/telegram/v1/membership-evidence` | `TELEGRAM_EVIDENCE_INGRESS_SECRET` |
 | Вход через бота | `TELEGRAM_SIGN_IN_ENABLED`, `TELEGRAM_SIGN_IN_INTEGRATION_SECRET` | `false` до готовности Logto и Platform | `TELEGRAM_SIGN_IN_INTEGRATION_SECRET` |
 | Сообщество v2 | `TELEGRAM_COMMUNITY_CONTRACT_VERSION`, `TELEGRAM_COMMUNITY_MODE`, `TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS`, `TELEGRAM_COMMUNITY_REMOVALS_ENABLED`, `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | `inside.community-entitlement.v2`, `live`, `60000`, `false`, id бота Tribute | `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2` |
@@ -58,10 +59,18 @@ Git; зашифруйте файлы для host и отдельного recover
 
 - `TELEGRAM_COMMUNITY_CONTRACT_VERSION` с любым значением, кроме v2;
 - настроенное сообщество (live, любой community secret или dispatch URL) без явной версии;
-- live-режим без токена бота; неполная пара URL и секрета; HTTP вне loopback;
+- секрет короче 32 символов, включая `TELEGRAM_WEBHOOK_SECRET`;
+- live-режим без токена бота; неполная пара URL и секрета; HTTP вне loopback, учётные данные,
+  query или fragment в URL сервиса, включая `PLATFORM_EVIDENCE_DELIVERY_URL`;
 - `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID`, совпадающий с id самого бота или не числовой;
-- `NOTIFICATION_AUTHORIZE_SECRET`, совпадающий с linking, author или community secret;
+- один и тот же секрет в двух направлениях: ошибка называет обе переменные;
 - флаг, отличный от `true`/`false`: ошибка называет переменную.
+
+Переход на отдельный секрет communications API ([#80](https://github.com/sachkov-inside/inside-telegram/issues/80)):
+до этого выпуска `PLATFORM_INTEGRATION_SECRET` проверял и привязку, и communications. При выкладке
+задайте новое случайное значение в `PLATFORM_COMMUNICATIONS_SECRET` и то же значение в Platform
+`TELEGRAM_COMMUNICATIONS_SECRET`. Пока пара не совпадает, communications API отвечает 401, а привязка
+продолжает работать. Перед выкладкой убедитесь, что все секреты не короче 32 символов.
 
 Platform сам не включает community producer без явного v2: при другой версии он не шлёт команды.
 Telegram отвечает `422 unsupported_contract` на `entitlement.set` другой версии; статус прежних

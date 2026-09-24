@@ -10,6 +10,7 @@ import {
   loadNotificationConfig,
   type NotificationConfig,
 } from "./notification-config.js";
+import { assertServiceSecret } from "./service-secret.js";
 export type DeliveryMode = "disabled" | "live";
 export type EvidenceDeliveryMode = "disabled" | "live";
 export type MembershipMode = "disabled" | "live";
@@ -41,6 +42,8 @@ export interface ApplicationConfig {
   readonly communityDispatchSecret?: string;
   readonly communityReconciliationCadenceMilliseconds: number;
   readonly communityTexts: CommunityTexts;
+  /** Authenticates Platform calls to the communications API; absent keeps that API closed. */
+  readonly communicationsSecret?: string;
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
   readonly marketingEnabled: boolean;
@@ -84,21 +87,18 @@ export function loadApplicationConfig(
   }
 
   const webhookSecret = required(environment, "TELEGRAM_WEBHOOK_SECRET");
-  if (!/^[A-Za-z0-9_-]{1,256}$/.test(webhookSecret)) {
-    throw new Error(
-      "TELEGRAM_WEBHOOK_SECRET must use Telegram's documented secret-token alphabet",
-    );
-  }
+  assertServiceSecret(webhookSecret, "TELEGRAM_WEBHOOK_SECRET");
 
   const platformIntegrationSecret = required(
     environment,
     "PLATFORM_INTEGRATION_SECRET",
   );
-  if (!/^[A-Za-z0-9_-]{16,256}$/.test(platformIntegrationSecret)) {
-    throw new Error(
-      "PLATFORM_INTEGRATION_SECRET must be a base64url credential of at least 16 characters",
-    );
-  }
+  assertServiceSecret(platformIntegrationSecret, "PLATFORM_INTEGRATION_SECRET");
+
+  const communicationsSecret =
+    environment.PLATFORM_COMMUNICATIONS_SECRET?.trim() || undefined;
+  if (communicationsSecret)
+    assertServiceSecret(communicationsSecret, "PLATFORM_COMMUNICATIONS_SECRET");
 
   const deliveryMode = environment.TELEGRAM_DELIVERY_MODE ?? "disabled";
   assertExternalMode(deliveryMode, "TELEGRAM_DELIVERY_MODE");
@@ -111,15 +111,11 @@ export function loadApplicationConfig(
   const signInIntegrationSecret = signInEnabled
     ? required(environment, "TELEGRAM_SIGN_IN_INTEGRATION_SECRET")
     : environment.TELEGRAM_SIGN_IN_INTEGRATION_SECRET?.trim() || undefined;
-  if (
-    signInIntegrationSecret &&
-    (!/^[A-Za-z0-9_-]{32,256}$/.test(signInIntegrationSecret) ||
-      signInIntegrationSecret === platformIntegrationSecret)
-  ) {
-    throw new Error(
-      "TELEGRAM_SIGN_IN_INTEGRATION_SECRET must be a separate base64url credential of at least 32 characters",
+  if (signInIntegrationSecret)
+    assertServiceSecret(
+      signInIntegrationSecret,
+      "TELEGRAM_SIGN_IN_INTEGRATION_SECRET",
     );
-  }
 
   const membershipMode = environment.TELEGRAM_MEMBERSHIP_MODE ?? "disabled";
   assertExternalMode(membershipMode, "TELEGRAM_MEMBERSHIP_MODE");
@@ -210,40 +206,13 @@ export function loadApplicationConfig(
     ["PLATFORM_COMMUNITY_INTEGRATION_SECRET", communityIntegrationSecret],
     ["PLATFORM_COMMUNITY_DISPATCH_SECRET", communityDispatchSecret],
   ] as const) {
-    if (value && !/^[A-Za-z0-9_-]{32,256}$/.test(value)) {
-      throw new Error(
-        `${name} must be a base64url credential of at least 32 characters`,
-      );
-    }
-  }
-  // Each direction keeps its own service secret; no existing caller inherits community authority.
-  if (
-    communityIntegrationSecret &&
-    [
-      platformIntegrationSecret,
-      signInIntegrationSecret,
-      communityDispatchSecret,
-    ].includes(communityIntegrationSecret)
-  ) {
-    throw new Error(
-      "PLATFORM_COMMUNITY_INTEGRATION_SECRET must differ from every other service secret",
-    );
+    if (value) assertServiceSecret(value, name);
   }
   if (communityDispatchUrl) {
-    assertHttpUrl(communityDispatchUrl, "PLATFORM_COMMUNITY_DISPATCH_URL");
-    const url = new URL(communityDispatchUrl);
-    if (
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      (url.protocol !== "https:" &&
-        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-    ) {
-      throw new Error(
-        "PLATFORM_COMMUNITY_DISPATCH_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
-      );
-    }
+    assertServiceEndpoint(
+      communityDispatchUrl,
+      "PLATFORM_COMMUNITY_DISPATCH_URL",
+    );
   }
   if (communityMode === "live") {
     if (!botToken) {
@@ -280,7 +249,7 @@ export function loadApplicationConfig(
       environment,
       "PLATFORM_EVIDENCE_DELIVERY_URL",
     );
-    assertHttpUrl(
+    assertServiceEndpoint(
       platformEvidenceDeliveryUrl,
       "PLATFORM_EVIDENCE_DELIVERY_URL",
     );
@@ -288,11 +257,10 @@ export function loadApplicationConfig(
       environment,
       "PLATFORM_EVIDENCE_DELIVERY_SECRET",
     );
-    if (!/^[A-Za-z0-9_-]{16,256}$/.test(platformEvidenceDeliverySecret)) {
-      throw new Error(
-        "PLATFORM_EVIDENCE_DELIVERY_SECRET must be a base64url credential of at least 16 characters",
-      );
-    }
+    assertServiceSecret(
+      platformEvidenceDeliverySecret,
+      "PLATFORM_EVIDENCE_DELIVERY_SECRET",
+    );
   }
 
   const platformAuthorAuthorizationUrl =
@@ -300,30 +268,18 @@ export function loadApplicationConfig(
   const platformAuthorAuthorizationSecret =
     environment.PLATFORM_AUTHOR_AUTHORIZATION_SECRET;
   if (platformAuthorAuthorizationUrl || platformAuthorAuthorizationSecret) {
-    if (
-      !platformAuthorAuthorizationUrl ||
-      !platformAuthorAuthorizationSecret ||
-      !/^[A-Za-z0-9_-]{16,256}$/.test(platformAuthorAuthorizationSecret)
-    )
+    if (!platformAuthorAuthorizationUrl || !platformAuthorAuthorizationSecret)
       throw new Error(
-        "Both PLATFORM_AUTHOR_AUTHORIZATION_URL and a valid PLATFORM_AUTHOR_AUTHORIZATION_SECRET are required",
+        "Both PLATFORM_AUTHOR_AUTHORIZATION_URL and PLATFORM_AUTHOR_AUTHORIZATION_SECRET are required",
       );
-    assertHttpUrl(
+    assertServiceSecret(
+      platformAuthorAuthorizationSecret,
+      "PLATFORM_AUTHOR_AUTHORIZATION_SECRET",
+    );
+    assertServiceEndpoint(
       platformAuthorAuthorizationUrl,
       "PLATFORM_AUTHOR_AUTHORIZATION_URL",
     );
-    const url = new URL(platformAuthorAuthorizationUrl);
-    if (
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      (url.protocol !== "https:" &&
-        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-    )
-      throw new Error(
-        "PLATFORM_AUTHOR_AUTHORIZATION_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
-      );
   }
 
   const platformAuthorContentValidationUrl =
@@ -333,22 +289,10 @@ export function loadApplicationConfig(
       throw new Error(
         "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL requires author authorization configuration",
       );
-    assertHttpUrl(
+    assertServiceEndpoint(
       platformAuthorContentValidationUrl,
       "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL",
     );
-    const url = new URL(platformAuthorContentValidationUrl);
-    if (
-      url.username ||
-      url.password ||
-      url.search ||
-      url.hash ||
-      (url.protocol !== "https:" &&
-        !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-    )
-      throw new Error(
-        "PLATFORM_AUTHOR_CONTENT_VALIDATION_URL requires HTTPS (HTTP only on loopback), without credentials, query or fragment",
-      );
   }
 
   let platformTrackingRedirectUrl = environment.PLATFORM_TRACKING_REDIRECT_URL;
@@ -413,21 +357,24 @@ export function loadApplicationConfig(
     )
       throw new Error("Tracking redirect cannot be a tracking destination");
   }
-  const activation = loadActivationConfig(
-    environment,
-    [
-      platformIntegrationSecret,
-      signInIntegrationSecret,
-      communityIntegrationSecret,
-      communityDispatchSecret,
-      platformEvidenceDeliverySecret,
-      platformAuthorAuthorizationSecret,
-    ],
-    canonicalChatId,
-  );
+  const activation = loadActivationConfig(environment, canonicalChatId);
+  const notifications = loadNotificationConfig(environment);
+  // Each direction keeps its own secret: a leak in one never authorizes another.
+  assertSeparateServiceSecrets({
+    TELEGRAM_WEBHOOK_SECRET: webhookSecret,
+    PLATFORM_INTEGRATION_SECRET: platformIntegrationSecret,
+    PLATFORM_COMMUNICATIONS_SECRET: communicationsSecret,
+    TELEGRAM_SIGN_IN_INTEGRATION_SECRET: signInIntegrationSecret,
+    PLATFORM_COMMUNITY_INTEGRATION_SECRET: communityIntegrationSecret,
+    PLATFORM_COMMUNITY_DISPATCH_SECRET: communityDispatchSecret,
+    PLATFORM_EVIDENCE_DELIVERY_SECRET: platformEvidenceDeliverySecret,
+    PLATFORM_AUTHOR_AUTHORIZATION_SECRET: platformAuthorAuthorizationSecret,
+    NOTIFICATION_AUTHORIZE_SECRET: notifications?.authorizeSecret,
+    PLATFORM_ACTIVATION_SECRET: activation?.secret,
+  });
   return Object.freeze({
     ...(activation ? { activation } : {}),
-    notifications: loadNotificationConfig(environment),
+    notifications,
     ...(platformTrackingRedirectUrl
       ? { platformTrackingRedirectUrl, platformTrackingTargetPrefixes }
       : {}),
@@ -451,6 +398,7 @@ export function loadApplicationConfig(
     ...(communityDispatchSecret ? { communityDispatchSecret } : {}),
     communityReconciliationCadenceMilliseconds,
     communityTexts,
+    ...(communicationsSecret ? { communicationsSecret } : {}),
     databaseUrl,
     deliveryMode,
     marketingEnabled: parseBoolean(
@@ -523,6 +471,36 @@ function assertHttpUrl(value: string, name: string): void {
   if (url.protocol !== "http:" && url.protocol !== "https:") {
     throw new Error(`${name} must be an HTTP URL`);
   }
+}
+
+function assertSeparateServiceSecrets(
+  secrets: Readonly<Record<string, string | undefined>>,
+): void {
+  const owners = new Map<string, string>();
+  for (const [name, value] of Object.entries(secrets)) {
+    if (!value) continue;
+    const owner = owners.get(value);
+    if (owner)
+      throw new Error(`${owner} and ${name} must be separate service secrets`);
+    owners.set(value, name);
+  }
+}
+
+/** A service credential travels only over TLS, except to a loopback peer. */
+function assertServiceEndpoint(value: string, name: string): void {
+  assertHttpUrl(value, name);
+  const url = new URL(value);
+  if (
+    url.username ||
+    url.password ||
+    url.search ||
+    url.hash ||
+    (url.protocol !== "https:" &&
+      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
+  )
+    throw new Error(
+      `${name} requires HTTPS (HTTP only on loopback), without credentials, query or fragment`,
+    );
 }
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {
