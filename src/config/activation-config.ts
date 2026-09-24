@@ -1,3 +1,4 @@
+import { assertServiceSecret } from "./service-secret.js";
 export interface ActivationSource {
   readonly sourceRef: string;
   readonly chatId: string;
@@ -23,10 +24,7 @@ export function loadActivationConfig(
   if (env.TELEGRAM_ACTIVATION_ENABLED !== "true")
     throw new Error("TELEGRAM_ACTIVATION_ENABLED must be true or false");
   const secret = env.PLATFORM_ACTIVATION_SECRET ?? "";
-  if (!/^[A-Za-z0-9_-]{32,256}$/.test(secret))
-    throw new Error(
-      "PLATFORM_ACTIVATION_SECRET requires a base64url credential of at least 32 characters",
-    );
+  assertServiceSecret(secret, "PLATFORM_ACTIVATION_SECRET");
   const endpoint = safeUrl(env.PLATFORM_ACTIVATION_URL);
   const accountUrl = safeUrl(env.PLATFORM_ACCOUNT_URL);
   let sources: unknown;

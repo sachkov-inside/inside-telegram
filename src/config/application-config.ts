@@ -10,6 +10,7 @@ import {
   loadNotificationConfig,
   type NotificationConfig,
 } from "./notification-config.js";
+import { assertServiceSecret } from "./service-secret.js";
 export type DeliveryMode = "disabled" | "live";
 export type EvidenceDeliveryMode = "disabled" | "live";
 export type MembershipMode = "disabled" | "live";
@@ -86,32 +87,18 @@ export function loadApplicationConfig(
   }
 
   const webhookSecret = required(environment, "TELEGRAM_WEBHOOK_SECRET");
-  if (!/^[A-Za-z0-9_-]{32,256}$/.test(webhookSecret)) {
-    throw new Error(
-      "TELEGRAM_WEBHOOK_SECRET must be 32 to 256 characters of Telegram's secret-token alphabet",
-    );
-  }
+  assertServiceSecret(webhookSecret, "TELEGRAM_WEBHOOK_SECRET");
 
   const platformIntegrationSecret = required(
     environment,
     "PLATFORM_INTEGRATION_SECRET",
   );
-  if (!/^[A-Za-z0-9_-]{32,256}$/.test(platformIntegrationSecret)) {
-    throw new Error(
-      "PLATFORM_INTEGRATION_SECRET must be a base64url credential of at least 32 characters",
-    );
-  }
+  assertServiceSecret(platformIntegrationSecret, "PLATFORM_INTEGRATION_SECRET");
 
   const communicationsSecret =
     environment.PLATFORM_COMMUNICATIONS_SECRET?.trim() || undefined;
-  if (
-    communicationsSecret &&
-    !/^[A-Za-z0-9_-]{32,256}$/.test(communicationsSecret)
-  ) {
-    throw new Error(
-      "PLATFORM_COMMUNICATIONS_SECRET must be a base64url credential of at least 32 characters",
-    );
-  }
+  if (communicationsSecret)
+    assertServiceSecret(communicationsSecret, "PLATFORM_COMMUNICATIONS_SECRET");
 
   const deliveryMode = environment.TELEGRAM_DELIVERY_MODE ?? "disabled";
   assertExternalMode(deliveryMode, "TELEGRAM_DELIVERY_MODE");
@@ -124,14 +111,11 @@ export function loadApplicationConfig(
   const signInIntegrationSecret = signInEnabled
     ? required(environment, "TELEGRAM_SIGN_IN_INTEGRATION_SECRET")
     : environment.TELEGRAM_SIGN_IN_INTEGRATION_SECRET?.trim() || undefined;
-  if (
-    signInIntegrationSecret &&
-    !/^[A-Za-z0-9_-]{32,256}$/.test(signInIntegrationSecret)
-  ) {
-    throw new Error(
-      "TELEGRAM_SIGN_IN_INTEGRATION_SECRET must be a separate base64url credential of at least 32 characters",
+  if (signInIntegrationSecret)
+    assertServiceSecret(
+      signInIntegrationSecret,
+      "TELEGRAM_SIGN_IN_INTEGRATION_SECRET",
     );
-  }
 
   const membershipMode = environment.TELEGRAM_MEMBERSHIP_MODE ?? "disabled";
   assertExternalMode(membershipMode, "TELEGRAM_MEMBERSHIP_MODE");
@@ -222,11 +206,7 @@ export function loadApplicationConfig(
     ["PLATFORM_COMMUNITY_INTEGRATION_SECRET", communityIntegrationSecret],
     ["PLATFORM_COMMUNITY_DISPATCH_SECRET", communityDispatchSecret],
   ] as const) {
-    if (value && !/^[A-Za-z0-9_-]{32,256}$/.test(value)) {
-      throw new Error(
-        `${name} must be a base64url credential of at least 32 characters`,
-      );
-    }
+    if (value) assertServiceSecret(value, name);
   }
   if (communityDispatchUrl) {
     assertServiceEndpoint(
@@ -277,11 +257,10 @@ export function loadApplicationConfig(
       environment,
       "PLATFORM_EVIDENCE_DELIVERY_SECRET",
     );
-    if (!/^[A-Za-z0-9_-]{32,256}$/.test(platformEvidenceDeliverySecret)) {
-      throw new Error(
-        "PLATFORM_EVIDENCE_DELIVERY_SECRET must be a base64url credential of at least 32 characters",
-      );
-    }
+    assertServiceSecret(
+      platformEvidenceDeliverySecret,
+      "PLATFORM_EVIDENCE_DELIVERY_SECRET",
+    );
   }
 
   const platformAuthorAuthorizationUrl =
@@ -289,14 +268,14 @@ export function loadApplicationConfig(
   const platformAuthorAuthorizationSecret =
     environment.PLATFORM_AUTHOR_AUTHORIZATION_SECRET;
   if (platformAuthorAuthorizationUrl || platformAuthorAuthorizationSecret) {
-    if (
-      !platformAuthorAuthorizationUrl ||
-      !platformAuthorAuthorizationSecret ||
-      !/^[A-Za-z0-9_-]{32,256}$/.test(platformAuthorAuthorizationSecret)
-    )
+    if (!platformAuthorAuthorizationUrl || !platformAuthorAuthorizationSecret)
       throw new Error(
-        "Both PLATFORM_AUTHOR_AUTHORIZATION_URL and a valid PLATFORM_AUTHOR_AUTHORIZATION_SECRET are required",
+        "Both PLATFORM_AUTHOR_AUTHORIZATION_URL and PLATFORM_AUTHOR_AUTHORIZATION_SECRET are required",
       );
+    assertServiceSecret(
+      platformAuthorAuthorizationSecret,
+      "PLATFORM_AUTHOR_AUTHORIZATION_SECRET",
+    );
     assertServiceEndpoint(
       platformAuthorAuthorizationUrl,
       "PLATFORM_AUTHOR_AUTHORIZATION_URL",

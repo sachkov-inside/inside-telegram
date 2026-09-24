@@ -6,7 +6,7 @@ import {
 } from "../../src/operations/webhook-registration.js";
 
 const relayUrl = "https://telegram.example.test:88/webhooks/telegram";
-const secret = "synthetic_webhook_secret";
+const secret = "synthetic_webhook_secret_for_tests_only";
 const required = [
   "message",
   "chat_member",
@@ -90,6 +90,12 @@ describe("webhook registration plan", () => {
       );
     },
   );
+
+  it("refuses to register a secret token the application would reject at startup", () => {
+    expect(() =>
+      planWebhookRegistration(relayInfo, relayUrl, "s".repeat(31)),
+    ).toThrow("TELEGRAM_WEBHOOK_SECRET");
+  });
 
   it("confirms the applied registration only when every preserved field reads back", () => {
     const plan = planWebhookRegistration(relayInfo, relayUrl, secret);

@@ -2,6 +2,7 @@ import {
   TELEGRAM_WEBHOOK_ALLOWED_UPDATES,
   TELEGRAM_WEBHOOK_PATH,
 } from "../modules/webhook/telegram-webhook.js";
+import { assertServiceSecret } from "../config/service-secret.js";
 
 const WEBHOOK_PATH = `/${TELEGRAM_WEBHOOK_PATH}`;
 /** Telegram delivers webhooks only to these HTTPS ports; 88 is the relay route. */
@@ -49,6 +50,7 @@ export function planWebhookRegistration(
   secretToken: string,
 ): WebhookRegistrationPlan {
   assertWebhookUrl(expectedUrl);
+  assertServiceSecret(secretToken, "TELEGRAM_WEBHOOK_SECRET");
   const current = isRecord(info) ? info : {};
   const url = typeof current.url === "string" ? current.url : "";
   if (!url) return { kind: "refused", reason: "not_registered" };
