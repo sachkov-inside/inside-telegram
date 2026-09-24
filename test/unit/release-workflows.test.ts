@@ -102,10 +102,80 @@ describe("release workflow", () => {
     expect(publish).toContain("release-assets/compose.yaml");
     expect(publish).toContain("release-assets/telegram.caddy");
     expect(publish).toContain(".isImmutable == true");
+    expect(release).not.toContain("RELEASE_SETTINGS_READ_TOKEN");
+    expect(readFileSync("scripts/plan-release.sh", "utf8")).not.toMatch(
+      /RELEASE_SETTINGS_READ_TOKEN|immutable-releases/,
+    );
     expect(stepScript(release, "Create the release manifest")).toContain(
       "cp infra/production/compose.yaml release-assets/compose.yaml",
     );
   });
+
+  it.each([
+    [true, 0, false],
+    [false, 1, true],
+  ])(
+    "keeps an immutable release and deletes a mutable one (immutable=%s)",
+    (immutable, status, deleted) => {
+      const directory = mkdtempSync(path.join(tmpdir(), "telegram-publish-"));
+      try {
+        mkdirSync(path.join(directory, "release-assets"));
+        writeFileSync(
+          path.join(directory, "release-assets/release-manifest.json"),
+          JSON.stringify({
+            source: { sha: "a".repeat(40) },
+            image: "image",
+            migrations: { identity: "m", count: 1, latest: "001.ts" },
+            compose: { sha256: "c" },
+            caddy: { sha256: "d" },
+          }),
+        );
+        const gh = path.join(directory, "gh");
+        writeFileSync(
+          gh,
+          `#!/usr/bin/env bash
+printf '%s\\n' "$*" >>"$FIXTURES/gh.log"
+case "$1 $2" in
+  'release create') ;;
+  'release view') printf '{"isImmutable":${String(immutable)},"tagName":"v2","targetCommitish":"${"a".repeat(40)}"}' ;;
+  'release delete') ;;
+  *) exit 1 ;;
+esac
+`,
+        );
+        chmodSync(gh, 0o755);
+        const result = spawnSync(
+          "bash",
+          ["-c", stepScript(release, "Publish the immutable GitHub Release")],
+          {
+            cwd: directory,
+            encoding: "utf8",
+            env: {
+              ...process.env,
+              PATH: `${directory}:${process.env.PATH ?? ""}`,
+              FIXTURES: directory,
+              RUNNER_TEMP: directory,
+              GITHUB_REPOSITORY: "sachkov-inside/inside-telegram",
+              VERSION: "v2",
+              SOURCE_SHA: "a".repeat(40),
+            },
+          },
+        );
+        expect(result.status, result.stderr).toBe(status);
+        const calls = readFileSync(path.join(directory, "gh.log"), "utf8");
+        expect(
+          calls.includes(
+            "release delete v2 --repo sachkov-inside/inside-telegram --cleanup-tag --yes",
+          ),
+        ).toBe(deleted);
+        if (deleted) {
+          expect(result.stdout).toContain("Enable immutable releases");
+        }
+      } finally {
+        rmSync(directory, { recursive: true, force: true });
+      }
+    },
+  );
 
   it("lets the release reuse application CI for an exact commit", () => {
     expect(applicationCi).toMatch(/^ {2}workflow_call:$/m);

@@ -126,8 +126,8 @@ Inside после исключения, описано в [схеме двух �
 
 Actions → **Publish ordinal release** → `version` = следующий `vN` (первый — `v1`). Workflow:
 
-- проверяет, что в репозитории включены immutable releases, `vN` — следующий номер без пропусков,
-  а запуск идёт с текущего `main`;
+- проверяет, что `vN` — следующий номер без пропусков, прежние версии неизменяемы, а запуск идёт
+  с текущего `main`;
 - прогоняет Application CI на этом SHA;
 - собирает `infra/production/Dockerfile` с `SOURCE_COMMIT`, публикует
   `ghcr.io/sachkov-inside/inside-telegram:vN` и проверяет анонимный pull по digest;
@@ -237,16 +237,19 @@ telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
 **GitHub (координатор с правами администратора репозитория):**
 
 1. Settings → General → Releases → включить **immutable releases**.
-2. Repository secret `RELEASE_SETTINGS_READ_TOKEN`: fine-grained token с Administration: read на
-   `inside-telegram` (тот же, что у Platform, если его область включает этот репозиторий).
-   `GITHUB_TOKEN` не может прочитать эту настройку.
-3. Environment `Production` с required reviewer владельца, deployment branches — только `main`, и
+   Workflow не читает эту настройку заранее: `GITHUB_TOKEN` не может запросить нужное право
+   Administration: read, а отдельный токен владельца сделал бы выпуск зависимым от него. Вместо
+   этого `release.yml` проверяет результат: после `gh release create` он читает `isImmutable`
+   созданного Release. Если Release получился изменяемым, workflow удаляет его вместе с тегом и
+   падает с просьбой включить immutable releases; после включения тот же `vN` запускается снова.
+   Изменяемый Release в любом случае не выкладывается: его отклоняют и `deploy.yml`, и gateway.
+2. Environment `Production` с required reviewer владельца, deployment branches — только `main`, и
    secrets:
    - `PRODUCTION_SSH_HOST` — адрес VPS;
    - `PRODUCTION_SSH_PRIVATE_KEY` — приватная часть отдельного ключа Ed25519 только для Telegram;
    - `PRODUCTION_SSH_HOST_KEYS` — строки `known_hosts` VPS, сверенные с отпечатком из консоли
      провайдера, а не с первым подключением.
-4. После первого push образа: Package `inside-telegram` → Package settings → Change visibility →
+3. После первого push образа: Package `inside-telegram` → Package settings → Change visibility →
    **Public**, затем Re-run failed jobs. До этого шаг «Prove anonymous pull by digest» падает.
 
 **Ключ** создаётся на машине координатора и не попадает в Git, журналы или чат:

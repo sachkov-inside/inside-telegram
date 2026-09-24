@@ -37,7 +37,6 @@ jobs:
         id: plan
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_SETTINGS_READ_TOKEN: ${{ secrets.RELEASE_SETTINGS_READ_TOKEN }}
           REQUESTED_VERSION: ${{ inputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
@@ -129,7 +128,6 @@ jobs:
       - name: Recheck release state
         env:
           GH_TOKEN: ${{ github.token }}
-          RELEASE_SETTINGS_READ_TOKEN: ${{ secrets.RELEASE_SETTINGS_READ_TOKEN }}
           REQUESTED_VERSION: ${{ needs.plan.outputs.version }}
           SOURCE_SHA: ${{ needs.plan.outputs.source_sha }}
         run: bash scripts/plan-release.sh >/dev/null
@@ -177,8 +175,14 @@ jobs:
             release-assets/release-manifest.json \
             release-assets/compose.yaml \
             release-assets/telegram.caddy
+          # GITHUB_TOKEN cannot read the repository setting, so the created release proves it.
           gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" \
-            --json isImmutable,tagName,targetCommitish |
-            jq --exit-status --arg version "$VERSION" --arg sha "$SOURCE_SHA" '
-              .isImmutable == true and .tagName == $version and .targetCommitish == $sha
-            '
+            --json isImmutable,tagName,targetCommitish >"$RUNNER_TEMP/published-release.json"
+          if ! jq --exit-status '.isImmutable == true' "$RUNNER_TEMP/published-release.json" >/dev/null; then
+            gh release delete "$VERSION" --repo "$GITHUB_REPOSITORY" --cleanup-tag --yes
+            echo "::error::Release $VERSION was created mutable and has been deleted with its tag. Enable immutable releases (Settings → General → Releases), then run this workflow again with $VERSION."
+            exit 1
+          fi
+          jq --exit-status --arg version "$VERSION" --arg sha "$SOURCE_SHA" '
+            .tagName == $version and .targetCommitish == $sha
+          ' "$RUNNER_TEMP/published-release.json" >/dev/null

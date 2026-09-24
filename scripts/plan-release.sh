@@ -1,26 +1,13 @@
 #!/usr/bin/env bash
-# Plans one ordinal release: immutable releases enabled, next vN, captured SHA is current main.
+# Plans one ordinal release: next vN on the current main, earlier releases immutable.
+# Whether the repository setting is on is proven after publication in release.yml:
+# reading it needs Administration: read, which GITHUB_TOKEN cannot request.
 set -euo pipefail
 
 : "${GH_TOKEN:?GH_TOKEN is required}"
-: "${RELEASE_SETTINGS_READ_TOKEN:?RELEASE_SETTINGS_READ_TOKEN is required}"
 : "${GITHUB_REPOSITORY:?GITHUB_REPOSITORY is required}"
 : "${REQUESTED_VERSION:?REQUESTED_VERSION is required}"
 : "${SOURCE_SHA:?SOURCE_SHA is required}"
-
-# Reading this setting needs Administration: read, which GITHUB_TOKEN cannot request.
-# The settings credential is not inherited by the remaining commands.
-settings_token="$RELEASE_SETTINGS_READ_TOKEN"
-unset RELEASE_SETTINGS_READ_TOKEN
-immutable_enabled="$(
-  GH_TOKEN="$settings_token" gh api \
-    "repos/${GITHUB_REPOSITORY}/immutable-releases" --jq .enabled
-)"
-unset settings_token
-if [[ "$immutable_enabled" != "true" ]]; then
-  echo "Enable immutable releases in the repository settings before publishing." >&2
-  exit 1
-fi
 
 current_main_sha="$(
   gh api "repos/${GITHUB_REPOSITORY}/git/ref/heads/main" --jq .object.sha
