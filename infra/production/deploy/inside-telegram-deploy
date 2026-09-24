@@ -1,0 +1,430 @@
+#!/usr/bin/env bash
+# Restricted production gateway of the Telegram application.
+#
+# SSH forced command of inside-telegram-deploy runs it as root through one sudoers rule:
+#   deploy <vN> <github-run-id>    rollback <vN> <github-run-id>
+# stdin: gzip tar with exactly release-manifest.json and compose.yaml of that release.
+# Host-owned /etc/inside/telegram/{compose.env,compose.override.yaml,application.env} are only read.
+set -euo pipefail
+
+if [[ -n "${INSIDE_TELEGRAM_DEPLOY_TEST_ROOT:-}" ]]; then
+  if [[ "$EUID" -eq 0 ]]; then
+    echo "Test root is forbidden for a root process" >&2
+    exit 1
+  fi
+  host_root="${INSIDE_TELEGRAM_DEPLOY_TEST_ROOT%/}"
+  readiness_attempts="${INSIDE_TELEGRAM_DEPLOY_TEST_READINESS_ATTEMPTS:-2}"
+  readiness_delay=0
+else
+  if [[ "$EUID" -ne 0 ]]; then
+    echo "inside-telegram-deploy must run as root" >&2
+    exit 1
+  fi
+  host_root=""
+  readiness_attempts=20
+  readiness_delay=3
+  PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
+  export PATH
+fi
+
+readonly github_repository=sachkov-inside/inside-telegram
+readonly image_pattern='^ghcr\.io/sachkov-inside/inside-telegram@sha256:[0-9a-f]{64}$'
+config_dir="$host_root/etc/inside/telegram"
+releases_dir="$host_root/srv/inside/telegram/releases"
+state_dir="$host_root/var/lib/inside/telegram-deployments"
+state_file="$state_dir/state.json"
+operation_file="$state_dir/operation.json"
+
+read -r operation version run_id extra <<<"${SSH_ORIGINAL_COMMAND:-}" || true
+if [[ -n "${extra:-}" || ! "${operation:-}" =~ ^(deploy|rollback)$ ||
+      ! "${version:-}" =~ ^v[1-9][0-9]*$ || ! "${run_id:-}" =~ ^[1-9][0-9]*$ ]]; then
+  echo "Rejected restricted command; expected: deploy|rollback vN <github-run-id>" >&2
+  exit 2
+fi
+
+install -d -m 700 "$state_dir"
+install -d -m 755 "$releases_dir"
+lock_file="$state_dir/operation.lock"
+: >>"$lock_file"
+chmod 600 "$lock_file"
+exec 9<>"$lock_file"
+if ! flock --exclusive --nonblock 9; then
+  echo "Another Telegram production operation is active" >&2
+  exit 1
+fi
+
+incoming_dir="$(mktemp -d "$state_dir/incoming.XXXXXX")"
+cleanup() {
+  local status=$?
+  trap - EXIT
+  if [[ -n "$incoming_dir" && -d "$incoming_dir" ]]; then
+    rm -r "$incoming_dir"
+  fi
+  exit "$status"
+}
+trap cleanup EXIT
+
+file_size() {
+  wc -c <"$1" | tr -d ' '
+}
+
+sha256_file() {
+  if command -v sha256sum >/dev/null 2>&1; then
+    sha256sum "$1" | cut -d' ' -f1
+  else
+    shasum -a 256 "$1" | cut -d' ' -f1
+  fi
+}
+
+now() {
+  date -u +%Y-%m-%dT%H:%M:%SZ
+}
+
+# Reads at most limit+1 bytes, so an oversized input is refused without being truncated into validity.
+read_limited() {
+  local destination="$1" limit="$2" label="$3"
+  if ! head -c "$((limit + 1))" >"$destination"; then
+    echo "$label cannot be read" >&2
+    exit 1
+  fi
+  if [[ "$(file_size "$destination")" -gt "$limit" ]]; then
+    echo "$label exceeds $limit bytes" >&2
+    exit 1
+  fi
+}
+
+payload="$incoming_dir/payload.tar.gz"
+read_limited "$payload" 1048576 "Deployment payload"
+if ! gzip -dc "$payload" 2>/dev/null | read_limited "$incoming_dir/payload.tar" 4194304 "Decoded payload"; then
+  echo "Deployment payload is not a valid gzip archive within its limit" >&2
+  exit 1
+fi
+if [[ "$(tar -tf "$incoming_dir/payload.tar" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')" != "compose.yaml release-manifest.json " ]]; then
+  echo "Payload must contain only release-manifest.json and compose.yaml" >&2
+  exit 1
+fi
+if [[ "$(tar -tvf "$incoming_dir/payload.tar" | cut -c 1 | LC_ALL=C sort -u)" != - ]]; then
+  echo "Deployment payload entries must be regular files" >&2
+  exit 1
+fi
+manifest="$incoming_dir/release-manifest.json"
+compose_file="$incoming_dir/compose.yaml"
+tar -xOf "$incoming_dir/payload.tar" release-manifest.json |
+  read_limited "$manifest" 65536 "Release manifest"
+tar -xOf "$incoming_dir/payload.tar" compose.yaml |
+  read_limited "$compose_file" 262144 "Release compose file"
+rm "$payload" "$incoming_dir/payload.tar"
+
+if ! jq --exit-status \
+  --arg version "$version" \
+  --arg repository "$github_repository" \
+  --arg imagePattern "$image_pattern" '
+  (keys == ["compose", "image", "migrations", "publication", "schemaVersion", "source", "version"]) and
+  .schemaVersion == "inside.telegram.release-manifest.v1" and
+  .version == $version and
+  (.source | keys == ["repository", "sha"]) and
+  .source.repository == $repository and
+  (.source.sha | test("^[0-9a-f]{40}$")) and
+  (.image | test($imagePattern)) and
+  (.migrations | keys == ["count", "identity", "latest"]) and
+  (.migrations.identity | test("^sha256:[0-9a-f]{64}$")) and
+  (.compose | keys == ["asset", "sha256"]) and
+  .compose.asset == "compose.yaml" and
+  (.compose.sha256 | test("^sha256:[0-9a-f]{64}$")) and
+  (.publication.workflowRunId | type == "number") and
+  .publication.workflowRunId > 0 and
+  (.publication.workflowRunId | floor) == .publication.workflowRunId
+' "$manifest" >/dev/null 2>&1; then
+  echo "Release manifest does not satisfy the Telegram production contract" >&2
+  exit 1
+fi
+if [[ "sha256:$(sha256_file "$compose_file")" != "$(jq --raw-output .compose.sha256 "$manifest")" ]]; then
+  echo "Release compose file does not match its manifest" >&2
+  exit 1
+fi
+
+github_get() {
+  local url="$1" destination="$2" accept="${3:-application/vnd.github+json}"
+  curl \
+    --fail \
+    --silent \
+    --show-error \
+    --location \
+    --connect-timeout 10 \
+    --max-time 60 \
+    --retry 2 \
+    --retry-delay 1 \
+    --proto '=https' \
+    --proto-redir '=https' \
+    --header "Accept: $accept" \
+    --header 'X-GitHub-Api-Version: 2022-11-28' \
+    --user-agent inside-telegram-deployer \
+    --output "$destination" \
+    "$url"
+}
+
+# The payload is trusted only when it is byte-identical to the asset of the immutable release.
+source_sha="$(jq --raw-output .source.sha "$manifest")"
+download_base="https://github.com/$github_repository/releases/download/$version"
+github_get "https://api.github.com/repos/$github_repository/releases/tags/$version" \
+  "$incoming_dir/github-release.json"
+github_get "$download_base/release-manifest.json" \
+  "$incoming_dir/github-release-manifest.json" application/octet-stream
+if ! jq --exit-status \
+  --arg version "$version" \
+  --arg sourceSha "$source_sha" \
+  --arg base "$download_base" '
+    .immutable == true and
+    .draft == false and
+    .prerelease == false and
+    .tag_name == $version and
+    .target_commitish == $sourceSha and
+    ([.assets[].name] | sort) == ["compose.yaml", "release-manifest.json"] and
+    ([.assets[] | select(.name == "release-manifest.json")][0].browser_download_url) == ($base + "/release-manifest.json") and
+    ([.assets[] | select(.name == "compose.yaml")][0].browser_download_url) == ($base + "/compose.yaml")
+  ' "$incoming_dir/github-release.json" >/dev/null 2>&1 ||
+  ! cmp -s "$manifest" "$incoming_dir/github-release-manifest.json"; then
+  echo "Deployment payload does not match the immutable GitHub release $version" >&2
+  exit 1
+fi
+publication_run_id="$(jq --raw-output .publication.workflowRunId "$manifest")"
+github_get "https://api.github.com/repos/$github_repository/actions/runs/$publication_run_id" \
+  "$incoming_dir/publication-run.json"
+if ! jq --exit-status \
+  --arg sourceSha "$source_sha" \
+  --argjson runId "$publication_run_id" '
+    .id == $runId and
+    .conclusion == "success" and
+    .event == "workflow_dispatch" and
+    .head_sha == $sourceSha and
+    .path == ".github/workflows/release.yml"
+  ' "$incoming_dir/publication-run.json" >/dev/null 2>&1; then
+  echo "Release publication workflow run is not verified" >&2
+  exit 1
+fi
+
+image="$(jq --raw-output .image "$manifest")"
+migrations_identity="$(jq --raw-output .migrations.identity "$manifest")"
+manifest_sha="sha256:$(sha256_file "$manifest")"
+started_at="$(now)"
+phase=preflight
+
+if [[ -f "$state_file" ]] && ! jq --exit-status '
+  .schemaVersion == "inside.telegram.deployment-state.v1" and
+  (.current | type == "object") and
+  (.previous == null or (.previous | type == "object"))
+' "$state_file" >/dev/null 2>&1; then
+  echo "Deployment state $state_file is invalid; repair it before any operation" >&2
+  exit 1
+fi
+
+record_operation() {
+  local status="$1" message="${2:-}"
+  local temporary="$operation_file.tmp.$$"
+  jq --null-input \
+    --arg operation "$operation" \
+    --arg version "$version" \
+    --arg image "$image" \
+    --arg migrations "$migrations_identity" \
+    --argjson runId "$run_id" \
+    --arg phase "$phase" \
+    --arg status "$status" \
+    --arg message "$message" \
+    --arg startedAt "$started_at" \
+    --arg updatedAt "$(now)" '{
+      schemaVersion: "inside.telegram.deployment-operation.v1",
+      operation: $operation,
+      version: $version,
+      image: $image,
+      migrationsIdentity: $migrations,
+      githubRunId: $runId,
+      phase: $phase,
+      status: $status,
+      message: (if $message == "" then null else $message end),
+      startedAt: $startedAt,
+      updatedAt: $updatedAt
+    }' >"$temporary"
+  chmod 600 "$temporary"
+  mv "$temporary" "$operation_file"
+}
+
+fail() {
+  record_operation failed "$1"
+  echo "$operation $version failed in phase $phase: $1" >&2
+  echo "Diagnostics: $operation_file. Data and volumes were not changed by the gateway." >&2
+  exit 1
+}
+
+refuse() {
+  echo "$1" >&2
+  exit 1
+}
+
+release_dir="$releases_dir/$version"
+compose() {
+  TELEGRAM_IMAGE="$image" docker compose \
+    --env-file "$config_dir/compose.env" \
+    -f "$release_dir/compose.yaml" \
+    -f "$config_dir/compose.override.yaml" \
+    "$@"
+}
+
+ordinal() {
+  echo "${1#v}"
+}
+
+current_version=""
+current_migrations=""
+if [[ -f "$state_file" ]]; then
+  current_version="$(jq --raw-output .current.version "$state_file")"
+  current_migrations="$(jq --raw-output .current.migrationsIdentity "$state_file")"
+fi
+
+# A failed operation after its migrations may have left a newer schema than the current release.
+if [[ -f "$operation_file" ]] && jq --exit-status \
+  --arg migrations "$migrations_identity" '
+    .status != "succeeded" and
+    (.phase == "migrate" or .phase == "start" or .phase == "readiness" or .phase == "state") and
+    .migrationsIdentity != $migrations
+  ' "$operation_file" >/dev/null 2>&1; then
+  interrupted="$(jq --raw-output '.operation + " " + .version' "$operation_file")"
+  if [[ "$operation" == rollback || "$version" == "$current_version" ]]; then
+    refuse "Refusing $operation $version: interrupted '$interrupted' may have migrated the database. Repair forward with the next release."
+  fi
+fi
+
+same_release=false
+if [[ "$version" == "$current_version" ]]; then
+  if [[ "$(jq --raw-output .current.manifestSha256 "$state_file")" != "$manifest_sha" ]]; then
+    refuse "Refusing $operation $version: the deployed $version has a different manifest"
+  fi
+  same_release=true
+elif [[ "$operation" == deploy ]]; then
+  if [[ -n "$current_version" && "$(ordinal "$version")" -le "$(ordinal "$current_version")" ]]; then
+    refuse "Refusing deploy $version: current is $current_version; use rollback for the previous release"
+  fi
+else
+  if [[ -z "$current_version" ]]; then
+    refuse "Refusing rollback $version: nothing was deployed by this gateway yet"
+  fi
+  if ! jq --exit-status --arg version "$version" '.previous != null and .previous.version == $version' \
+    "$state_file" >/dev/null; then
+    refuse "Refusing rollback $version: only the recorded previous release can be restored ($(jq --raw-output '.previous.version // "none"' "$state_file"))"
+  fi
+  if [[ "$(jq --raw-output .previous.manifestSha256 "$state_file")" != "$manifest_sha" ]]; then
+    refuse "Refusing rollback $version: the release differs from the recorded previous deployment"
+  fi
+  if [[ "$migrations_identity" != "$current_migrations" ]]; then
+    refuse "Refusing rollback $current_version -> $version: migration sets differ and down migrations are not supported. Repair forward with the next release."
+  fi
+fi
+
+# Stage the exact release files; an ordinal is never re-staged with different content.
+if [[ -d "$release_dir" ]]; then
+  if ! cmp -s "$release_dir/release-manifest.json" "$manifest" ||
+     ! cmp -s "$release_dir/compose.yaml" "$compose_file"; then
+    refuse "Refusing to replace the already staged release $version"
+  fi
+else
+  staged="$(mktemp -d "$releases_dir/.staging.XXXXXX")"
+  install -m 644 "$manifest" "$staged/release-manifest.json"
+  install -m 644 "$compose_file" "$staged/compose.yaml"
+  chmod 755 "$staged"
+  mv "$staged" "$release_dir"
+fi
+
+record_operation running
+for required in compose.env application.env compose.override.yaml; do
+  if [[ ! -f "$config_dir/$required" || -L "$config_dir/$required" ]]; then
+    fail "Host configuration $config_dir/$required is missing"
+  fi
+done
+compose config --quiet || fail "Compose configuration is invalid"
+
+phase=pull
+docker pull --quiet "$image" >/dev/null || fail "Image $image cannot be pulled"
+
+readiness() {
+  local binding port attempt code
+  binding="$(compose port app 3002)" || return 1
+  port="${binding##*:}"
+  if [[ "${binding%:*}" != 127.0.0.1 || ! "$port" =~ ^[0-9]+$ ]]; then
+    echo "app must publish only on 127.0.0.1, got $binding" >&2
+    return 1
+  fi
+  for ((attempt = 1; attempt <= readiness_attempts; attempt += 1)); do
+    code="$(curl --silent --output /dev/null --max-time 5 --write-out '%{http_code}' \
+      "http://127.0.0.1:$port/ready" || true)"
+    if [[ "$code" == 200 ]]; then
+      return 0
+    fi
+    sleep "$readiness_delay"
+  done
+  echo "GET /ready answered $code after $readiness_attempts attempts" >&2
+  return 1
+}
+
+if [[ "$same_release" == true ]]; then
+  # Repeating the operation converges on the recorded release without stopping or migrating.
+  phase=start
+  compose up --detach --no-build --wait app || fail "app did not start"
+  phase=readiness
+  readiness || fail "app is not ready"
+  phase=complete
+  record_operation succeeded "$version is already current; app is running and ready"
+  echo "$version is already current; app is running and ready."
+  exit 0
+fi
+
+phase=stop
+compose stop app || fail "The running app cannot be stopped"
+
+if [[ "$operation" == deploy ]]; then
+  phase=migrate
+  compose --profile operations run --rm --interactive=false migrate </dev/null ||
+    fail "Migrations failed; app stays stopped"
+fi
+
+phase=start
+compose up --detach --no-build --wait app || fail "app did not start"
+
+phase=readiness
+readiness || fail "app is not ready"
+
+phase=state
+entry="$(jq --null-input \
+  --arg version "$version" \
+  --arg sourceSha "$source_sha" \
+  --arg image "$image" \
+  --arg migrations "$migrations_identity" \
+  --arg manifestSha "$manifest_sha" \
+  --arg operation "$operation" \
+  --argjson runId "$run_id" \
+  --arg at "$(now)" '{
+    version: $version,
+    sourceSha: $sourceSha,
+    image: $image,
+    migrationsIdentity: $migrations,
+    manifestSha256: $manifestSha,
+    operation: $operation,
+    githubRunId: $runId,
+    completedAt: $at
+  }')"
+if [[ "$operation" == deploy ]]; then
+  previous="$(if [[ -f "$state_file" ]]; then jq --compact-output .current "$state_file"; else echo null; fi)"
+else
+  # After a rollback there is no further previous release: the next step is a new deploy.
+  previous=null
+fi
+temporary="$state_file.tmp.$$"
+jq --null-input --argjson current "$entry" --argjson previous "$previous" '{
+  schemaVersion: "inside.telegram.deployment-state.v1",
+  current: $current,
+  previous: $previous
+}' >"$temporary"
+chmod 600 "$temporary"
+mv "$temporary" "$state_file"
+
+phase=complete
+record_operation succeeded
+echo "$operation $version succeeded: $image"

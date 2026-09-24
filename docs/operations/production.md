@@ -115,10 +115,166 @@ Inside после исключения, описано в [схеме двух �
 Права проверяются через `getMe`, `getChat` и `getChatMember` для самого бота. Изменение прав в боевой
 группе — действие владельца.
 
-## Сборка и запуск
+## Выпуск и выкладка
+
+Обычный выпуск идёт без ручных команд на сервере: `main` → версия `vN` → production → проверки →
+при необходимости откат. Каждый запуск `release.yml` и `deploy.yml` — действие владельца или
+координатора с его разрешением. Путь повторяет Platform; у Telegram один процесс `app` и одноразовый
+`migrate`.
+
+### 1. Выпуск версии
+
+Actions → **Publish ordinal release** → `version` = следующий `vN` (первый — `v1`). Workflow:
+
+- проверяет, что в репозитории включены immutable releases, `vN` — следующий номер без пропусков,
+  а запуск идёт с текущего `main`;
+- прогоняет Application CI на этом SHA;
+- собирает `infra/production/Dockerfile` с `SOURCE_COMMIT`, публикует
+  `ghcr.io/sachkov-inside/inside-telegram:vN` и проверяет анонимный pull по digest;
+- создаёт неизменяемый GitHub Release `vN` с target = SHA и двумя ассетами: `compose.yaml` (копия
+  `infra/production/compose.yaml`) и `release-manifest.json`.
+
+Manifest (`inside.telegram.release-manifest.v1`) связывает версию, SHA, образ
+`ghcr.io/sachkov-inside/inside-telegram@sha256:…`, sha256 файла `compose.yaml`, run публикации и
+идентичность миграций: sha256 от упорядоченного списка файлов `src/database/migrations` и их
+содержимого (`node scripts/release-contract.mjs migrations-identity`). Одинаковая идентичность у двух
+версий значит одинаковую схему базы.
+
+### 2. Выкладка
+
+Actions → **Deploy production release** → `operation` = `deploy`, `version` = `vN`. Job работает в
+environment `Production`, ещё раз сверяет Release, manifest, `compose.yaml` и run публикации и
+передаёт оба файла по SSH пользователю `inside-telegram-deploy`. На сервере forced command запускает
+только gateway `/usr/local/libexec/inside/inside-telegram-deploy`. Выкладки встают в очередь; активная
+не отменяется.
+
+Gateway принимает только `deploy vN <run-id>` и `rollback vN <run-id>` и вход до 1 MiB. Он повторно
+читает Release с GitHub по HTTPS и принимает manifest, только если тот побайтно совпадает с ассетом
+неизменяемого Release. Одновременно идёт одна операция (`flock`). Порядок `deploy`:
+
+1. preflight: `/etc/inside/telegram/compose.env`, `application.env`, `compose.override.yaml` на
+   месте, `docker compose config --quiet` проходит;
+2. `docker pull` образа по digest;
+3. файлы версии сохраняются в `/srv/inside/telegram/releases/vN/`; одну версию нельзя сохранить с
+   другим содержимым;
+4. `stop app` → `migrate` (профиль `operations`) → `up --detach --no-build --wait app`;
+5. `GET http://127.0.0.1:<TELEGRAM_LOOPBACK_PORT>/ready` отвечает `200`;
+6. `/var/lib/inside/telegram-deployments/state.json` получает `current` и `previous`: версия, SHA,
+   образ, идентичность миграций, sha256 manifest, run id и время.
+
+Каждая compose-команда gateway использует три файла: `--env-file /etc/inside/telegram/compose.env
+-f /srv/inside/telegram/releases/vN/compose.yaml -f /etc/inside/telegram/compose.override.yaml`.
+Образ передаётся переменной процесса `TELEGRAM_IMAGE=<image@digest>`: она сильнее значения в
+`compose.env`. Host-owned `compose.env`, `application.env` и override gateway не переписывает.
+Override обязателен: в нём transport до `api.telegram.org` через relay и сеть брокера.
+
+Фаза и итог операции пишутся в `/var/lib/inside/telegram-deployments/operation.json`. Сбой после
+`stop app` оставляет app остановленным, диагностику — в `operation.json` и журнале job; данные и
+тома gateway не трогает, job завершается ошибкой. Сбой миграций чинится повтором той же версии или
+следующей версией. Повтор той же версии идемпотентен: если она уже `current`, gateway только
+поднимает app и проверяет readiness, без остановки и миграций. Deploy версии не новее текущей
+отклоняется: для возврата есть только rollback.
+
+### 3. Проверки после выкладки
+
+- Job **Deploy production release** зелёный, в конце `deploy vN succeeded: <image@digest>`.
+- На сервере `jq . /var/lib/inside/telegram-deployments/state.json` показывает `current.version`
+  = `vN`, `operation.json` — `status: succeeded`.
+- Маршруты: `401` без credentials на каждом POST из allowlist, `404` на GET, постороннем и вложенном
+  пути ([HTTPS и маршруты](#https-и-маршруты)).
+- `GET http://127.0.0.1:<port>/metrics` на сервере — без роста ошибок доставки.
+
+### 4. Откат
+
+Actions → **Deploy production release** → `operation` = `rollback`, `version` = `previous.version`
+из `state.json`. Gateway возвращает только записанную предыдущую версию и только если идентичность
+её миграций совпадает с текущей: миграции вниз не выполняются, `migrate` при откате не запускается.
+Иначе откат отклоняется с ошибкой `migration sets differ`; путь — repair forward: исправление в
+`main`, новая версия `vN+1`, её deploy. Тот же отказ действует после сбоя операции, которая могла
+успеть применить миграции другой версии.
+
+После отката `previous` пуст: следующий шаг — обычный deploy новой или той же отменённой версии.
+Повтор того же rollback идемпотентен. Первый deploy через gateway не имеет `previous`: откатить его
+нельзя.
+
+### Команды оператора на текущей версии
+
+Operations-команды ниже ([webhook](#webhook), [operations-команды](#operations-команды),
+[community-restriction](course-activation.md#разбор-ограничений-и-неизвестного-исхода)) используют
+Compose и образ текущей версии:
+
+```bash
+telegram_state=/var/lib/inside/telegram-deployments/state.json
+telegram_version=$(jq --raw-output .current.version "$telegram_state")
+export TELEGRAM_IMAGE=$(jq --raw-output .current.image "$telegram_state")
+telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
+  -f "/srv/inside/telegram/releases/$telegram_version/compose.yaml"
+  -f /etc/inside/telegram/compose.override.yaml)
+```
+
+Не выполняйте `up` для `app` вручную без этого `TELEGRAM_IMAGE`: иначе Compose возьмёт устаревшее
+значение из `compose.env`.
+
+### Разовая установка
+
+Выполняется один раз до первого выпуска; повторный запуск установщика безопасен.
+
+**GitHub (координатор с правами администратора репозитория):**
+
+1. Settings → General → Releases → включить **immutable releases**.
+2. Repository secret `RELEASE_SETTINGS_READ_TOKEN`: fine-grained token с Administration: read на
+   `inside-telegram` (тот же, что у Platform, если его область включает этот репозиторий).
+   `GITHUB_TOKEN` не может прочитать эту настройку.
+3. Environment `Production` с required reviewer владельца и secrets:
+   - `PRODUCTION_SSH_HOST` — адрес VPS;
+   - `PRODUCTION_SSH_PRIVATE_KEY` — приватная часть отдельного ключа Ed25519 только для Telegram;
+   - `PRODUCTION_SSH_HOST_KEYS` — строки `known_hosts` VPS, сверенные с отпечатком из консоли
+     провайдера, а не с первым подключением.
+4. После первого push образа: Package `inside-telegram` → Package settings → Change visibility →
+   **Public**, затем Re-run failed jobs. До этого шаг «Prove anonymous pull by digest» падает.
+
+**Ключ** создаётся на машине координатора и не попадает в Git, журналы или чат:
+
+```bash
+ssh-keygen -t ed25519 -N '' -C inside-telegram-deploy -f inside-telegram-deploy
+```
+
+`inside-telegram-deploy` → `PRODUCTION_SSH_PRIVATE_KEY`, затем удалите локальную копию приватного
+ключа; `inside-telegram-deploy.pub` → на сервер.
+
+**Сервер (root, из чистого checkout смёрженного commit).** Нужны `docker` с Compose v2, `jq`,
+`curl`, `flock`, `sudo`, `openssh-server` и `/etc/inside/telegram` с `compose.env`,
+`application.env` и `compose.override.yaml` из разделов выше.
+
+```bash
+git clone https://github.com/sachkov-inside/inside-telegram.git /tmp/inside-telegram-install
+git -C /tmp/inside-telegram-install checkout --detach <merged-sha>
+bash /tmp/inside-telegram-install/infra/production/deploy/install-deploy-access.sh \
+  /root/inside-telegram-deploy.pub
+rm -rf /tmp/inside-telegram-install /root/inside-telegram-deploy.pub
+```
+
+Установщик создаёт пользователя `inside-telegram-deploy` с заблокированным паролем, кладёт gateway в
+`/usr/local/libexec/inside/inside-telegram-deploy` (root, `0755`), sudoers-правило
+`/etc/sudoers.d/inside-telegram-deploy` ровно на этот файл с сохранением `SSH_ORIGINAL_COMMAND` и
+`authorized_keys` с `restrict,command="sudo -n /usr/local/libexec/inside/inside-telegram-deploy"`.
+Обновление gateway — тот же запуск из checkout новой версии.
+
+Проверка доступа без выкладки: `ssh -i inside-telegram-deploy inside-telegram-deploy@<host> status`
+отвечает `Rejected restricted command` и ничего не меняет.
+
+Прежний `/opt/inside/telegram/compose.yaml` больше не используется. Project name
+`inside-production-telegram` общий, поэтому первый deploy через gateway останавливает контейнер,
+запущенный вручную, и заменяет его.
+
+### Аварийный ручной путь
+
+> **Только при недоступности GitHub Actions или GHCR** и с отдельного разрешения владельца. После
+> него `state.json` не совпадает с сервером: следующая обычная выкладка — новой версией через
+> `deploy.yml`, откат gateway к ручному образу невозможен.
 
 Используйте чистый checkout точного merged commit. Обычный агент не изменяет основной checkout
-владельца. Production запуск и каждый merge требуют соответствующего разрешения владельца.
+владельца.
 
 ```bash
 git diff --exit-code
@@ -133,19 +289,12 @@ docker image inspect "inside/telegram:$release_commit" \
 
 Docker context использует allowlist: `.env`, credentials, Git, локальные зависимости и proof
 payloads не входят в image. Запишите image id, commit и время в защищённый deployment record.
-Установите `TELEGRAM_IMAGE` в `compose.env` в точный полученный image id (`sha256:…`), чтобы повтор
-не зависел от перемещаемого тега. Доставьте Compose в `/opt/inside/telegram/compose.yaml`.
-
-Команды выполняются на VPS. Сохраните host-owned `/etc/inside/telegram/compose.override.yaml`:
-текущий production использует его для Telegram transport через relay, а после выпуска — и для сети
-брокера. Не заменяйте его шаблоном и не выводите разрешённую Compose-конфигурацию с секретами.
-Перед обновлением сверяйте transport и обе версии конфигурации с deployment record.
-Все команды ниже включают override, в том числе migration и operations; на relay-host отсутствие
-файла — повод остановиться и восстановить конфигурацию.
+Все команды включают host-owned override; его отсутствие — повод остановиться.
 
 ```bash
+export TELEGRAM_IMAGE=<sha256:image-id>
 telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
-  -f /opt/inside/telegram/compose.yaml
+  -f infra/production/compose.yaml
   -f /etc/inside/telegram/compose.override.yaml)
 (
 set -e
@@ -158,11 +307,9 @@ test -f /etc/inside/telegram/compose.override.yaml
 ```
 
 При ошибке migration или readiness остановитесь и сохраните диагностику без секретов. Старые
-workers должны быть остановлены до migration: два поколения не работают одновременно. При
-обновлении предварительно сделайте backup и сохраните прежнюю конфигурацию и image id.
-Автоматический rollback и downgrade migrations не выполняются; повтор той же версии идемпотентно
-проверяет применённые migrations. `restart: unless-stopped` возвращает запущенный сервис после
-reboot; явно остановленный maintenance-сервис требует явного `up`.
+workers должны быть остановлены до migration: два поколения не работают одновременно.
+`restart: unless-stopped` возвращает запущенный сервис после reboot; явно остановленный
+maintenance-сервис требует явного `up`.
 
 ### Сеть до брокера
 
@@ -278,8 +425,9 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
 Порядок сверяется с runbook Platform #527. Production пуст, реальных участников Inside ещё нет;
 порядок всё равно исключает эффекты до готовности обеих сторон.
 
-1. **Подготовка.** Точные SHA Telegram и Platform, image id, сгенерированные секреты для каждой пары
-   из таблицы, id бота Tribute, реестр групп курса. Telegram migrations этого выпуска —
+1. **Подготовка.** Версии Telegram и Platform (`vN`, SHA и образ по digest из их release manifest),
+   сгенерированные секреты для каждой пары из таблицы, id бота Tribute, реестр групп курса.
+   [Разовая установка](#разовая-установка) Telegram выполнена. Telegram migrations этого выпуска —
    `016-notifications` … `022-community-tribute-readmission`.
 2. **Community mutations на паузе.** В новом `application.env` сначала:
    `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2`,
@@ -289,15 +437,17 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
    `TELEGRAM_ACTIVATION_INGRESS_SECRET`; остальные группы, включая оплату, notifications и
    communications, заполнены, продажа в каталоге выключена — по runbook Platform.
 3. **Backup обеих баз.** Полная проверенная копия кластера (Telegram и Platform), сохранённые
-   конфигурации и прежние image id в deployment record.
-4. **Остановка старых поколений.** `stop app` Telegram; deploy Platform включает maintenance и
+   конфигурации и прежние образы в deployment record.
+4. **Остановка старых поколений.** `stop app` Telegram, если он уже запущен
+   ([команды оператора](#команды-оператора-на-текущей-версии)); deploy Platform включает maintenance и
    дренирует воркеры прежнего выпуска до migrations.
 5. **Platform.** Migrations, RabbitMQ с definitions, где есть principal Telegram, затем api, mcp,
    воркеры, включая billing-worker и notifications-worker, и web; маршруты Caddy. Readiness всех
    процессов Platform. С этого шага notifications-worker публикует в очереди Telegram; до шага 11
    их никто не читает: при 1000 сообщений очередь отклоняет публикацию, и команды ждут в outbox
    Platform без потерь.
-6. **Telegram.** `migrate`, `up --wait app`. Проверка маршрутов: `401` без credentials на каждом POST
+6. **Telegram.** `deploy.yml` `deploy vN`: gateway выполняет `migrate`, `up --wait app` и `/ready`
+   ([выкладка](#2-выкладка)). Проверка маршрутов: `401` без credentials на каждом POST
    из allowlist, `404` на GET, постороннем и вложенном пути, нет внешнего порта.
 7. **Webhook.** `webhook-registration --preview`, затем `--apply`, итог `applied`.
 8. **Привязка и Evidence.** Владелец выполняет `/start` и привязку из Platform session.
