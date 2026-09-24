@@ -6,7 +6,7 @@ export { relativeDue } from "./funnel-timeline.js";
 import { reconcileFunnels, terminal, started } from "./funnel-timeline.js";
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import { sql, type Transaction } from "kysely";
+import { sql, type Selectable, type Transaction } from "kysely";
 import {
   DATABASE,
   type Database,
@@ -22,6 +22,7 @@ import {
   deferTelegramSlot,
 } from "../outbound/telegram-transport-slots.js";
 import type { TelegramDeliveryResult } from "../outbound/telegram-messages.js";
+import type { TemplateContent } from "./communications-contract.js";
 import {
   COMMUNICATION_TRANSPORT,
   type CommunicationTransport,
@@ -39,11 +40,30 @@ import type {
 } from "./funnel-types.js";
 const REPLY_KINDS = ["intro", "entry", "fallback"] as const;
 const BACKLOG_KINDS = ["step", "broadcast"] as const;
+type Queue = typeof REPLY_KINDS | typeof BACKLOG_KINDS;
+type QueuePosition = { due_at: Date; created_at: Date; delivery_id: string };
+type DueDelivery = Selectable<DatabaseSchema["communication_deliveries"]> & {
+  private_chat_id: string;
+  marketing_enabled: boolean;
+};
+type Claim = {
+  delivery: DueDelivery;
+  attemptId: string;
+  chatId: string;
+  content: TemplateContent;
+};
+// `capacity_busy`: the bot's shared lane or fairness turn refuses every chat, so stop scanning.
+type CandidateOutcome =
+  | { kind: "claimed"; claim: Claim }
+  | { kind: "skipped" }
+  | { kind: "capacity_busy" };
+const STALE_CLAIM_MS = 60_000;
 // A claim reads due work in index pages and gives up after a bounded scan, whatever the backlog.
 const CLAIM_PAGE = 50;
 const CLAIM_SCAN_LIMIT = 500;
 @Injectable()
 export class FunnelScheduler {
+  private readonly resumeAfter = new Map<Queue, QueuePosition>();
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
@@ -113,19 +133,19 @@ export class FunnelScheduler {
         .select(["d.delivery_id", "c.telegram_user_id"])
         .where("d.bot_identity", "=", bot)
         .where("d.completed_at", "is", null)
-        .where("d.locked_at", "<=", new Date(now.getTime() - 60_000))
+        .where("d.locked_at", "<=", new Date(now.getTime() - STALE_CLAIM_MS))
         .orderBy("d.locked_at")
         .limit(CLAIM_PAGE)
         .execute();
       for (const { delivery_id, telegram_user_id } of stale) {
-        // A subscriber busy with /start keeps its lock; the next cycle recovers the claim.
+        // A contact busy with /start keeps its lock; the next cycle recovers the claim.
         if (!(await tryContactLock(tx, bot, telegram_user_id))) continue;
         const delivery = await tx
           .selectFrom("communication_deliveries")
           .selectAll()
           .where("delivery_id", "=", delivery_id)
           .where("completed_at", "is", null)
-          .where("locked_at", "<=", new Date(now.getTime() - 60_000))
+          .where("locked_at", "<=", new Date(now.getTime() - STALE_CLAIM_MS))
           .executeTakeFirst();
         if (!delivery) continue;
         const parts = delivery.parts as DeliveryPart[];
@@ -158,51 +178,61 @@ export class FunnelScheduler {
   }
   // Eligibility that SQL can decide, shared by the bounded scan and the locked reread.
   private dueDeliveries(tx: Transaction<DatabaseSchema>, now: Date) {
-    return tx
-      .selectFrom("communication_deliveries as d")
-      .innerJoin("communication_contacts as c", "c.contact_id", "d.contact_id")
-      .innerJoin("bot_contacts as b", (j) =>
-        j
-          .onRef("b.bot_identity", "=", "c.bot_identity")
-          .onRef("b.telegram_user_id", "=", "c.telegram_user_id"),
-      )
-      .where("d.bot_identity", "=", this.config.botIdentity)
-      .where("d.completed_at", "is", null)
-      .where("d.due_at", "<=", now)
-      .where("d.cancel_requested", "=", false)
-      .where((eb) =>
-        eb.or([
-          eb("c.marketing_enabled", "=", true),
-          eb("d.kind", "in", ["entry", "fallback"]),
-        ]),
-      )
-      .where("b.contactability", "=", "reachable")
-      .where((eb) =>
-        eb.or([
-          eb("d.broadcast_id", "is", null),
-          eb.exists(
-            eb
-              .selectFrom("communication_broadcasts as r")
-              .select("r.broadcast_id")
-              .whereRef("r.broadcast_id", "=", "d.broadcast_id")
-              .where("r.state", "=", "running"),
-          ),
-        ]),
-      )
-      .where((eb) =>
-        eb.or([
-          eb("d.funnel_id", "is", null),
-          eb.exists(
-            eb
-              .selectFrom("communication_funnels as f")
-              .select("f.funnel_id")
-              .whereRef("f.funnel_id", "=", "d.funnel_id")
-              .where("f.lifecycle", "=", "published"),
-          ),
-        ]),
-      );
+    return (
+      tx
+        .selectFrom("communication_deliveries as d")
+        .innerJoin(
+          "communication_contacts as c",
+          "c.contact_id",
+          "d.contact_id",
+        )
+        .innerJoin("bot_contacts as b", (j) =>
+          j
+            .onRef("b.bot_identity", "=", "c.bot_identity")
+            .onRef("b.telegram_user_id", "=", "c.telegram_user_id"),
+        )
+        .where("d.bot_identity", "=", this.config.botIdentity)
+        .where("d.completed_at", "is", null)
+        .where("d.due_at", "<=", now)
+        .where("d.cancel_requested", "=", false)
+        // A part awaiting its result or an operator decision holds the whole delivery.
+        .where(
+          sql<boolean>`not (d.parts @> '[{"state":"in_flight"}]' or d.parts @> '[{"state":"unknown"}]' or d.parts @> '[{"state":"failed"}]')`,
+        )
+        .where((eb) =>
+          eb.or([
+            eb("c.marketing_enabled", "=", true),
+            eb("d.kind", "in", ["entry", "fallback"]),
+          ]),
+        )
+        .where("b.contactability", "=", "reachable")
+        .where((eb) =>
+          eb.or([
+            eb("d.broadcast_id", "is", null),
+            eb.exists(
+              eb
+                .selectFrom("communication_broadcasts as r")
+                .select("r.broadcast_id")
+                .whereRef("r.broadcast_id", "=", "d.broadcast_id")
+                .where("r.state", "=", "running"),
+            ),
+          ]),
+        )
+        .where((eb) =>
+          eb.or([
+            eb("d.funnel_id", "is", null),
+            eb.exists(
+              eb
+                .selectFrom("communication_funnels as f")
+                .select("f.funnel_id")
+                .whereRef("f.funnel_id", "=", "d.funnel_id")
+                .where("f.lifecycle", "=", "published"),
+            ),
+          ]),
+        )
+    );
   }
-  private async claim() {
+  private async claim(): Promise<Claim | undefined> {
     return this.database.transaction().execute(async (tx) => {
       await communicationLock(
         tx,
@@ -218,53 +248,84 @@ export class FunnelScheduler {
         .where("available_at", "<=", now)
         .executeTakeFirst();
       if (service) return undefined;
-      // Replies to a subscriber's own /start go ahead of the funnel and broadcast backlog.
-      for (const kinds of [REPLY_KINDS, BACKLOG_KINDS]) {
-        let after:
-          { due_at: Date; created_at: Date; delivery_id: string } | undefined;
-        for (
-          let scanned = 0;
-          scanned < CLAIM_SCAN_LIMIT;
-          scanned += CLAIM_PAGE
-        ) {
-          let query = this.dueDeliveries(tx, now)
-            .select([
-              "d.delivery_id",
-              "d.due_at",
-              "d.created_at",
-              "c.telegram_user_id",
-            ])
-            .where(
-              sql<boolean>`d.kind in (${sql.join(kinds.map((k) => sql.lit(k)))})`,
-            );
-          if (after)
-            query = query.where(
-              sql<boolean>`(d.due_at, d.created_at, d.delivery_id) > (${after.due_at}, ${after.created_at}, ${after.delivery_id}::uuid)`,
-            );
-          const page = await query
-            .orderBy("d.due_at")
-            .orderBy("d.created_at")
-            .orderBy("d.delivery_id")
-            .limit(CLAIM_PAGE)
-            .execute();
-          for (const candidate of page) {
-            const claimed = await this.claimCandidate(tx, candidate, now);
-            if (claimed === "bot_busy") return undefined;
-            if (claimed) return claimed;
-          }
-          if (page.length < CLAIM_PAGE) break;
-          after = page.at(-1);
-        }
+      // Replies to a contact's own /start go ahead of the funnel and broadcast backlog.
+      for (const queue of [REPLY_KINDS, BACKLOG_KINDS]) {
+        const outcome = await this.claimFrom(tx, queue, now);
+        if (outcome.kind === "claimed") return outcome.claim;
+        if (outcome.kind === "capacity_busy") return undefined;
       }
       return undefined;
     });
+  }
+  // Scans one queue in due order, at most CLAIM_SCAN_LIMIT rows per claim. When that many rows
+  // at the head cannot be sent (a lane waiting for an earlier step, an intro not yet sent), the
+  // next claims continue after them and wrap at the end, so the head never stalls the queue.
+  private async claimFrom(
+    tx: Transaction<DatabaseSchema>,
+    queue: Queue,
+    now: Date,
+  ): Promise<CandidateOutcome> {
+    const resumed = this.resumeAfter.get(queue);
+    let after = resumed;
+    let fromHead = !resumed;
+    for (let scanned = 0; scanned < CLAIM_SCAN_LIMIT;) {
+      let query = this.dueDeliveries(tx, now)
+        .select([
+          "d.delivery_id",
+          "d.due_at",
+          "d.created_at",
+          "c.telegram_user_id",
+        ])
+        // Literal kinds let PostgreSQL match the partial queue index.
+        .where(
+          sql<boolean>`d.kind in (${sql.join(queue.map((k) => sql.lit(k)))})`,
+        );
+      if (after)
+        query = query.where(
+          sql<boolean>`(d.due_at, d.created_at, d.delivery_id) > (${after.due_at}, ${after.created_at}, ${after.delivery_id}::uuid)`,
+        );
+      const page = await query
+        .orderBy("d.due_at")
+        .orderBy("d.created_at")
+        .orderBy("d.delivery_id")
+        .limit(CLAIM_PAGE)
+        .execute();
+      for (const candidate of page) {
+        const outcome = await this.claimCandidate(tx, candidate, now);
+        if (outcome.kind === "claimed" && resumed)
+          this.resumeAfter.set(queue, candidate);
+        if (outcome.kind !== "skipped") return outcome;
+      }
+      scanned += page.length;
+      if (page.length < CLAIM_PAGE) {
+        // The end of the queue: the next claim starts from its head again.
+        this.resumeAfter.delete(queue);
+        if (fromHead) return { kind: "skipped" };
+        fromHead = true;
+        after = undefined;
+        continue;
+      }
+      after = page.at(-1);
+    }
+    if (after) this.resumeAfter.set(queue, after);
+    return { kind: "skipped" };
   }
   private async claimCandidate(
     tx: Transaction<DatabaseSchema>,
     candidate: { delivery_id: string; telegram_user_id: string },
     now: Date,
-  ) {
-    // Skip a subscriber whose /start, stop or entry is in progress instead of waiting for it.
+  ): Promise<CandidateOutcome> {
+    const read = () =>
+      this.dueDeliveries(tx, now)
+        .selectAll("d")
+        .select(["b.private_chat_id", "c.marketing_enabled"])
+        .where("d.delivery_id", "=", candidate.delivery_id)
+        .executeTakeFirst();
+    // Check before locking, so a skipped contact is never held; a contact whose /start, stop or
+    // entry is in progress is skipped instead of awaited. The locked reread decides.
+    const unlocked = await read();
+    if (!unlocked || !(await this.nextPart(tx, unlocked, now)))
+      return { kind: "skipped" };
     if (
       !(await tryContactLock(
         tx,
@@ -272,18 +333,63 @@ export class FunnelScheduler {
         candidate.telegram_user_id,
       ))
     )
-      return undefined;
-    const delivery = await this.dueDeliveries(tx, now)
-      .selectAll("d")
-      .select(["b.private_chat_id", "c.marketing_enabled"])
-      .where("d.delivery_id", "=", candidate.delivery_id)
-      .executeTakeFirst();
-    if (!delivery) return undefined;
+      return { kind: "skipped" };
+    const delivery = await read();
+    const part = delivery && (await this.nextPart(tx, delivery, now));
+    if (!delivery || !part) return { kind: "skipped" };
+    const admission = await admitTelegramSlot(
+      tx,
+      this.config.botIdentity,
+      delivery.private_chat_id,
+      now,
+    );
+    if (admission === "bot_busy") return { kind: "capacity_busy" };
+    if (admission === "chat_busy") return { kind: "skipped" };
+    const attemptId = randomUUID();
     const parts = delivery.parts as DeliveryPart[];
-    const part = parts.find(
+    parts.find((p) => p.partId === part.partId)!.state = "in_flight";
+    await tx
+      .updateTable("communication_deliveries")
+      .set({
+        parts: JSON.stringify(parts),
+        attempt_id: attemptId,
+        locked_at: now,
+        revision: delivery.revision + 1,
+      })
+      .where("delivery_id", "=", delivery.delivery_id)
+      .execute();
+    const content = (delivery.snapshot as MessagePart[]).find(
+      (p) => p.partId === part.partId,
+    )!.content;
+    return {
+      kind: "claimed",
+      claim: {
+        delivery,
+        attemptId,
+        chatId: delivery.private_chat_id,
+        content: await trackedContent(
+          tx,
+          this.config,
+          delivery.delivery_id,
+          part.partId,
+          content,
+          now,
+        ),
+      },
+    };
+  }
+  // The part to send now, or undefined while broadcast offsets, the funnel lane or the intro
+  // hold this delivery.
+  private async nextPart(
+    tx: Transaction<DatabaseSchema>,
+    delivery: DueDelivery,
+    now: Date,
+  ): Promise<DeliveryPart | undefined> {
+    const part = (delivery.parts as DeliveryPart[]).find(
       (p) => !["sent", "skipped", "cancelled", "suppressed"].includes(p.state),
     );
-    if (!part || part.state !== "pending") return undefined;
+    if (!part || part.state !== "pending" || part.attempts.length >= 90)
+      return undefined;
     if (delivery.broadcast_id) {
       const broadcast = await tx
         .selectFrom("communication_broadcasts")
@@ -337,43 +443,7 @@ export class FunnelScheduler {
         .executeTakeFirst();
       if (delivery.marketing_enabled && !intro?.completed_at) return undefined;
     }
-    const admission = await admitTelegramSlot(
-      tx,
-      this.config.botIdentity,
-      delivery.private_chat_id,
-      now,
-    );
-    if (admission !== "reserved")
-      return admission === "bot_busy" ? admission : undefined;
-    if (part.attempts.length >= 90) return undefined;
-    const attemptId = randomUUID();
-    part.state = "in_flight";
-    await tx
-      .updateTable("communication_deliveries")
-      .set({
-        parts: JSON.stringify(parts),
-        attempt_id: attemptId,
-        locked_at: now,
-        revision: delivery.revision + 1,
-      })
-      .where("delivery_id", "=", delivery.delivery_id)
-      .execute();
-    const content = (delivery.snapshot as MessagePart[]).find(
-      (p) => p.partId === part.partId,
-    )!.content;
-    return {
-      delivery,
-      attemptId,
-      chatId: delivery.private_chat_id,
-      content: await trackedContent(
-        tx,
-        this.config,
-        delivery.delivery_id,
-        part.partId,
-        content,
-        now,
-      ),
-    };
+    return part;
   }
   async record(
     deliveryId: string,
@@ -517,7 +587,7 @@ export class FunnelScheduler {
           this.config.botIdentity,
           delivery.broadcast_id,
         );
-      // A finished response or step opens the subscriber's next step.
+      // A finished response or step opens the contact's next step.
       else if (terminal(parts))
         await reconcileFunnels(tx, this.config.botIdentity, now, {
           contactId: delivery.contact_id,

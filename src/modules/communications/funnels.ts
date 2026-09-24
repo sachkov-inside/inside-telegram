@@ -12,7 +12,11 @@ import {
   type EntriesResult,
 } from "./communication-statistics.js";
 import { reconcileFunnels, terminal, deliveryView } from "./funnel-timeline.js";
-import { communicationLock, lockContactRows } from "./communication-state.js";
+import {
+  communicationLock,
+  contactLock,
+  lockContactRows,
+} from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
 import type { Transaction } from "kysely";
@@ -246,12 +250,17 @@ export class Funnels {
     }
     if (operation === "delivery.resolve") {
       const target = await tx
-        .selectFrom("communication_deliveries")
-        .select("contact_id")
-        .where("delivery_id", "=", payload.deliveryId!)
+        .selectFrom("communication_deliveries as d")
+        .innerJoin(
+          "communication_contacts as c",
+          "c.contact_id",
+          "d.contact_id",
+        )
+        .select("c.telegram_user_id")
+        .where("d.delivery_id", "=", payload.deliveryId!)
         .executeTakeFirst();
-      // A concurrent stop or block of this subscriber must not interleave with the decision.
-      if (target) await lockContactRows(tx, [target.contact_id]);
+      // The decision is serialized with this contact's own commands, claim and result.
+      if (target) await contactLock(tx, bot, target.telegram_user_id);
       const row = await tx
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
@@ -585,24 +594,20 @@ export class Funnels {
       })
       .where("funnel_id", "=", draft.funnelId)
       .execute();
-    const audience = await tx
-      .selectFrom("communication_enrollments")
-      .select("contact_id")
-      .where("funnel_id", "=", draft.funnelId)
-      .execute();
-    await lockContactRows(
-      tx,
-      audience.map((e) => e.contact_id),
-    );
     if (rollback) {
       // Only never-attempted deletion cancellations can return. Sent, skipped and
       // subscriber suppression remain durable markers across every revision.
-      const cancelled = await tx
+      const revivable = tx
         .selectFrom("communication_deliveries")
-        .selectAll()
         .where("funnel_id", "=", draft.funnelId)
-        .where("cancel_requested", "=", true)
-        .execute();
+        .where("cancel_requested", "=", true);
+      await lockContactRows(
+        tx,
+        (await revivable.select("contact_id").execute()).map(
+          (d) => d.contact_id,
+        ),
+      );
+      const cancelled = await revivable.selectAll().execute();
       for (const delivery of cancelled) {
         const parts = delivery.parts as DeliveryPart[];
         if (

@@ -2,7 +2,7 @@ import { sql, type Kysely } from "kysely";
 import type { Migration } from "kysely/migration";
 
 /**
- * Dispatch reads due work from bounded index ranges: replies to a subscriber's own /start first,
+ * Dispatch reads due work from bounded index ranges: replies to a BotContact's own /start first,
  * then the funnel and broadcast backlog. Planning reads one enrollment's history by index.
  */
 export const communicationDispatchQueueMigration: Migration = {

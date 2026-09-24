@@ -8,7 +8,7 @@ import {
 } from "./funnel-timeline.js";
 
 // The caller holds this contact's lock. The shared unavailable interval ends only when both
-// transport and the explicit subscriber preference allow it. An unchanged contact is only read,
+// transport and the explicit marketing preference allow it. An unchanged contact is only read,
 // so an ordinary /start never waits for audience-wide planning.
 export async function updateMarketingAvailability(
   tx: Transaction<DatabaseSchema>,
@@ -42,7 +42,7 @@ export async function updateMarketingAvailability(
       bot,
       now,
       { contactId: contact.contact_id },
-      true,
+      { suppressMissed: true },
     );
   }
   if (!available && !contact.unavailable_since) {

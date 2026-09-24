@@ -10,17 +10,17 @@ export async function communicationLock(
     tx,
   );
 }
-// One subscriber's communication state: /start, stop/resume, contactability, entry and the
-// dispatch claim/result for that subscriber. It never serializes different subscribers.
+// One BotContact's communication state: /start, stop/resume, contactability, entry, an operator
+// decision on its delivery and the dispatch claim/result. It never serializes other contacts.
+function contactKey(bot: string, telegramUserId: string): string {
+  return `communications-contact:${bot}:${telegramUserId}`;
+}
 export async function contactLock(
   tx: Transaction<DatabaseSchema>,
   bot: string,
   telegramUserId: string,
 ): Promise<void> {
-  await communicationLock(
-    tx,
-    `communications-contact:${bot}:${telegramUserId}`,
-  );
+  await communicationLock(tx, contactKey(bot, telegramUserId));
 }
 export async function tryContactLock(
   tx: Transaction<DatabaseSchema>,
@@ -29,13 +29,15 @@ export async function tryContactLock(
 ): Promise<boolean> {
   const result = await sql<{
     locked: boolean;
-  }>`select pg_try_advisory_xact_lock(hashtextextended(${`communications-contact:${bot}:${telegramUserId}`}, 0)) as locked`.execute(
+  }>`select pg_try_advisory_xact_lock(hashtextextended(${contactKey(bot, telegramUserId)}, 0)) as locked`.execute(
     tx,
   );
   return result.rows[0]!.locked;
 }
-// Audience-wide planning holds the bot scheduler lock. Row locks, which need no shared lock
-// memory, serialize it with a contact whose availability changes at the same time.
+// Audience-wide writes hold the bot scheduler lock and cannot take thousands of advisory locks.
+// Row locks, which need no shared lock memory, order them with a contact whose availability
+// changes at the same time; that change locks the same row. An array parameter avoids the
+// statement parameter limit.
 export async function lockContactRows(
   tx: Transaction<DatabaseSchema>,
   contactIds: readonly string[],
@@ -49,51 +51,62 @@ export async function lockContactRows(
     .forNoKeyUpdate()
     .execute();
 }
+type PlannedDelivery = {
+  bot: string;
+  contactId: string;
+  funnelId?: string;
+  stepId?: string;
+  kind: "intro" | "entry" | "step" | "fallback" | "broadcast";
+  broadcastId?: string;
+  key: string;
+  parts: readonly MessagePart[];
+  revision: number;
+  dueAt: Date;
+  now: Date;
+};
 export async function planDelivery(
   tx: Transaction<DatabaseSchema>,
-  input: {
-    bot: string;
-    contactId: string;
-    funnelId?: string;
-    stepId?: string;
-    kind: "intro" | "entry" | "step" | "fallback" | "broadcast";
-    broadcastId?: string;
-    key: string;
-    parts: readonly MessagePart[];
-    revision: number;
-    dueAt: Date;
-    now: Date;
-  },
+  input: PlannedDelivery,
 ): Promise<void> {
-  await tx
-    .insertInto("communication_deliveries")
-    .values({
-      delivery_id: randomUUID(),
-      dedup_key: input.key,
-      bot_identity: input.bot,
-      contact_id: input.contactId,
-      funnel_id: input.funnelId ?? null,
-      step_id: input.stepId ?? null,
-      kind: input.kind,
-      broadcast_id: input.broadcastId ?? null,
-      published_revision: input.revision,
-      snapshot: JSON.stringify(input.parts),
-      parts: JSON.stringify(
-        input.parts.map((p) => ({
-          partId: p.partId,
-          state: "pending",
-          diagnosticCode: null,
-          attempts: [],
+  await planDeliveries(tx, [input]);
+}
+// Idempotent by dedup key. A broadcast snapshot is planned in chunks of this size.
+export async function planDeliveries(
+  tx: Transaction<DatabaseSchema>,
+  inputs: readonly PlannedDelivery[],
+): Promise<void> {
+  for (let i = 0; i < inputs.length; i += 1000)
+    await tx
+      .insertInto("communication_deliveries")
+      .values(
+        inputs.slice(i, i + 1000).map((input) => ({
+          delivery_id: randomUUID(),
+          dedup_key: input.key,
+          bot_identity: input.bot,
+          contact_id: input.contactId,
+          funnel_id: input.funnelId ?? null,
+          step_id: input.stepId ?? null,
+          kind: input.kind,
+          broadcast_id: input.broadcastId ?? null,
+          published_revision: input.revision,
+          snapshot: JSON.stringify(input.parts),
+          parts: JSON.stringify(
+            input.parts.map((p) => ({
+              partId: p.partId,
+              state: "pending",
+              diagnosticCode: null,
+              attempts: [],
+            })),
+          ),
+          revision: 1,
+          due_at: input.dueAt,
+          created_at: input.now,
+          completed_at: null,
+          cancel_requested: false,
+          attempt_id: null,
+          locked_at: null,
         })),
-      ),
-      revision: 1,
-      due_at: input.dueAt,
-      created_at: input.now,
-      completed_at: null,
-      cancel_requested: false,
-      attempt_id: null,
-      locked_at: null,
-    })
-    .onConflict((c) => c.column("dedup_key").doNothing())
-    .execute();
+      )
+      .onConflict((c) => c.column("dedup_key").doNothing())
+      .execute();
 }

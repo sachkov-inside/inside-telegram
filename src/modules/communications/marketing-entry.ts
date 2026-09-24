@@ -27,7 +27,7 @@ export class MarketingEntry {
     enabled: boolean,
   ): Promise<void> {
     await this.database.transaction().execute(async (tx) => {
-      await contactLock(tx, start.botIdentity, start.telegramUserId);
+      await contactLock(tx, this.config.botIdentity, start.telegramUserId);
       const prior = await tx
         .selectFrom("communication_preferences")
         .select("update_id")
@@ -98,7 +98,7 @@ export class MarketingEntry {
   }
   async enter(start: VerifiedPrivateStart, source?: string): Promise<void> {
     await this.database.transaction().execute(async (tx) => {
-      await contactLock(tx, start.botIdentity, start.telegramUserId);
+      await contactLock(tx, this.config.botIdentity, start.telegramUserId);
       const receipt = await tx
         .selectFrom("communication_entries")
         .select("outcome")

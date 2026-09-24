@@ -49,8 +49,12 @@ export class BotContacts {
     responseKind: StartResponseKind = "welcome",
   ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
-      // Only this subscriber is serialized: marketing dispatch and planning never delay /start.
-      await contactLock(transaction, start.botIdentity, start.telegramUserId);
+      // Only this BotContact is serialized: marketing dispatch and planning never delay /start.
+      await contactLock(
+        transaction,
+        this.config.botIdentity,
+        start.telegramUserId,
+      );
       const existing = await transaction
         .selectFrom("bot_contacts")
         .select("contactability")
@@ -156,7 +160,7 @@ export class BotContacts {
     return this.database.transaction().execute(async (transaction) => {
       await contactLock(
         transaction,
-        observation.botIdentity,
+        this.config.botIdentity,
         observation.telegramUserId,
       );
       await updateMarketingAvailability(

@@ -358,8 +358,8 @@ it(`answers /start within bounds while a funnel dispatches to ${AUDIENCE} contac
 }, 300_000);
 
 // Fitness for the lock seam: the bot-wide scheduler lock belongs to dispatch and audience-wide
-// planning; no subscriber command may wait for it.
-it("completes every subscriber command while the bot scheduler lock is held", async () => {
+// planning; no BotContact command may wait for it.
+it("completes every BotContact command while the bot scheduler lock is held", async () => {
   await seedDueAudience(1);
   let release!: () => void;
   const released = new Promise<void>((resolve) => {
@@ -375,30 +375,150 @@ it("completes every subscriber command while the bot scheduler lock is held", as
     await released;
   });
   await holding;
-  const subscriber = (updateId: string, user = "555") => ({
+  const contact = (updateId: string, user = "555") => ({
     botIdentity: "inside",
     telegramUserId: user,
     privateChatId: user,
     updateId,
     observedAt: new Date(),
   });
+  let waiter: Promise<unknown> | undefined;
   try {
+    // Negative fixture: a command that takes the scheduler lock is detected as waiting.
+    waiter = database
+      .transaction()
+      .execute((tx) =>
+        communicationLock(tx, "communications-scheduler:inside"),
+      );
+    expect(await elapsed(() => waiter!, 300)).toBe(Number.POSITIVE_INFINITY);
     const commands = [
-      () => app.get(BotContacts).observeStart(subscriber("1"), "welcome"),
-      () => app.get(MarketingEntry).enter(subscriber("2")),
-      () => app.get(MarketingEntry).setPreference(subscriber("3"), false),
-      () => app.get(MarketingEntry).setPreference(subscriber("4"), true),
+      () => app.get(BotContacts).observeStart(contact("1"), "welcome"),
+      () => app.get(MarketingEntry).enter(contact("2")),
+      () => app.get(MarketingEntry).setPreference(contact("3"), false),
+      () => app.get(MarketingEntry).setPreference(contact("4"), true),
       () =>
         app.get(BotContacts).observeContactability({
-          ...subscriber("5", "1000000"),
+          ...contact("5", "1000000"),
           contactability: "blocked",
         }),
-      () => app.get(BotContacts).observeStart(subscriber("6", "1000000")),
+      () => app.get(BotContacts).observeStart(contact("6", "1000000")),
     ];
     for (const command of commands)
       expect(await elapsed(command, 5000)).toBeLessThan(5000);
   } finally {
     release();
     await holder;
+    await waiter;
   }
+});
+
+it("keeps answering new /start behind a head of replies that cannot be sent yet", async () => {
+  const value = await seedDueAudience(0);
+  // Every entry waits for an intro whose result is unknown; none of them may be sent.
+  const stuck = 600;
+  const earlier = new Date(Date.now() - 60_000);
+  const rows = Array.from({ length: stuck }, (_, i) => ({
+    user: String(2_000_000 + i),
+    contactId: randomUUID(),
+  }));
+  await database
+    .insertInto("bot_contacts")
+    .values(
+      rows.map((r) => ({
+        bot_identity: "inside",
+        telegram_user_id: r.user,
+        private_chat_id: r.user,
+        contactability: "reachable" as const,
+        first_started_at: earlier,
+        last_started_at: earlier,
+        updated_at: earlier,
+      })),
+    )
+    .execute();
+  await database
+    .insertInto("communication_contacts")
+    .values(
+      rows.map((r) => ({
+        contact_id: r.contactId,
+        bot_identity: "inside",
+        telegram_user_id: r.user,
+        marketing_enabled: true,
+      })),
+    )
+    .execute();
+  const pending = (parts: readonly MessagePart[], state: string) =>
+    JSON.stringify(
+      parts.map((p) => ({
+        partId: p.partId,
+        state,
+        diagnosticCode: null,
+        attempts: [],
+      })),
+    );
+  const intro = [part("intro")];
+  await database
+    .insertInto("communication_deliveries")
+    .values(
+      rows.flatMap((r) => [
+        {
+          delivery_id: randomUUID(),
+          dedup_key: `intro:${r.contactId}`,
+          bot_identity: "inside",
+          contact_id: r.contactId,
+          funnel_id: null,
+          step_id: null,
+          kind: "intro" as const,
+          published_revision: 1,
+          snapshot: JSON.stringify(intro),
+          parts: pending(intro, "unknown"),
+          revision: 2,
+          due_at: earlier,
+          created_at: earlier,
+          completed_at: null,
+          cancel_requested: false,
+          attempt_id: randomUUID(),
+          locked_at: null,
+        },
+        {
+          delivery_id: randomUUID(),
+          dedup_key: `entry:inside:${r.user}`,
+          bot_identity: "inside",
+          contact_id: r.contactId,
+          funnel_id: value.funnelId,
+          step_id: value.entryResponse.stepId,
+          kind: "entry" as const,
+          published_revision: 2,
+          snapshot: JSON.stringify(value.entryResponse.parts),
+          parts: pending(value.entryResponse.parts, "pending"),
+          revision: 1,
+          due_at: earlier,
+          created_at: earlier,
+          completed_at: null,
+          cancel_requested: false,
+          attempt_id: null,
+          locked_at: null,
+        },
+      ]),
+    )
+    .execute();
+  await sql`analyze`.execute(database);
+  await app.get(TelegramWebhook).accept(config.webhookSecret, {
+    update_id: 902,
+    message: {
+      message_id: 902,
+      date: 1,
+      chat: { id: 778, type: "private" },
+      from: { id: 778, is_bot: false },
+      text: "/start",
+    },
+  });
+  await app.get(TelegramUpdateProcessor).processAvailable(1, new Date());
+  const scheduler = app.get(FunnelScheduler);
+  for (let cycle = 0; cycle < 5; cycle++) {
+    await scheduler.processAvailable();
+    if (sent.some((s) => s.message.chatId === "778")) break;
+  }
+  expect(sent.map((s) => [s.message.chatId, s.message.content.text])).toEqual([
+    ["778", "intro"],
+  ]);
 });

@@ -91,44 +91,50 @@ hours between funnels. A pending initial response must finish before its schedul
 
 The short claim transaction serializes workers for one bot and commits an `in_flight` part with a
 unique attempt ID **before** external I/O. Recovery and result recording acquire the same scheduler
-lock before reading delivery state, so recovery cannot overwrite newly confirmed parts.
-Planning is separate from dispatch. Once per worker cycle a planning transaction recovers expired
-claims, launches armed broadcasts and completes finished ones. Funnel timelines are replanned by
-the event that changes them: a result for that subscriber, their stop/resume or contactability,
-an operator decision on their delivery, or a publication for that funnel's audience in batches.
-A claim then reads due work from index pages with `LIMIT`, replies to the subscriber's own `/start`
-(intro, entry, fallback) ahead of the step and broadcast backlog, and stops at a bounded scan or
-when the bot's shared capacity refuses. Its cost no longer depends on the audience size.
+lock before reading delivery state, so recovery cannot overwrite newly confirmed parts. A stale
+claim becomes `unknown`, never sendable again by lease expiry. Lost transport responses are
+unknown; confirmed API rejections get bounded retries (at most three attempts per part) or a
+terminal failure. `429 retry_after` defers the bot's shared capacity. The result transaction
+records the exact attempt and completion; a lost database acknowledgement cannot turn persisted
+`sent` into another dispatch. Late evidence for the same attempt can settle unknown to sent without
+erasing the earlier uncertainty. Confirmed parts are never retried. Failure/unknown blocks
+remaining parts and subsequent scheduled steps in that funnel.
 
-The bot scheduler lock belongs to dispatch, results and author operations. `/start`, sign-in and
-linking, `/stop`/`/resume`, entry and contactability take only that subscriber's contact lock.
-A claim and a result take the same contact lock; a claim skips a subscriber whose command is in
-progress. Audience-wide writes (publication, broadcast launch and cancel) lock the affected
-contact rows, and a subscriber waits for them only when their availability actually changes.
+Planning is separate from dispatch. Once per worker cycle a planning transaction recovers expired
+claims, launches armed broadcasts and completes finished ones. The event that changes a funnel
+timeline replans it: a result or operator decision for a BotContact's delivery, its stop/resume or
+contactability change, or a publication, which replans that funnel's enrollments in batches.
+A claim reads due work from index pages with `LIMIT`. Replies to the BotContact's own `/start`
+(intro, entry, fallback) go ahead of the step and broadcast backlog. A claim stops when the bot's
+shared capacity refuses or after a bounded scan; when a whole scan finds nothing sendable, the
+next claims continue after it and wrap at the end, so a head of waiting deliveries never stalls
+the queue. Claim cost no longer depends on the audience size.
+
+Two locks order this work. The bot scheduler advisory lock belongs to planning, dispatch, results
+and author operations. A per-BotContact advisory lock serializes that contact's `/start` (including
+sign-in and linking), `/stop`/`/resume`, entry, contactability, operator decision, claim and
+result; these contact commands never take the scheduler lock, and a claim skips a contact whose
+command is in progress. Audience-wide writes (publication, broadcast launch and cancel) cannot hold
+thousands of advisory locks, so they lock the affected `communication_contacts` rows instead. A
+contact command locks its own row only when its availability actually changes, so an ordinary
+`/start` never waits for audience-wide work.
 `test/integration/funnel-dispatch-load.integration.test.ts` keeps `/start` processing and its
-first reply within bounds while 5,000 due contacts are dispatched, and fails if any subscriber
-command waits for the scheduler lock. A stale claim becomes `unknown`, never sendable again
-by lease expiry. Lost transport responses are unknown; confirmed API rejections get bounded
-retries (at most three attempts per part) or a terminal failure. `429 retry_after` defers the bot's
-shared capacity. The result transaction records the exact attempt and completion; a lost database
-acknowledgement cannot turn persisted `sent` into another dispatch. Late evidence for the same
-attempt can settle unknown to sent without erasing the earlier uncertainty. Confirmed parts are
-never retried. Failure/unknown blocks remaining parts and subsequent scheduled steps in that funnel.
+first reply within bounds while 5,000 due contacts are dispatched, keeps replies flowing behind
+unsendable ones, and fails if a BotContact command waits for the scheduler lock.
 
 The shared PostgreSQL transport reservation allows one private-chat message per second and one
 bot message per 40 ms, with no paid broadcast mode. Service responses have priority before marketing
 claims and use the same slots while marketing is enabled. Their worker cycles are independent,
 so slow marketing I/O cannot hold up service processing; marketing API calls time out after ten seconds. These conservative intervals follow the
 [Telegram limits](https://core.telegram.org/bots/faq#my-bot-is-hitting-limits-how-do-i-avoid-this).
-Contactability and the persisted marketing preference are reread under the subscriber's contact
-lock before the marketing claim; lifecycle is checked under the publication row lock. External calls already
-claimed cannot be cancelled retroactively. Test transport covers all six supported media types.
+Contactability and the persisted marketing preference are reread under the BotContact's lock
+before the marketing claim; lifecycle is checked under the publication row lock. External calls
+already claimed cannot be cancelled retroactively. Test transport covers all six supported media types.
 
 Published changes reconcile every enrollment of that funnel, including completed participants,
-under the scheduler lock with those contact rows locked against concurrent stop and contactability
-changes. Only an
-unattempted step adopts the current snapshot/delay/order. A started step owns its lane until a
-terminal result, even if moved or deleted. The next delay uses the latest actual terminal
+under the scheduler lock with each batch's contact rows locked. Only an unattempted step adopts
+the current snapshot/delay/order. A started step owns its lane until a terminal result, even if
+moved or deleted. The next delay uses the latest actual terminal
 completion in that enrollment, independent of the new order. Delete sets cancel-request, cancels
 pending/failed parts and waits for in-flight/unknown parts. History exposes `sent`, `cancelled`,
 `skipped` and `suppressed` separately; `completedAt` appears only when all parts are terminal.
@@ -187,10 +193,9 @@ armed schedule. The originating launch operation remains attached to that record
 returns its original response; read returns the current state and revision.
 
 The audience is all BotContacts or a deduplicated union of owned funnel enrollments. Legacy contacts
-need no Account or enrollment. Stop and blocked contacts are excluded at launch. The
-launch locks the audience contact rows, so a concurrent stop or block either excludes the contact
-or cancels its new delivery. After launch, content and
-audience cannot be edited. Resume preserves the snapshot; cancelled/completed IDs cannot launch
+need no Account or enrollment. Stop and blocked contacts are excluded at launch. The launch
+locks the audience contact rows, so a concurrent stop or block either excludes the contact or
+cancels its new delivery. After launch, content and audience cannot be edited. Resume preserves the snapshot; cancelled/completed IDs cannot launch
 again. Pause before launch delays the snapshot until resumed. Cancel preserves in-flight/unknown
 history and prevents new parts. Empty snapshots complete immediately.
 

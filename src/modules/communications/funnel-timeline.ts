@@ -1,7 +1,7 @@
 import { isDeepStrictEqual } from "node:util";
 import { sql, type Selectable, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
-import { planDelivery } from "./communication-state.js";
+import { lockContactRows, planDelivery } from "./communication-state.js";
 import type { DeliveryPart, FunnelDraft, MessagePart } from "./funnel-types.js";
 
 type Delivery = Selectable<DatabaseSchema["communication_deliveries"]>;
@@ -56,10 +56,9 @@ export async function cancelDelivery(
     .executeTakeFirstOrThrow();
 }
 
-// An event replans one subscriber; a publication replans one funnel's audience.
+// An event replans one BotContact; a publication replans one funnel's audience.
 export type PlanScope =
-  | { readonly contactId: string }
-  | { readonly funnelId: string };
+  { readonly contactId: string } | { readonly funnelId: string };
 const PLAN_BATCH = 500;
 type Enrollment = Selectable<DatabaseSchema["communication_enrollments"]> & {
   published: unknown;
@@ -70,15 +69,15 @@ type StepDefinition = Pick<
   "funnel_id" | "step_id" | "first_published_at"
 >;
 
-// A contact scope runs under that contact's lock; a funnel scope runs under the bot scheduler
-// lock with the audience rows locked. Only a resume passes suppressMissed: it computes the
-// virtual timeline once, using the current order; ordinary replanning never consumes missed steps.
+// A contact scope runs under that contact's lock. A funnel scope runs under the bot scheduler
+// lock and locks each batch's contact rows. Only a resume suppresses missed steps: it computes
+// the virtual timeline once, using the current order; ordinary replanning never consumes them.
 export async function reconcileFunnels(
   tx: Transaction<DatabaseSchema>,
   bot: string,
   now: Date,
   scope: PlanScope,
-  suppressMissed = false,
+  { suppressMissed = false }: { suppressMissed?: boolean } = {},
 ): Promise<void> {
   let query = tx
     .selectFrom("communication_enrollments as e")
@@ -96,6 +95,7 @@ export async function reconcileFunnels(
     const batch = enrollments.slice(i, i + PLAN_BATCH);
     const contactIds = [...new Set(batch.map((e) => e.contact_id))];
     const funnelIds = [...new Set(batch.map((e) => e.funnel_id))];
+    if ("funnelId" in scope) await lockContactRows(tx, contactIds);
     const histories = new Map<string, Delivery[]>();
     for (const delivery of await tx
       .selectFrom("communication_deliveries")
@@ -117,8 +117,7 @@ export async function reconcileFunnels(
         bot,
         now,
         enrollment,
-        histories.get(`${enrollment.contact_id}:${enrollment.funnel_id}`) ??
-          [],
+        histories.get(`${enrollment.contact_id}:${enrollment.funnel_id}`) ?? [],
         definitions,
         suppressMissed,
       );
