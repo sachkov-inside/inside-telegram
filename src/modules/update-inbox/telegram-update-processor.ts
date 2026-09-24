@@ -20,6 +20,10 @@ import {
 } from "../bot-sign-in/telegram-callback-answers.js";
 import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { MembershipEvidenceProvider } from "../membership-evidence/membership-evidence-provider.js";
+import {
+  reportCondition,
+  reportFailure,
+} from "../../operations/failure-diagnostics.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import { TelegramUpdateInbox } from "./telegram-update-inbox.js";
 import {
@@ -59,9 +63,13 @@ export class TelegramUpdateProcessor {
     private readonly replies: StartResponseDeliveryQueue,
   ) {}
 
-  async processAvailable(limit = 50, now?: Date): Promise<number> {
+  async processAvailable(
+    limit = 50,
+    now?: Date,
+    signal?: AbortSignal,
+  ): Promise<number> {
     let processed = 0;
-    for (; processed < limit; processed += 1) {
+    for (; processed < limit && !signal?.aborted; processed += 1) {
       const update = await this.inbox.claimNext(now ?? new Date());
       if (!update) {
         break;
@@ -166,12 +174,23 @@ export class TelegramUpdateProcessor {
           if (intake) await this.communications.intake(intake);
         }
 
-        await this.inbox.markProcessed(update, now ?? new Date());
+        if (!(await this.inbox.markProcessed(update, now ?? new Date())))
+          reportCondition("update-inbox.process", "lease_lost", {
+            update_id: update.updateId,
+          });
         this.metrics.increment(
           command.kind === "ignored" ? "update_ignored" : "update_processed",
         );
-      } catch {
-        const outcome = await this.inbox.markFailed(update, now ?? new Date());
+      } catch (error) {
+        const failure = reportFailure("update-inbox.process", error, {
+          update_id: update.updateId,
+          attempt: update.processAttemptCount,
+        });
+        const outcome = await this.inbox.markFailed(
+          update,
+          now ?? new Date(),
+          failure,
+        );
         if (outcome === "failed") {
           this.metrics.increment("update_failed");
         }

@@ -19,9 +19,29 @@ import {
   type StartResponseDeliveryState,
 } from "../../database/database.js";
 import type { TelegramDeliveryResult } from "./telegram-messages.js";
+import {
+  claim,
+  expireLeases,
+  retryDelay,
+  settle,
+  type DurableQueue,
+  type Lease,
+} from "../../database/durable-queue.js";
 
 const MAX_DELIVERY_ATTEMPTS = 3;
-const SEND_LEASE_MILLISECONDS = 60_000;
+
+const replies: DurableQueue<"start_response_deliveries"> = {
+  table: "start_response_deliveries",
+  key: ["id"],
+  order: ["id"],
+  ready: ["pending", "retry_scheduled"],
+  leased: "sending",
+  due: "available_at",
+  attempts: "attempt_count",
+  leasedAt: "locked_at",
+  leaseMs: 60_000,
+  retry: { initialMs: 1000, maxMs: 4000 },
+};
 
 export interface ClaimedStartResponseDelivery {
   readonly buttons?: readonly TelegramButton[];
@@ -31,6 +51,7 @@ export interface ClaimedStartResponseDelivery {
   readonly privateChatId: string;
   readonly signInRequestRef?: string;
   readonly editMessageId?: string;
+  readonly lease: Lease<"start_response_deliveries">;
 }
 
 @Injectable()
@@ -91,64 +112,41 @@ export class StartResponseDeliveryQueue {
     signInEnabled = false,
   ): Promise<ClaimedStartResponseDelivery | undefined> {
     return this.database.transaction().execute(async (transaction) => {
-      const stale = await transaction
-        .selectFrom("start_response_deliveries")
-        .select(["attempt_count", "id"])
-        .where("state", "=", "sending")
-        .where(
-          "locked_at",
-          "<=",
-          new Date(now.getTime() - SEND_LEASE_MILLISECONDS),
-        )
-        .orderBy("id", "asc")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-
-      if (stale) {
+      const abandoned = await expireLeases(transaction, replies, now, {
+        available_at: now,
+        diagnostic_code: "worker_lease_expired",
+        locked_at: null,
+        state: sql`case when attempt_count >= ${MAX_DELIVERY_ATTEMPTS}
+          then 'unknown_exhausted' else 'retry_scheduled' end`,
+        updated_at: now,
+      });
+      for (const lease of abandoned) {
         await transaction
           .insertInto("start_response_delivery_attempts")
           .values({
-            attempt_number: stale.attempt_count,
+            attempt_number: lease.attempt,
             attempted_at: now,
             diagnostic_code: "worker_lease_expired",
             outcome: "transport_unknown",
             provider_error_code: null,
             provider_message_id: null,
-            start_response_delivery_id: stale.id,
+            start_response_delivery_id: lease.key.id as string,
           })
           .onConflict((conflict) => conflict.doNothing())
           .execute();
-
-        await transaction
-          .updateTable("start_response_deliveries")
-          .set({
-            available_at: now,
-            diagnostic_code: "worker_lease_expired",
-            locked_at: null,
-            state:
-              stale.attempt_count >= MAX_DELIVERY_ATTEMPTS
-                ? "unknown_exhausted"
-                : "retry_scheduled",
-            updated_at: now,
-          })
-          .where("id", "=", stale.id)
-          .execute();
       }
 
-      const delivery = await transaction
-        .selectFrom("start_response_deliveries")
-        .select([
+      const delivery = await claim(transaction, replies, now, {
+        select: [
           "buttons",
-          "attempt_count",
           "id",
           "message_text",
           "private_chat_id",
           "bot_identity",
           "sign_in_request_ref",
           "edit_message_id",
-        ])
-        .where((eb) =>
+        ],
+        where: (eb) =>
           eb.or([
             eb("sign_in_request_ref", "is", null),
             ...(signInEnabled
@@ -203,53 +201,32 @@ export class StartResponseDeliveryQueue {
                 ]
               : []),
           ]),
-        )
-        .where("state", "in", ["pending", "retry_scheduled"])
-        .where("available_at", "<=", now)
-        .orderBy("id", "asc")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-
+        prepare: async (tx, row) =>
+          (this.config?.marketingEnabled ||
+            this.config?.deliveryMode === "live") &&
+          !(await reserveTelegramSlot(
+            tx,
+            row.bot_identity,
+            row.private_chat_id,
+            now,
+          ))
+            ? undefined
+            : { diagnostic_code: null, updated_at: now },
+      });
       if (!delivery) {
         return undefined;
       }
-
-      if (
-        (this.config?.marketingEnabled ||
-          this.config?.deliveryMode === "live") &&
-        !(await reserveTelegramSlot(
-          transaction,
-          delivery.bot_identity,
-          delivery.private_chat_id,
-          now,
-        ))
-      )
-        return undefined;
-      const attemptNumber = delivery.attempt_count + 1;
-      await transaction
-        .updateTable("start_response_deliveries")
-        .set({
-          attempt_count: attemptNumber,
-          diagnostic_code: null,
-          locked_at: now,
-          state: "sending",
-          updated_at: now,
-        })
-        .where("id", "=", delivery.id)
-        .execute();
-
+      const row = delivery.row;
       return {
-        ...(delivery.buttons ? { buttons: delivery.buttons } : {}),
-        attemptNumber,
-        id: delivery.id,
-        messageText: delivery.message_text,
-        privateChatId: delivery.private_chat_id,
-        ...(delivery.edit_message_id
-          ? { editMessageId: delivery.edit_message_id }
-          : {}),
-        ...(delivery.sign_in_request_ref
-          ? { signInRequestRef: delivery.sign_in_request_ref }
+        ...(row.buttons ? { buttons: row.buttons } : {}),
+        attemptNumber: delivery.attempt,
+        id: row.id,
+        lease: delivery,
+        messageText: row.message_text,
+        privateChatId: row.private_chat_id,
+        ...(row.edit_message_id ? { editMessageId: row.edit_message_id } : {}),
+        ...(row.sign_in_request_ref
+          ? { signInRequestRef: row.sign_in_request_ref }
           : {}),
       };
     });
@@ -259,13 +236,13 @@ export class StartResponseDeliveryQueue {
     delivery: ClaimedStartResponseDelivery,
     result: TelegramDeliveryResult,
     attemptedAt: Date,
-  ): Promise<void> {
+  ): Promise<boolean> {
     const persistence = deliveryOutcomePersistence(
       result,
       delivery.attemptNumber,
       attemptedAt,
     );
-    await this.database.transaction().execute(async (transaction) => {
+    return this.database.transaction().execute(async (transaction) => {
       if (
         (this.config?.marketingEnabled ||
           this.config?.deliveryMode === "live") &&
@@ -280,6 +257,16 @@ export class StartResponseDeliveryQueue {
           ),
         );
       }
+      const held = await settle(transaction, replies, delivery.lease, {
+        available_at: persistence.delivery.availableAt,
+        delivered_at: persistence.delivery.deliveredAt,
+        diagnostic_code: persistence.delivery.diagnosticCode,
+        locked_at: null,
+        state: persistence.delivery.state,
+        updated_at: attemptedAt,
+      });
+      // An expired lease already recorded this attempt as unknown; the late outcome is dropped.
+      if (!held) return false;
       await transaction
         .insertInto("start_response_delivery_attempts")
         .values({
@@ -292,19 +279,7 @@ export class StartResponseDeliveryQueue {
           start_response_delivery_id: delivery.id,
         })
         .execute();
-
-      await transaction
-        .updateTable("start_response_deliveries")
-        .set({
-          available_at: persistence.delivery.availableAt,
-          delivered_at: persistence.delivery.deliveredAt,
-          diagnostic_code: persistence.delivery.diagnosticCode,
-          locked_at: null,
-          state: persistence.delivery.state,
-          updated_at: attemptedAt,
-        })
-        .where("id", "=", delivery.id)
-        .execute();
+      return true;
     });
   }
 }
@@ -330,7 +305,7 @@ function deliveryOutcomePersistence(
   attemptedAt: Date,
 ): DeliveryOutcomePersistence {
   const exhausted = attemptNumber >= MAX_DELIVERY_ATTEMPTS;
-  const exponentialDelay = 1000 * 2 ** (attemptNumber - 1);
+  const exponentialDelay = retryDelay(replies, attemptNumber);
 
   switch (result.kind) {
     case "delivered":

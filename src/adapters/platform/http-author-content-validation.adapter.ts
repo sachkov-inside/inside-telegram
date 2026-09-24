@@ -10,6 +10,10 @@ import {
   contractValidator,
 } from "../../modules/communications/communications-contract.js";
 import type { MessagePart } from "../../modules/communications/funnel-types.js";
+import {
+  reportCondition,
+  reportFailure,
+} from "../../operations/failure-diagnostics.js";
 
 const validRequest = contractValidator("contentValidationRequest");
 const validResponse = contractValidator("contentValidationResponse");
@@ -45,7 +49,13 @@ export class HttpAuthorContentValidationAdapter implements AuthorContentValidati
       });
       if (response.status === 401 || response.status === 403)
         return { status: "denied" };
-      if (!response.ok) return { status: "unavailable" };
+      if (!response.ok) {
+        reportCondition(
+          "platform.author-content-validation",
+          `http_${response.status}`,
+        );
+        return { status: "unavailable" };
+      }
       const body: unknown = await response.json();
       if (!validResponse(body)) return { status: "unavailable" };
       const result = body as {
@@ -61,7 +71,8 @@ export class HttpAuthorContentValidationAdapter implements AuthorContentValidati
       )
         return { status: "denied" };
       return { status: "ok", targetErrors: result.targetErrors };
-    } catch {
+    } catch (error) {
+      reportFailure("platform.author-content-validation", error);
       return { status: "unavailable" };
     }
   }

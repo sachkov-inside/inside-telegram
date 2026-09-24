@@ -29,6 +29,7 @@ import {
   ownAccessText,
 } from "./activation-view.js";
 import type { ActivationTables } from "./activation-storage.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 type Attempt = Selectable<ActivationTables["activation_attempts"]>;
 const RETENTION = 30 * 24 * 60 * 60_000;
@@ -259,9 +260,10 @@ export class SubscriptionActivation {
     );
   }
 
-  async processAvailable(limit = 10): Promise<void> {
-    if (!this.config.activation?.enabled) return;
-    for (let index = 0; index < limit; index++) {
+  async processAvailable(limit = 10): Promise<number> {
+    if (!this.config.activation?.enabled) return 0;
+    let processed = 0;
+    for (; processed < limit; processed++) {
       const now = this.clock.now();
       const attempt = await this.db.transaction().execute(async (tx) => {
         const row = await tx
@@ -299,7 +301,10 @@ export class SubscriptionActivation {
       if (!attempt) break;
       try {
         await this.process(attempt);
-      } catch {
+      } catch (error) {
+        reportFailure("activation.process", error, {
+          attempt_id: attempt.attempt_id,
+        });
         await this.defer(attempt, "worker_unavailable");
       }
     }
@@ -321,6 +326,7 @@ export class SubscriptionActivation {
         ]),
       )
       .execute();
+    return processed;
   }
 
   private async process(attempt: Attempt): Promise<void> {

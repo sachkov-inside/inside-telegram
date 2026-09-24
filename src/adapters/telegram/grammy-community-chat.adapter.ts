@@ -8,6 +8,7 @@ import type {
   TelegramCommunityChat,
 } from "../../modules/community/community-ports.js";
 import { normalizeChatMember } from "../../modules/membership-evidence/membership-normalization.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 interface CommunityChatMember {
   readonly status: string;
@@ -68,7 +69,8 @@ export class GrammyCommunityChatAdapter implements TelegramCommunityChat {
         kind: "observed",
         state: normalized === "member" ? "member" : "not_member",
       };
-    } catch {
+    } catch (error) {
+      reportFailure("telegram.community-chat", error);
       return {
         kind: "unavailable",
         diagnosticCode: "telegram_api_unavailable",
@@ -101,7 +103,8 @@ export class GrammyCommunityChatAdapter implements TelegramCommunityChat {
           diagnosticCode: "bot_restrict_right_required",
         };
       return { kind: "ready" };
-    } catch {
+    } catch (error) {
+      reportFailure("telegram.community-chat", error);
       return {
         kind: "unavailable",
         diagnosticCode: "telegram_api_unavailable",
@@ -212,6 +215,7 @@ function callFailure(
     return { kind: "rejected", providerErrorCode: error.error_code };
   }
   // No answer reached us, so the effect stays unknown until it is observed.
+  reportFailure("telegram.community-chat", error);
   return { kind: "unknown" };
 }
 

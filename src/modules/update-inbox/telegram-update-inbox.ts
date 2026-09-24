@@ -1,12 +1,32 @@
 import { Inject, Injectable } from "@nestjs/common";
 
 import { DATABASE, type Database } from "../../database/database.js";
+import {
+  claimNext,
+  retryDelay,
+  settle,
+  type DurableQueue,
+  type Lease,
+} from "../../database/durable-queue.js";
 
 const MAX_PROCESS_ATTEMPTS = 5;
-const PROCESS_LEASE_MILLISECONDS = 60_000;
+
+const updates: DurableQueue<"telegram_updates"> = {
+  table: "telegram_updates",
+  key: ["bot_identity", "update_id"],
+  order: ["update_id"],
+  ready: ["pending"],
+  leased: "processing",
+  due: "available_at",
+  attempts: "process_attempt_count",
+  leasedAt: "locked_at",
+  leaseMs: 60_000,
+  retry: { initialMs: 1000, maxMs: 16_000 },
+};
 
 export interface ClaimedTelegramUpdate {
   readonly botIdentity: string;
+  readonly lease: Lease<"telegram_updates">;
   readonly payload: unknown;
   readonly processAttemptCount: number;
   readonly receivedAt: Date;
@@ -15,7 +35,15 @@ export interface ClaimedTelegramUpdate {
 
 @Injectable()
 export class TelegramUpdateInbox {
+  private readonly listeners = new Set<() => void>();
+
   constructor(@Inject(DATABASE) private readonly database: Database) {}
+
+  /** Calls `listener` after each newly accepted update so a worker can start at once. */
+  onAccepted(listener: () => void): () => void {
+    this.listeners.add(listener);
+    return () => this.listeners.delete(listener);
+  }
 
   async accept(
     botIdentity: string,
@@ -40,132 +68,81 @@ export class TelegramUpdateInbox {
       .onConflict((conflict) => conflict.doNothing())
       .returning("update_id")
       .executeTakeFirst();
-    return inserted ? "accepted" : "duplicate";
+    if (!inserted) return "duplicate";
+    for (const listener of this.listeners) listener();
+    return "accepted";
   }
 
   async claimNext(now: Date): Promise<ClaimedTelegramUpdate | undefined> {
-    return this.database.transaction().execute(async (transaction) => {
-      const stale = await transaction
-        .selectFrom("telegram_updates")
-        .select(["bot_identity", "update_id"])
-        .where("state", "=", "processing")
-        .where(
-          "locked_at",
-          "<=",
-          new Date(now.getTime() - PROCESS_LEASE_MILLISECONDS),
-        )
-        .orderBy("update_id", "asc")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-
-      if (stale) {
-        await transaction
-          .updateTable("telegram_updates")
-          .set({
-            available_at: now,
-            failure_code: "worker_lease_expired",
-            locked_at: null,
-            state: "pending",
-          })
-          .where("bot_identity", "=", stale.bot_identity)
-          .where("update_id", "=", stale.update_id)
-          .execute();
-      }
-
-      const update = await transaction
-        .selectFrom("telegram_updates")
-        .select([
-          "bot_identity",
-          "payload",
-          "process_attempt_count",
-          "received_at",
-          "update_id",
-        ])
-        .where("state", "=", "pending")
-        .where("available_at", "<=", now)
-        .orderBy("update_id", "asc")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-
-      if (!update || update.payload === null) {
-        return undefined;
-      }
-
-      const processAttemptCount = update.process_attempt_count + 1;
-      await transaction
-        .updateTable("telegram_updates")
-        .set({
-          process_attempt_count: processAttemptCount,
-          locked_at: now,
-          state: "processing",
-        })
-        .where("bot_identity", "=", update.bot_identity)
-        .where("update_id", "=", update.update_id)
-        .execute();
-
-      return {
-        botIdentity: update.bot_identity,
-        payload: update.payload,
-        processAttemptCount,
-        receivedAt: update.received_at,
-        updateId: update.update_id,
-      };
-    });
+    const claimed = await claimNext(
+      this.database,
+      updates,
+      now,
+      {
+        available_at: now,
+        failure_code: "worker_lease_expired",
+        locked_at: null,
+        state: "pending",
+      },
+      {
+        select: ["bot_identity", "payload", "received_at", "update_id"],
+        where: (eb) => eb("payload", "is not", null),
+      },
+    );
+    if (!claimed) return undefined;
+    return {
+      botIdentity: claimed.row.bot_identity,
+      lease: claimed,
+      payload: claimed.row.payload,
+      processAttemptCount: claimed.attempt,
+      receivedAt: claimed.row.received_at,
+      updateId: claimed.row.update_id,
+    };
   }
 
+  /** Returns false when this worker no longer holds the update. */
   async markProcessed(
     update: ClaimedTelegramUpdate,
     processedAt: Date,
-  ): Promise<void> {
-    await this.database
-      .updateTable("telegram_updates")
-      .set({
-        failure_code: null,
-        locked_at: null,
-        payload: null,
-        processed_at: processedAt,
-        state: "processed",
-      })
-      .where("bot_identity", "=", update.botIdentity)
-      .where("update_id", "=", update.updateId)
-      .where("state", "=", "processing")
-      .execute();
+  ): Promise<boolean> {
+    return settle(this.database, updates, update.lease, {
+      failure_code: null,
+      locked_at: null,
+      payload: null,
+      processed_at: processedAt,
+      state: "processed",
+    });
   }
 
   async markFailed(
     update: ClaimedTelegramUpdate,
     failedAt: Date,
-  ): Promise<"failed" | "retry_scheduled"> {
-    if (update.processAttemptCount >= MAX_PROCESS_ATTEMPTS) {
-      await this.database
-        .updateTable("telegram_updates")
-        .set({
-          failure_code: "processing_failed",
-          locked_at: null,
-          payload: null,
-          processed_at: failedAt,
-          state: "failed",
-        })
-        .where("bot_identity", "=", update.botIdentity)
-        .where("update_id", "=", update.updateId)
-        .execute();
-      return "failed";
-    }
-
-    const delayMilliseconds = 1000 * 2 ** (update.processAttemptCount - 1);
-    await this.database
-      .updateTable("telegram_updates")
-      .set({
-        available_at: new Date(failedAt.getTime() + delayMilliseconds),
-        failure_code: "processing_failed",
-        locked_at: null,
-        state: "pending",
-      })
-      .where("bot_identity", "=", update.botIdentity)
-      .where("update_id", "=", update.updateId)
-      .execute();
-    return "retry_scheduled";
+    failureCode: string,
+  ): Promise<"failed" | "retry_scheduled" | "lease_lost"> {
+    const exhausted = update.processAttemptCount >= MAX_PROCESS_ATTEMPTS;
+    const settled = await settle(
+      this.database,
+      updates,
+      update.lease,
+      exhausted
+        ? {
+            failure_code: failureCode,
+            locked_at: null,
+            payload: null,
+            processed_at: failedAt,
+            state: "failed",
+          }
+        : {
+            available_at: new Date(
+              failedAt.getTime() +
+                retryDelay(updates, update.processAttemptCount),
+            ),
+            failure_code: failureCode,
+            locked_at: null,
+            state: "pending",
+          },
+    );
+    if (!settled) return "lease_lost";
+    return exhausted ? "failed" : "retry_scheduled";
   }
 }

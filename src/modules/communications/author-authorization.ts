@@ -1,3 +1,4 @@
+import { externalRead } from "../../database/external-reads.js";
 import type { Actor } from "./communications-contract.js";
 export const AUTHOR_AUTHORIZATION = Symbol("AUTHOR_AUTHORIZATION");
 export type AuthorSubject =
@@ -16,4 +17,17 @@ export class DisabledAuthorAuthorization implements AuthorAuthorization {
   async authorize(): Promise<"unavailable"> {
     return "unavailable";
   }
+}
+
+/**
+ * Asks Platform whether the subject may act as an author. Inside
+ * {@link transactionWithExternalReads} the call runs with no transaction open.
+ */
+export function authorizeAuthor(
+  authorization: AuthorAuthorization,
+  subject: AuthorSubject,
+): Promise<"allowed" | "denied" | "unavailable"> {
+  return externalRead(`author-authorization:${JSON.stringify(subject)}`, () =>
+    authorization.authorize(subject),
+  );
 }

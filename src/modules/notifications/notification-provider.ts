@@ -4,6 +4,7 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 import { sql, type Selectable, type Transaction } from "kysely";
 import type { Database, DatabaseSchema } from "../../database/database.js";
 import type { Clock } from "../identity-linking/clock.js";
@@ -154,7 +155,8 @@ export class NotificationProvider {
     });
   }
 
-  async processCategory(category: Category, limit = 10): Promise<void> {
+  /** Returns how many due commands were handled before the category had to wait. */
+  async processCategory(category: Category, limit = 10): Promise<number> {
     const due = await this.db
       .selectFrom("notification_commands")
       .selectAll()
@@ -165,9 +167,12 @@ export class NotificationProvider {
       .orderBy("available_at")
       .limit(limit)
       .execute();
+    let handled = 0;
     for (const row of due) {
       if (await this.dispatch(row)) break;
+      handled += 1;
     }
+    return handled;
   }
 
   private async dispatch(row: CommandRow): Promise<boolean> {
@@ -186,8 +191,11 @@ export class NotificationProvider {
     if (Date.parse(c.notAfter) > requestedAt.getTime()) {
       try {
         permit = await this.authorization.authorize(request);
-      } catch {
-        /* unavailable: no I/O */
+      } catch (error) {
+        // Unavailable: no I/O is started; the command stays due for a later permit.
+        reportFailure("notifications.dispatch-permit", error, {
+          operation_id: c.operationId,
+        });
       }
     }
     const receivedAt = this.clock.now();
@@ -342,7 +350,10 @@ export class NotificationProvider {
         chatId: started.chatId,
         text: c.text,
       });
-    } catch {
+    } catch (error) {
+      reportFailure("notifications.send", error, {
+        operation_id: c.operationId,
+      });
       outcome = { kind: "transport_unknown" };
     }
     await this.settle(
@@ -528,7 +539,11 @@ export class NotificationProvider {
         created_at: this.clock.now(),
       })
       .onConflict((c) =>
-        c.column("message_id").doUpdateSet({ published_at: null }),
+        // Re-enqueueing marks a new publication that an in-flight publisher must not claim.
+        c.column("message_id").doUpdateSet({
+          published_at: null,
+          created_at: this.clock.now(),
+        }),
       )
       .execute();
   }
@@ -573,31 +588,34 @@ export class NotificationProvider {
       .where("encrypted_payload", "is not", null)
       .execute();
   }
+  /**
+   * Publishes unpublished results in queue order with no transaction held while the broker
+   * confirms. A crash between confirm and marking republishes the same message ID, which the
+   * receiver deduplicates; a result re-enqueued meanwhile stays unpublished and goes again.
+   * Returns how many results were published.
+   */
   async publishResults(
     publish: (result: NotificationResult) => Promise<void>,
     limit = 25,
-  ): Promise<void> {
-    for (let i = 0; i < limit; i++) {
-      const found = await this.db.transaction().execute(async (tx) => {
-        const item = await tx
-          .selectFrom("notification_result_outbox")
-          .selectAll()
-          .where("published_at", "is", null)
-          .orderBy("created_at")
-          .forUpdate()
-          .skipLocked()
-          .executeTakeFirst();
-        if (!item) return false;
-        await publish(item.result);
-        await tx
-          .updateTable("notification_result_outbox")
-          .set({ published_at: this.clock.now() })
-          .where("message_id", "=", item.message_id)
-          .execute();
-        return true;
-      });
-      if (!found) return;
+  ): Promise<number> {
+    const items = await this.db
+      .selectFrom("notification_result_outbox")
+      .select(["message_id", "result", "created_at"])
+      .where("published_at", "is", null)
+      .orderBy("created_at")
+      .limit(limit)
+      .execute();
+    for (const item of items) {
+      await publish(item.result);
+      await this.db
+        .updateTable("notification_result_outbox")
+        .set({ published_at: this.clock.now() })
+        .where("message_id", "=", item.message_id)
+        .where("published_at", "is", null)
+        .where("created_at", "=", item.created_at)
+        .execute();
     }
+    return items.length;
   }
 }
 async function lock(tx: Tx, key: string) {

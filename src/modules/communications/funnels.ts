@@ -1,8 +1,10 @@
 import {
   AUTHOR_CONTENT_VALIDATION,
   type AuthorContentValidation,
+  validateAuthorContent,
 } from "./author-content-validation.js";
 import { previewFunnel, type FunnelPreview } from "./funnel-preview.js";
+import { transactionWithExternalReads } from "../../database/external-reads.js";
 import { deliveryOwnerPredicate } from "./communication-queries.js";
 import { applyBroadcast, type BroadcastResult } from "./broadcasts.js";
 import {
@@ -33,6 +35,7 @@ import {
 import { CLOCK, type Clock } from "../identity-linking/clock.js";
 import {
   AUTHOR_AUTHORIZATION,
+  authorizeAuthor,
   type AuthorAuthorization,
 } from "./author-authorization.js";
 import {
@@ -82,7 +85,7 @@ export class Funnels {
     if (!("accountRef" in request.actor))
       throw new CommunicationsError("not_implemented");
     const actor = request.actor.accountRef;
-    const permission = await this.authorization.authorize({
+    const permission = await authorizeAuthor(this.authorization, {
       kind: "account",
       accountRef: actor,
     });
@@ -144,7 +147,7 @@ export class Funnels {
     };
     return transaction
       ? work(transaction)
-      : this.database.transaction().execute(work);
+      : transactionWithExternalReads(this.database, work);
   }
   private async apply(
     tx: Transaction<DatabaseSchema>,
@@ -474,7 +477,8 @@ export class Funnels {
       draft = publication.snapshot as FunnelDraft;
       // Validate the immutable historical snapshot under the definition lock. Receipts and
       // expectedRevision were checked first, so replay never re-publishes changed content.
-      const validation = await this.contentValidation.validate(
+      const validation = await validateAuthorContent(
+        this.contentValidation,
         { kind: "account", accountRef: actor },
         [draft.entryResponse, ...draft.steps].flatMap((step) => step.parts),
       );

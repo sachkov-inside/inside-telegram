@@ -40,7 +40,7 @@ export class OperationsController {
     }
     if (
       this.config.membershipMode === "live" &&
-      (await this.membershipEvidence.validateReadiness()) !== "ready"
+      this.membershipEvidence.readiness() !== "ready"
     ) {
       throw new ServiceUnavailableException(
         "Telegram Membership provider is unavailable",

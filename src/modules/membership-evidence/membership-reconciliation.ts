@@ -3,15 +3,33 @@ import { randomUUID } from "node:crypto";
 import { sql } from "kysely";
 
 import type { Database } from "../../database/database.js";
+import {
+  claim,
+  expireLeases,
+  retryDelay,
+  settle,
+  type DurableQueue,
+  type Lease,
+} from "../../database/durable-queue.js";
 import type { Clock } from "../identity-linking/clock.js";
 import type {
   EvidenceOutcome,
   LinkMembershipCheck,
 } from "./membership-evidence-provider.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
-const RECONCILIATION_LEASE_MILLISECONDS = 60_000;
-const INITIAL_RETRY_MILLISECONDS = 15_000;
-const MAXIMUM_RETRY_MILLISECONDS = 60_000;
+const reconciliations: DurableQueue<"membership_reconciliations"> = {
+  table: "membership_reconciliations",
+  key: ["telegram_identity_ref"],
+  order: ["due_at", "telegram_identity_ref"],
+  ready: ["pending"],
+  leased: "processing",
+  due: "due_at",
+  attempts: "attempt_count",
+  leasedAt: "locked_at",
+  leaseMs: 60_000,
+  retry: { initialMs: 15_000, maxMs: 60_000 },
+};
 
 export interface WorkBudget {
   readonly maxDurationMs: number;
@@ -44,6 +62,7 @@ export class ReconciliationLeaseLostError extends Error {
 
 interface ClaimedReconciliation extends ReconciliationMembershipCheck {
   readonly attemptNumber: number;
+  readonly lease: Lease<"membership_reconciliations">;
   readonly recoveredLeases: number;
 }
 
@@ -103,6 +122,7 @@ export async function reconcileMembershipDue(
         failed += 1;
         continue;
       }
+      reportFailure("membership.reconciliation", error);
       failed += 1;
       await retry(database, claimed, clock.now(), "reconciliation_failed");
     }
@@ -165,59 +185,33 @@ async function claimNext(
   now: Date,
 ): Promise<ClaimedReconciliation | undefined> {
   return database.transaction().execute(async (transaction) => {
-    const recovered = await transaction
-      .updateTable("membership_reconciliations")
-      .set({
-        diagnostic_code: "worker_lease_expired",
-        lease_token: null,
-        locked_at: null,
-        state: "pending",
+    const recovered = await expireLeases(transaction, reconciliations, now, {
+      diagnostic_code: "worker_lease_expired",
+      lease_token: null,
+      locked_at: null,
+      state: "pending",
+      updated_at: now,
+    });
+    const leaseToken = randomUUID();
+    const due = await claim(transaction, reconciliations, now, {
+      select: ["due_at", "telegram_identity_ref"],
+      prepare: async () => ({
+        diagnostic_code: null,
+        lease_token: leaseToken,
         updated_at: now,
-      })
-      .where("state", "=", "processing")
-      .where(
-        "locked_at",
-        "<=",
-        new Date(now.getTime() - RECONCILIATION_LEASE_MILLISECONDS),
-      )
-      .executeTakeFirst();
-    const due = await transaction
-      .selectFrom("membership_reconciliations")
-      .select(["attempt_count", "due_at", "telegram_identity_ref"])
-      .where("state", "=", "pending")
-      .where("due_at", "<=", now)
-      .orderBy("due_at")
-      .orderBy("telegram_identity_ref")
-      .forUpdate()
-      .skipLocked()
-      .executeTakeFirst();
+      }),
+    });
     if (!due) {
       return undefined;
     }
-
-    const attemptNumber = due.attempt_count + 1;
-    const leaseToken = randomUUID();
-    await transaction
-      .updateTable("membership_reconciliations")
-      .set({
-        attempt_count: attemptNumber,
-        diagnostic_code: null,
-        lease_token: leaseToken,
-        locked_at: now,
-        state: "processing",
-        updated_at: now,
-      })
-      .where("telegram_identity_ref", "=", due.telegram_identity_ref)
-      .execute();
     return {
-      attemptNumber,
-      checkRef: `reconciliation:${due.telegram_identity_ref}:${due.due_at.getTime()}`,
-      leaseExpiresAt: new Date(
-        now.getTime() + RECONCILIATION_LEASE_MILLISECONDS,
-      ),
+      attemptNumber: due.attempt,
+      checkRef: `reconciliation:${due.row.telegram_identity_ref}:${due.row.due_at.getTime()}`,
+      lease: due,
+      leaseExpiresAt: new Date(now.getTime() + reconciliations.leaseMs),
       leaseToken,
-      recoveredLeases: Number(recovered.numUpdatedRows),
-      telegramIdentityRef: due.telegram_identity_ref,
+      recoveredLeases: recovered.length,
+      telegramIdentityRef: due.row.telegram_identity_ref,
     };
   });
 }
@@ -228,22 +222,16 @@ async function complete(
   completedAt: Date,
   cadenceMilliseconds: number,
 ): Promise<void> {
-  await database
-    .updateTable("membership_reconciliations")
-    .set({
-      attempt_count: 0,
-      diagnostic_code: null,
-      due_at: new Date(completedAt.getTime() + cadenceMilliseconds),
-      last_completed_at: completedAt,
-      lease_token: null,
-      locked_at: null,
-      state: "pending",
-      updated_at: completedAt,
-    })
-    .where("telegram_identity_ref", "=", claimed.telegramIdentityRef)
-    .where("lease_token", "=", claimed.leaseToken)
-    .where("state", "=", "processing")
-    .execute();
+  await settle(database, reconciliations, claimed.lease, {
+    attempt_count: 0,
+    diagnostic_code: null,
+    due_at: new Date(completedAt.getTime() + cadenceMilliseconds),
+    last_completed_at: completedAt,
+    lease_token: null,
+    locked_at: null,
+    state: "pending",
+    updated_at: completedAt,
+  });
 }
 
 async function retry(
@@ -252,24 +240,16 @@ async function retry(
   failedAt: Date,
   diagnosticCode: string,
 ): Promise<void> {
-  const delay = Math.min(
-    MAXIMUM_RETRY_MILLISECONDS,
-    INITIAL_RETRY_MILLISECONDS * 2 ** (claimed.attemptNumber - 1),
-  );
-  await database
-    .updateTable("membership_reconciliations")
-    .set({
-      diagnostic_code: diagnosticCode,
-      due_at: new Date(failedAt.getTime() + delay),
-      lease_token: null,
-      locked_at: null,
-      state: "pending",
-      updated_at: failedAt,
-    })
-    .where("telegram_identity_ref", "=", claimed.telegramIdentityRef)
-    .where("lease_token", "=", claimed.leaseToken)
-    .where("state", "=", "processing")
-    .execute();
+  await settle(database, reconciliations, claimed.lease, {
+    diagnostic_code: diagnosticCode,
+    due_at: new Date(
+      failedAt.getTime() + retryDelay(reconciliations, claimed.attemptNumber),
+    ),
+    lease_token: null,
+    locked_at: null,
+    state: "pending",
+    updated_at: failedAt,
+  });
 }
 
 async function operationalSnapshot(

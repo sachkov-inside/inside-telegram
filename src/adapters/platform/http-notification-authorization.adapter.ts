@@ -4,6 +4,7 @@ import {
   type DispatchResponse,
 } from "../../modules/notifications/notification-contract.js";
 import type { NotificationAuthorization } from "../../modules/notifications/notification-ports.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 export class HttpNotificationAuthorization implements NotificationAuthorization {
   constructor(
     private readonly endpoint: string,
@@ -67,7 +68,8 @@ export class HttpNotificationAuthorization implements NotificationAuthorization 
           : 200;
       if (response.status !== expected) return;
       return result;
-    } catch {
+    } catch (error) {
+      reportFailure("platform.notification-authorization", error);
       return;
     }
   }

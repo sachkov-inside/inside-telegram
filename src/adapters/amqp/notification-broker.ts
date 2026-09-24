@@ -10,6 +10,7 @@ import type {
   Category,
   NotificationResult,
 } from "../../modules/notifications/notification-contract.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 // Runtime never declares topology: its principal has no configure permissions.
 export class NotificationBroker {
@@ -86,8 +87,9 @@ export class NotificationBroker {
         category,
       );
       channel.ack(message);
-    } catch {
+    } catch (error) {
       // Storage/quarantine failure: close consumer, retain unacked work, alert; reconnect has backoff.
+      reportFailure("notification.broker-receive", error);
       this.fail();
       await channel.close().catch(() => undefined);
     }

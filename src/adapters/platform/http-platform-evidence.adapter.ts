@@ -3,6 +3,7 @@ import type {
   PlatformEvidenceDeliveryRequest,
   PlatformEvidenceDeliveryResult,
 } from "../../modules/membership-evidence/platform-evidence-delivery.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 const DELIVERY_TIMEOUT_MILLISECONDS = 5_000;
 
@@ -47,7 +48,8 @@ export class HttpPlatformEvidenceAdapter implements PlatformEvidenceDelivery {
         diagnosticCode: `platform_http_${response.status}`,
         kind: "rejected",
       };
-    } catch {
+    } catch (error) {
+      reportFailure("platform.evidence-delivery", error);
       return {
         diagnosticCode: "platform_transport_unavailable",
         kind: "retryable",

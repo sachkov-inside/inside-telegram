@@ -57,6 +57,7 @@ import {
   RESTORABLE_REMOVAL_ORIGINS,
   type CommunityMutation,
 } from "./community-storage.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 const ATTEMPT_BUDGET = 5;
 const PERMIT_WINDOW_MILLISECONDS = 5000;
@@ -684,7 +685,7 @@ export class CommunityProvider {
 
   // ----------------------------------------------------------------- worker
 
-  async processDueEffects(limit = 10): Promise<void> {
+  async processDueEffects(limit = 10): Promise<number> {
     const due = await this.db
       .selectFrom("community_effects")
       .select("effect_ref")
@@ -695,6 +696,7 @@ export class CommunityProvider {
       .limit(limit)
       .execute();
     for (const row of due) await this.runEffect(row.effect_ref);
+    return due.length;
   }
 
   private async runEffect(effectRef: string): Promise<void> {
@@ -984,7 +986,8 @@ export class CommunityProvider {
     let response;
     try {
       response = await this.authorization.authorize(request);
-    } catch {
+    } catch (error) {
+      reportFailure("community.dispatch-permit", error);
       response = undefined;
     }
     const receivedAt = this.clock.now();
@@ -1148,7 +1151,8 @@ export class CommunityProvider {
           return { ...created, expiresAt };
         }
       }
-    } catch {
+    } catch (error) {
+      reportFailure("community.admission-link", error);
       return { kind: "unknown", ...(expiry ? { expiresAt: expiry } : {}) };
     }
   }
@@ -1587,7 +1591,7 @@ export class CommunityProvider {
    * Known desired states are re-checked at least once per cadence, so a lapsed
    * right, a departure and a provider outage are visible without any event.
    */
-  async reconcileDueStates(limit = 25): Promise<void> {
+  async reconcileDueStates(limit = 25): Promise<number> {
     const due = await this.db
       .selectFrom("community_desired_states")
       .select("account_ref")
@@ -1597,6 +1601,7 @@ export class CommunityProvider {
       .limit(limit)
       .execute();
     for (const row of due) await this.reconcileAccount(row.account_ref);
+    return due.length;
   }
 
   private async reconcileAccount(accountRef: string): Promise<void> {

@@ -39,6 +39,7 @@ import type {
   BroadcastPart,
   DeliveryPart,
 } from "./funnel-types.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 const REPLY_KINDS = ["intro", "entry", "fallback"] as const;
 const BACKLOG_KINDS = ["step", "broadcast"] as const;
 type Queue = typeof REPLY_KINDS | typeof BACKLOG_KINDS;
@@ -115,7 +116,10 @@ export class FunnelScheduler {
           content: claimed.content,
           offerStart: claimed.delivery.kind === "fallback",
         });
-      } catch {
+      } catch (error) {
+        reportFailure("communications.funnel-send", error, {
+          delivery_id: claimed.delivery.delivery_id,
+        });
         result = { kind: "transport_unknown" };
       }
       await this.record(

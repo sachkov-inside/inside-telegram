@@ -50,7 +50,9 @@ exist only in synthetic tests.
   and unknown transport outcomes as distinct typed attempts. Retries stop after three attempts;
   unknown outcomes retain the diagnosable duplicate risk.
 - `GET /health`, `GET /ready`, and `GET /metrics` expose redacted operational signals. Processed or
-  terminally failed inbox rows retain their deduplication key but discard the provider payload.
+  terminally failed inbox rows discard the provider payload at once and keep their deduplication
+  key and failure class for 30 days; `src/database/retention.ts` lists every expiring technical
+  record.
 
 `TELEGRAM_DELIVERY_MODE=disabled` is the safe default. It still processes starts and creates the
 durable welcome intent, but it never calls Telegram. Enabling `live` requires a bot token and the

@@ -111,7 +111,7 @@ afterAll(async () => {
 });
 
 describe("initial Membership Evidence", () => {
-  it("keeps live readiness fail-closed until the bot is administrator", async () => {
+  it("reports the latest provider probe without calling Telegram or writing", async () => {
     const liveConfig: ApplicationConfig = {
       ...config,
       botToken: "synthetic-token",
@@ -134,10 +134,22 @@ describe("initial Membership Evidence", () => {
       degradedProvider,
     );
 
+    // Fail closed until this process has observed the provider.
+    await expect(degradedOperations.ready()).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(degradedTelegram.botRequests).toEqual([]);
+
+    await expect(degradedProvider.probeProvider()).resolves.toBe("degraded");
+    const observations = await countObservations();
+    await expect(degradedOperations.ready()).rejects.toMatchObject({
+      status: 503,
+    });
     await expect(degradedOperations.ready()).rejects.toMatchObject({
       status: 503,
     });
     expect(degradedTelegram.botRequests).toEqual([liveConfig.canonicalChatId]);
+    await expect(countObservations()).resolves.toBe(observations);
 
     const readyProvider = new MembershipEvidenceProvider(
       database,
@@ -148,6 +160,7 @@ describe("initial Membership Evidence", () => {
         { kind: "observed", value: { status: "member" } },
       ),
     );
+    await readyProvider.probeProvider();
     await expect(
       new OperationsController(
         database,
@@ -594,4 +607,12 @@ class ControlledTelegramMessages implements TelegramMessages {
       providerMessageId: String(this.sent.length),
     };
   }
+}
+
+async function countObservations(): Promise<number> {
+  const row = await database
+    .selectFrom("membership_provider_observations")
+    .select((eb) => eb.fn.countAll<string>().as("count"))
+    .executeTakeFirstOrThrow();
+  return Number(row.count);
 }
