@@ -309,6 +309,7 @@ describe("inside-telegram-deploy gateway", { timeout: 30_000 }, () => {
 
     expectSuccess(run("deploy v2 704", v2));
     expect(readState().current).toMatchObject({ version: "v2" });
+    expect(existsSync(migrationGuard())).toBe(false);
   });
 
   it("records a failed readiness check", () => {
@@ -443,6 +444,7 @@ describe("inside-telegram-deploy gateway", { timeout: 30_000 }, () => {
 
     const rollbackAttempt = run("rollback v3 985", v3);
     expect(rollbackAttempt.status).toBe(1);
+    expect(rollbackAttempt.stderr).toContain("an unfinished operation of v5");
 
     expectSuccess(run("deploy v6 986", v6));
     expect(existsSync(migrationGuard())).toBe(false);

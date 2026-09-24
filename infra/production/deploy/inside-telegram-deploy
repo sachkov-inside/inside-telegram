@@ -435,7 +435,8 @@ readiness() {
 caddy_log="$state_dir/caddy-last.log"
 # Caddy output stays on the host: the shared Caddyfile also describes other applications.
 caddy_run() {
-  caddy "$@" --config "$caddyfile" --adapter caddyfile >"$caddy_log" 2>&1
+  printf '== caddy %s\n' "$1" >>"$caddy_log"
+  caddy "$@" --config "$caddyfile" --adapter caddyfile >>"$caddy_log" 2>&1
 }
 
 restore_routes() {
@@ -456,6 +457,7 @@ activate_routes() {
   if cmp -s "$fragment" "$caddy_target"; then
     return 0
   fi
+  : >"$caddy_log" || return 1
   rm -f "$caddy_previous" || return 1
   if [[ -f "$caddy_target" ]]; then
     cp -p "$caddy_target" "$caddy_previous" || return 1
@@ -500,9 +502,9 @@ compose stop app || fail "The running app cannot be stopped"
 if [[ "$operation" == deploy ]]; then
   enter_phase migrate
   temporary="$migration_guard.tmp.$$"
-  jq --null-input --arg version "$version" --arg migrations "$migrations_identity" \
-    '{version: $version, migrationsIdentity: $migrations}' >"$temporary"
-  mv "$temporary" "$migration_guard"
+  { jq --null-input --arg version "$version" --arg migrations "$migrations_identity" \
+      '{version: $version, migrationsIdentity: $migrations}' >"$temporary" &&
+    mv "$temporary" "$migration_guard"; } || fail "Migration guard cannot be written"
   compose --profile operations run --rm --interactive=false migrate </dev/null ||
     fail "Migrations failed; app stays stopped"
 fi
