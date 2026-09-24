@@ -1,4 +1,4 @@
-import { communicationLock } from "../communications/communication-state.js";
+import { contactLock } from "../communications/communication-state.js";
 import { updateMarketingAvailability } from "../communications/marketing-preferences.js";
 import { sql } from "kysely";
 import { Inject, Injectable } from "@nestjs/common";
@@ -49,19 +49,14 @@ export class BotContacts {
     responseKind: StartResponseKind = "welcome",
   ): Promise<ContactOutcome> {
     return this.database.transaction().execute(async (transaction) => {
-      await communicationLock(
-        transaction,
-        `communications-scheduler:${this.config.botIdentity}`,
-      );
-      await sql`select pg_advisory_xact_lock(hashtextextended(${`bot-contact:${start.botIdentity}:${start.telegramUserId}`}, 0))`.execute(
-        transaction,
-      );
+      // Only this subscriber is serialized: marketing dispatch and planning never delay /start.
+      await contactLock(transaction, start.botIdentity, start.telegramUserId);
       const existing = await transaction
         .selectFrom("bot_contacts")
         .select("contactability")
         .where("bot_identity", "=", start.botIdentity)
         .where("telegram_user_id", "=", start.telegramUserId)
-        .forUpdate()
+        .forNoKeyUpdate()
         .executeTakeFirst();
 
       await updateMarketingAvailability(
@@ -159,9 +154,10 @@ export class BotContacts {
     observation: VerifiedPrivateContactability,
   ): Promise<boolean> {
     return this.database.transaction().execute(async (transaction) => {
-      await communicationLock(
+      await contactLock(
         transaction,
-        `communications-scheduler:${this.config.botIdentity}`,
+        observation.botIdentity,
+        observation.telegramUserId,
       );
       await updateMarketingAvailability(
         transaction,

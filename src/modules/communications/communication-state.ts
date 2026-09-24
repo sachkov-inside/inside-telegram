@@ -10,6 +10,45 @@ export async function communicationLock(
     tx,
   );
 }
+// One subscriber's communication state: /start, stop/resume, contactability, entry and the
+// dispatch claim/result for that subscriber. It never serializes different subscribers.
+export async function contactLock(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+  telegramUserId: string,
+): Promise<void> {
+  await communicationLock(
+    tx,
+    `communications-contact:${bot}:${telegramUserId}`,
+  );
+}
+export async function tryContactLock(
+  tx: Transaction<DatabaseSchema>,
+  bot: string,
+  telegramUserId: string,
+): Promise<boolean> {
+  const result = await sql<{
+    locked: boolean;
+  }>`select pg_try_advisory_xact_lock(hashtextextended(${`communications-contact:${bot}:${telegramUserId}`}, 0)) as locked`.execute(
+    tx,
+  );
+  return result.rows[0]!.locked;
+}
+// Audience-wide planning holds the bot scheduler lock. Row locks, which need no shared lock
+// memory, serialize it with a contact whose availability changes at the same time.
+export async function lockContactRows(
+  tx: Transaction<DatabaseSchema>,
+  contactIds: readonly string[],
+): Promise<void> {
+  if (!contactIds.length) return;
+  await tx
+    .selectFrom("communication_contacts")
+    .select("contact_id")
+    .where(sql<boolean>`contact_id = any(${[...new Set(contactIds)]}::uuid[])`)
+    .orderBy("contact_id")
+    .forNoKeyUpdate()
+    .execute();
+}
 export async function planDelivery(
   tx: Transaction<DatabaseSchema>,
   input: {

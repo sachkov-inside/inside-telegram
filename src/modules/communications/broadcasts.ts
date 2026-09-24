@@ -6,7 +6,7 @@ import {
   type CommunicationsRequest,
   validateContent,
 } from "./communications-contract.js";
-import { planDelivery } from "./communication-state.js";
+import { lockContactRows } from "./communication-state.js";
 import { cancelDelivery } from "./funnel-timeline.js";
 import type { BroadcastPart } from "./funnel-types.js";
 
@@ -32,7 +32,8 @@ export type BroadcastResult =
       nextCursor: string | null;
     };
 
-// Author operations and scheduler hold the same bot scheduler lock as stop/dispatch.
+// Author operations and the dispatch worker hold the bot scheduler lock. Stop and block hold
+// only their contact lock, so audience-wide writes also lock the affected contact rows.
 export async function applyBroadcast(
   tx: Tx,
   request: CommunicationsRequest,
@@ -164,13 +165,17 @@ export async function applyBroadcast(
         state = row.audience_snapshot_id ? "running" : "scheduled";
       else throw new CommunicationsError("revision_conflict");
       if (state === "cancelled") {
-        const deliveries = await tx
+        const unfinished = tx
           .selectFrom("communication_deliveries")
-          .selectAll()
           .where("broadcast_id", "=", row.broadcast_id)
-          .where("completed_at", "is", null)
-          .execute();
-        for (const delivery of deliveries)
+          .where("completed_at", "is", null);
+        await lockContactRows(
+          tx,
+          (await unfinished.select("contact_id").execute()).map(
+            (d) => d.contact_id,
+          ),
+        );
+        for (const delivery of await unfinished.selectAll().execute())
           await cancelDelivery(tx, delivery, now, "broadcast_cancelled");
       }
       row = await tx
@@ -203,6 +208,8 @@ async function launchBroadcast(
     select gen_random_uuid(),bot_identity,telegram_user_id from bot_contacts where bot_identity=${row.bot_identity}
     on conflict(bot_identity,telegram_user_id) do nothing`.execute(tx);
   const audience = row.audience as Audience;
+  // Shared row locks order the snapshot with a concurrent stop or block: either that change
+  // commits first and the contact is left out, or it waits and then cancels the new delivery.
   let query = tx
     .selectFrom("communication_contacts as c")
     .innerJoin("bot_contacts as b", (j) =>
@@ -213,7 +220,9 @@ async function launchBroadcast(
     .select("c.contact_id")
     .where("c.bot_identity", "=", row.bot_identity)
     .where("c.marketing_enabled", "=", true)
-    .where("b.contactability", "=", "reachable");
+    .where("c.unavailable_since", "is", null)
+    .where("b.contactability", "=", "reachable")
+    .forShare("c");
   if (audience.kind === "funnels")
     query = query.where((eb) =>
       eb.exists(
@@ -224,19 +233,25 @@ async function launchBroadcast(
           .where("e.funnel_id", "in", audience.funnelIds),
       ),
     );
-  const contacts = await query.execute();
-  for (const contact of contacts)
-    await planDelivery(tx, {
-      bot: row.bot_identity,
-      contactId: contact.contact_id,
-      broadcastId: row.broadcast_id,
-      kind: "broadcast",
-      key: `broadcast:${row.broadcast_id}:${contact.contact_id}`,
-      parts: row.parts as BroadcastPart[],
-      revision: row.revision,
-      dueAt: now,
-      now,
-    });
+  const contacts = (await query.execute()).map((c) => c.contact_id);
+  const parts = row.parts as BroadcastPart[];
+  const due = new Date(+now + (parts[0]?.sendAfterSeconds ?? 0) * 1000);
+  // One statement plans the whole snapshot; its size no longer multiplies round trips.
+  await sql`insert into communication_deliveries(delivery_id,dedup_key,bot_identity,contact_id,
+      funnel_id,step_id,kind,broadcast_id,published_revision,snapshot,parts,revision,due_at,
+      created_at,completed_at,cancel_requested,attempt_id,locked_at)
+    select gen_random_uuid(), ${`broadcast:${row.broadcast_id}:`} || contact_id, ${row.bot_identity},
+      contact_id, null, null, 'broadcast', ${row.broadcast_id}::uuid, ${row.revision},
+      ${JSON.stringify(parts)}::jsonb, ${JSON.stringify(
+        parts.map((p) => ({
+          partId: p.partId,
+          state: "pending",
+          diagnosticCode: null,
+          attempts: [],
+        })),
+      )}::jsonb, 1, ${due}, ${now}, null, false, null, null
+    from unnest(${contacts}::uuid[]) as contact_id
+    on conflict(dedup_key) do nothing`.execute(tx);
   return tx
     .updateTable("communication_broadcasts")
     .set({
@@ -250,7 +265,8 @@ async function launchBroadcast(
     .returningAll()
     .executeTakeFirstOrThrow();
 }
-export async function reconcileBroadcasts(
+// The dispatch worker's planning phase, outside any claim: armed schedules become snapshots.
+export async function launchDueBroadcasts(
   tx: Tx,
   bot: string,
   now: Date,
@@ -265,7 +281,15 @@ export async function reconcileBroadcasts(
     )
     .execute();
   for (const row of scheduled) await launchBroadcast(tx, row, now);
-  await tx
+}
+// Completes launched broadcasts without unfinished recipients: one broadcast after its result,
+// or every one in the planning phase after stop/block cancellations.
+export async function completeBroadcasts(
+  tx: Tx,
+  bot: string,
+  broadcastId?: string,
+): Promise<void> {
+  let query = tx
     .updateTable("communication_broadcasts")
     .set((eb) => ({ state: "completed", revision: eb("revision", "+", 1) }))
     .where("bot_identity", "=", bot)
@@ -285,6 +309,7 @@ export async function reconcileBroadcasts(
             .where("d.completed_at", "is", null),
         ),
       ),
-    )
-    .execute();
+    );
+  if (broadcastId) query = query.where("broadcast_id", "=", broadcastId);
+  await query.execute();
 }

@@ -12,7 +12,7 @@ import {
   type EntriesResult,
 } from "./communication-statistics.js";
 import { reconcileFunnels, terminal, deliveryView } from "./funnel-timeline.js";
-import { communicationLock } from "./communication-state.js";
+import { communicationLock, lockContactRows } from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
 import type { Transaction } from "kysely";
@@ -245,6 +245,13 @@ export class Funnels {
       };
     }
     if (operation === "delivery.resolve") {
+      const target = await tx
+        .selectFrom("communication_deliveries")
+        .select("contact_id")
+        .where("delivery_id", "=", payload.deliveryId!)
+        .executeTakeFirst();
+      // A concurrent stop or block of this subscriber must not interleave with the decision.
+      if (target) await lockContactRows(tx, [target.contact_id]);
       const row = await tx
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
@@ -298,6 +305,10 @@ export class Funnels {
         .where("delivery_id", "=", row.delivery_id)
         .returningAll()
         .executeTakeFirstOrThrow();
+      if (updated.completed_at)
+        await reconcileFunnels(tx, bot, this.clock.now(), {
+          contactId: updated.contact_id,
+        });
       return {
         deliveryId: updated.delivery_id,
         partId: part.partId,
@@ -574,6 +585,15 @@ export class Funnels {
       })
       .where("funnel_id", "=", draft.funnelId)
       .execute();
+    const audience = await tx
+      .selectFrom("communication_enrollments")
+      .select("contact_id")
+      .where("funnel_id", "=", draft.funnelId)
+      .execute();
+    await lockContactRows(
+      tx,
+      audience.map((e) => e.contact_id),
+    );
     if (rollback) {
       // Only never-attempted deletion cancellations can return. Sent, skipped and
       // subscriber suppression remain durable markers across every revision.
@@ -612,7 +632,7 @@ export class Funnels {
             .execute();
       }
     }
-    await reconcileFunnels(tx, bot, now);
+    await reconcileFunnels(tx, bot, now, { funnelId: draft.funnelId });
     return {
       funnel: {
         ...draft,
