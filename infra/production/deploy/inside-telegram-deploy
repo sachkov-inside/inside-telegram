@@ -36,6 +36,8 @@ releases_dir="$host_root/srv/inside/telegram/releases"
 state_dir="$host_root/var/lib/inside/telegram-deployments"
 state_file="$state_dir/state.json"
 operation_file="$state_dir/operation.json"
+# Written before migrations and removed only by a successful operation, so it survives a killed run.
+migration_guard="$state_dir/migration-guard.json"
 caddyfile="$host_root/etc/caddy/Caddyfile"
 caddy_dir="$host_root/srv/inside/runtime/caddy"
 caddy_target="$caddy_dir/telegram.caddy"
@@ -261,14 +263,13 @@ if [[ -f "$state_file" ]] && ! jq --exit-status \
 ' "$state_file" >/dev/null 2>&1; then
   refuse "Deployment state $state_file is invalid; repair it before any operation"
 fi
-if [[ -f "$operation_file" ]] && ! jq --exit-status \
+if [[ -f "$migration_guard" ]] && ! jq --exit-status \
   --arg versionPattern "$version_pattern" \
   --arg digestPattern "$digest_pattern" '
   (.version | type == "string" and test($versionPattern)) and
-  (.migrationsIdentity | type == "string" and test($digestPattern)) and
-  (.status | type == "string") and (.phase | type == "string")
-' "$operation_file" >/dev/null 2>&1; then
-  refuse "Operation journal $operation_file is invalid; repair it before any operation"
+  (.migrationsIdentity | type == "string" and test($digestPattern))
+' "$migration_guard" >/dev/null 2>&1; then
+  refuse "Migration guard $migration_guard is invalid; repair it before any operation"
 fi
 
 record_operation() {
@@ -312,6 +313,11 @@ compose() {
     "$@"
 }
 
+enter_phase() {
+  phase="$1"
+  record_operation running
+}
+
 fail() {
   # Service states only: container logs may carry provider payloads and stay in docker logs.
   containers="$(compose ps --all --format '{{.Service}} {{.State}} {{.Health}}' 2>/dev/null || true)"
@@ -328,18 +334,12 @@ if [[ -f "$state_file" ]]; then
   current_migrations="$(jq --raw-output .current.migrationsIdentity "$state_file")"
 fi
 
-# An interrupted operation after its migrations may have left the schema of its own release.
-# Only a newer deploy (repair forward) or a retry with the same migration set may follow it.
-if [[ -f "$operation_file" ]] && jq --exit-status \
-  --arg migrations "$migrations_identity" '
-    .status != "succeeded" and
-    (.phase | IN("migrate", "start", "readiness", "routes", "state")) and
-    .migrationsIdentity != $migrations
-  ' "$operation_file" >/dev/null 2>&1; then
-  interrupted_version="$(jq --raw-output .version "$operation_file")"
-  interrupted="$(jq --raw-output '.operation + " " + .version + " (phase " + .phase + ")"' "$operation_file")"
-  if [[ "$operation" != deploy || "$(ordinal "$version")" -le "$(ordinal "$interrupted_version")" ]]; then
-    refuse "Refusing $operation $version: interrupted $interrupted may have migrated the database. Repair forward with a release newer than $interrupted_version."
+# An unfinished operation that reached its migrations may have left the schema of its release.
+# Only a newer deploy (repair forward) or an operation with the same migration set may follow it.
+if [[ -f "$migration_guard" && "$(jq --raw-output .migrationsIdentity "$migration_guard")" != "$migrations_identity" ]]; then
+  guarded_version="$(jq --raw-output .version "$migration_guard")"
+  if [[ "$operation" != deploy || "$(ordinal "$version")" -le "$(ordinal "$guarded_version")" ]]; then
+    refuse "Refusing $operation $version: an unfinished operation of $guarded_version may have migrated the database. Repair forward with a release newer than $guarded_version."
   fi
 fi
 
@@ -387,12 +387,19 @@ if [[ ! -f "$caddyfile" || ! -d "$caddy_dir" ]]; then
   fail "Host Caddy configuration $caddyfile or $caddy_dir is missing"
 fi
 compose config --quiet || fail "Compose configuration is invalid"
+published_port="$(compose config --format json 2>/dev/null |
+  jq --raw-output '[.services.app.ports[]? | select(.target == 3002) | .published | tostring] | first // empty')" ||
+  fail "The app port cannot be read from the Compose configuration"
+if [[ ! "$published_port" =~ ^[0-9]+$ ]] ||
+   ! grep -Eq "^[[:space:]]*reverse_proxy 127\.0\.0\.1:${published_port}[[:space:]]*$" "$caddy_file"; then
+  fail "telegram.caddy does not proxy to the app port 127.0.0.1:${published_port:-unknown}"
+fi
 
-phase=pull
+enter_phase pull
 docker pull --quiet "$image" >/dev/null || fail "Image $image cannot be pulled"
 
 # Stage the exact release files; an ordinal is never re-staged with different content.
-phase=stage
+enter_phase stage
 if [[ ! -d "$release_dir" ]]; then
   staged="$(mktemp -d "$releases_dir/.staging.XXXXXX")"
   install -m 644 "$manifest" "$staged/release-manifest.json"
@@ -425,6 +432,12 @@ readiness() {
   return 1
 }
 
+caddy_log="$state_dir/caddy-last.log"
+# Caddy output stays on the host: the shared Caddyfile also describes other applications.
+caddy_run() {
+  caddy "$@" --config "$caddyfile" --adapter caddyfile >"$caddy_log" 2>&1
+}
+
 restore_routes() {
   if [[ -f "$caddy_previous" ]]; then
     mv "$caddy_previous" "$caddy_target"
@@ -436,29 +449,31 @@ restore_routes() {
 # Installs the release Caddy fragment atomically; a rejected fragment restores the previous one.
 activate_routes() {
   local fragment="$release_dir/telegram.caddy"
-  if ! grep -Fq "reverse_proxy 127.0.0.1:$app_port" "$fragment"; then
-    echo "telegram.caddy does not proxy to the app port 127.0.0.1:$app_port" >&2
+  if [[ "$app_port" != "$published_port" ]]; then
+    echo "app publishes $app_port, but the Compose configuration declares $published_port" >&2
     return 1
   fi
   if cmp -s "$fragment" "$caddy_target"; then
     return 0
   fi
-  rm -f "$caddy_previous"
+  rm -f "$caddy_previous" || return 1
   if [[ -f "$caddy_target" ]]; then
-    cp -p "$caddy_target" "$caddy_previous"
+    cp -p "$caddy_target" "$caddy_previous" || return 1
   fi
-  install -m 644 "$fragment" "$caddy_temporary"
-  mv "$caddy_temporary" "$caddy_target"
-  if ! caddy validate --config "$caddyfile" --adapter caddyfile >/dev/null; then
-    restore_routes
-    echo "Caddy rejected telegram.caddy of $version; the previous fragment is restored" >&2
+  install -m 644 "$fragment" "$caddy_temporary" || return 1
+  if ! mv "$caddy_temporary" "$caddy_target"; then
+    rm -f "$caddy_previous"
     return 1
   fi
-  if ! caddy reload --config "$caddyfile" --adapter caddyfile; then
-    restore_routes
-    caddy reload --config "$caddyfile" --adapter caddyfile ||
-      echo "Caddy reload with the restored fragment failed too" >&2
-    echo "Caddy reload failed; the previous fragment is restored" >&2
+  if ! caddy_run validate; then
+    restore_routes || return 1
+    echo "Caddy rejected telegram.caddy of $version; the previous fragment is back, Caddy was not reloaded. Details: $caddy_log" >&2
+    return 1
+  fi
+  if ! caddy_run reload; then
+    restore_routes || return 1
+    caddy_run reload || echo "Caddy reload with the restored fragment failed too" >&2
+    echo "Caddy reload failed; the previous fragment is restored and reloaded. Details: $caddy_log" >&2
     return 1
   fi
   rm -f "$caddy_previous"
@@ -466,37 +481,42 @@ activate_routes() {
 
 if [[ "$same_release" == true ]]; then
   # Repeating the operation converges on the recorded release without stopping or migrating.
-  phase=start
+  enter_phase start
   compose up --detach --no-build --wait app || fail "app did not start"
-  phase=readiness
+  enter_phase readiness
   readiness || fail "app is not ready"
-  phase=routes
+  enter_phase routes
   activate_routes || fail "Caddy routes were not activated"
+  rm -f "$migration_guard"
   phase=complete
   record_operation succeeded "$version is already current; app is running and ready"
   echo "$version is already current; app is running and ready."
   exit 0
 fi
 
-phase=stop
+enter_phase stop
 compose stop app || fail "The running app cannot be stopped"
 
 if [[ "$operation" == deploy ]]; then
-  phase=migrate
+  enter_phase migrate
+  temporary="$migration_guard.tmp.$$"
+  jq --null-input --arg version "$version" --arg migrations "$migrations_identity" \
+    '{version: $version, migrationsIdentity: $migrations}' >"$temporary"
+  mv "$temporary" "$migration_guard"
   compose --profile operations run --rm --interactive=false migrate </dev/null ||
     fail "Migrations failed; app stays stopped"
 fi
 
-phase=start
+enter_phase start
 compose up --detach --no-build --wait app || fail "app did not start"
 
-phase=readiness
+enter_phase readiness
 readiness || fail "app is not ready"
 
-phase=routes
+enter_phase routes
 activate_routes || fail "Caddy routes were not activated"
 
-phase=state
+enter_phase state
 entry="$(jq --null-input \
   --arg version "$version" \
   --arg sourceSha "$source_sha" \
@@ -529,6 +549,7 @@ jq --null-input --argjson current "$entry" --argjson previous "$previous" '{
 }' >"$temporary"
 chmod 600 "$temporary"
 mv "$temporary" "$state_file"
+rm -f "$migration_guard"
 
 phase=complete
 record_operation succeeded

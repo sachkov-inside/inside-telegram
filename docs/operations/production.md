@@ -166,9 +166,11 @@ Gateway принимает только `deploy vN <run-id>` и `rollback vN <ru
    (`docker compose port app 3002`), то есть `TELEGRAM_LOOPBACK_PORT`;
 6. маршруты: `telegram.caddy` версии должен проксировать на этот порт; он атомарно заменяет
    `/srv/inside/runtime/caddy/telegram.caddy` (его импортирует host `Caddyfile`), затем
-   `caddy validate` и `caddy reload`. Если Caddy отклоняет фрагмент, прежний возвращается на место
-   и Caddy перезагружается с ним; операция завершается ошибкой в фазе `routes`. Неизменённый
-   фрагмент не перезагружается;
+   `caddy validate` и `caddy reload`. Отказ `validate` возвращает прежний файл, работающий Caddy
+   не трогается. Отказ `reload` возвращает прежний файл и перезагружает Caddy с ним. В обоих
+   случаях операция завершается ошибкой в фазе `routes`, вывод Caddy остаётся на сервере в
+   `/var/lib/inside/telegram-deployments/caddy-last.log`. Неизменённый фрагмент не
+   перезагружается. Порт в фрагменте сверяется с Compose ещё на preflight;
 7. `/var/lib/inside/telegram-deployments/state.json` получает `current` и `previous`: версия, SHA,
    образ, идентичность миграций, sha256 manifest, run id и время.
 
@@ -178,7 +180,10 @@ Gateway принимает только `deploy vN <run-id>` и `rollback vN <ru
 `compose.env`. Host-owned `compose.env`, `application.env` и override gateway не переписывает.
 Override обязателен: в нём transport до `api.telegram.org` через relay и сеть брокера.
 
-Фаза и итог операции пишутся в `/var/lib/inside/telegram-deployments/operation.json`. Сбой после
+Каждая фаза и итог операции пишутся в `/var/lib/inside/telegram-deployments/operation.json`.
+Перед `migrate` gateway создаёт `migration-guard.json`; его удаляет только успешная операция. Пока он
+есть, разрешены лишь операции с тем же набором миграций или deploy более новой версии, даже если
+прежний запуск был прерван. Сбой после
 `stop app` оставляет app остановленным, диагностику — в `operation.json` и журнале job; данные и
 тома gateway не трогает, job завершается ошибкой. Сбой миграций чинится повтором той же версии или
 более новой версией. Повтор той же версии идемпотентен: если она уже `current`, gateway только

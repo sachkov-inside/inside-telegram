@@ -82,6 +82,9 @@ fi
 if [[ "$*" == *" port app 3002" ]]; then
   echo 127.0.0.1:3303
 fi
+if [[ "$*" == *" config --format json" ]]; then
+  printf '{"services":{"app":{"ports":[{"target":3002,"published":"3303","host_ip":"127.0.0.1"}]}}}\n'
+fi
 `,
   );
   writeExecutable(
@@ -126,7 +129,7 @@ afterEach(() => {
   rmSync(root, { recursive: true, force: true });
 });
 
-describe("inside-telegram-deploy gateway", () => {
+describe("inside-telegram-deploy gateway", { timeout: 30_000 }, () => {
   it("deploys, repeats idempotently and rolls back to the previous release", () => {
     const v1 = publishRelease("v1", identityA);
     const v2 = publishRelease("v2", identityA);
@@ -143,6 +146,7 @@ describe("inside-telegram-deploy gateway", () => {
     const firstDeploy = dockerCalls();
     expect(firstDeploy.map((call) => call.command)).toEqual([
       expect.stringMatching(/ config --quiet$/),
+      expect.stringMatching(/ config --format json$/),
       `pull --quiet ${v1.image}`,
       expect.stringMatching(/ stop app$/),
       expect.stringMatching(
@@ -161,7 +165,7 @@ describe("inside-telegram-deploy gateway", () => {
         ),
       );
     }
-    for (const call of firstDeploy.slice(2)) {
+    for (const call of firstDeploy.slice(3)) {
       expect(call.command).toContain(
         ` -f ${root}/host/srv/inside/telegram/releases/v1/compose.yaml `,
       );
@@ -347,7 +351,9 @@ describe("inside-telegram-deploy gateway", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("previous fragment is restored");
+    expect(result.stderr).toContain(
+      "previous fragment is back, Caddy was not reloaded",
+    );
     expect(readFileSync(caddyTarget(), "utf8")).toBe(v1.caddy);
     expect(caddyCalls().map((call) => call.split(" ")[0])).toEqual([
       "validate",
@@ -416,6 +422,55 @@ describe("inside-telegram-deploy gateway", () => {
     expect(older.status).toBe(1);
     expect(older.stderr).toContain("newer than v5");
     expectSuccess(run("deploy v6 944", v6));
+  });
+
+  it("keeps the migration guard through a later failure and a killed run", () => {
+    const v3 = publishRelease("v3", identityA);
+    const v4 = publishRelease("v4", identityA);
+    const v5 = publishRelease("v5", identityB);
+    const v6 = publishRelease("v6", identityB);
+    expectSuccess(run("deploy v3 981", v3));
+    expect(
+      run("deploy v5 982", v5, { FAKE_DOCKER_FAIL: "migrate" }).status,
+    ).toBe(1);
+    expect(run("deploy v6 983", v6, { FAKE_DOCKER_FAIL: "pull" }).status).toBe(
+      1,
+    );
+
+    const older = run("deploy v4 984", v4);
+    expect(older.status).toBe(1);
+    expect(older.stderr).toContain("newer than v5");
+
+    const rollbackAttempt = run("rollback v3 985", v3);
+    expect(rollbackAttempt.status).toBe(1);
+
+    expectSuccess(run("deploy v6 986", v6));
+    expect(existsSync(migrationGuard())).toBe(false);
+  });
+
+  it("refuses an older release after a run killed during migrations", () => {
+    const v1 = publishRelease("v1", identityA);
+    const v2 = publishRelease("v2", identityA);
+    expectSuccess(run("deploy v1 991", v1));
+    // A killed process leaves the guard and a running journal behind.
+    writeFileSync(
+      migrationGuard(),
+      JSON.stringify({ version: "v3", migrationsIdentity: identityB }),
+    );
+
+    const result = run("deploy v2 992", v2);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("an unfinished operation of v3");
+  });
+
+  it("keeps temporary Caddy files outside the *.caddy import glob", () => {
+    expect(gateway).toContain(
+      'caddy_previous="$caddy_dir/telegram.caddy.previous"',
+    );
+    expect(gateway).toContain(
+      'caddy_temporary="$caddy_dir/.telegram.caddy.tmp.$$"',
+    );
   });
 
   it("rejects a non-regular payload entry", () => {
@@ -853,4 +908,11 @@ function caddyCalls(): string[] {
 
 function clearCaddyLog(): void {
   rmSync(path.join(root, "caddy.log"), { force: true });
+}
+
+function migrationGuard(): string {
+  return path.join(
+    root,
+    "host/var/lib/inside/telegram-deployments/migration-guard.json",
+  );
 }

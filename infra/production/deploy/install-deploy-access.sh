@@ -36,7 +36,7 @@ if [[ "$(wc -l <"$public_key_file" | tr -d ' ')" -ne 1 ]] ||
 fi
 key_body="$(awk '{print $2}' "$public_key_file")"
 
-for tool in curl docker flock gzip jq sudo tar visudo; do
+for tool in caddy curl docker flock gzip jq sudo tar visudo; do
   if [[ -z "${INSIDE_TELEGRAM_DEPLOY_TEST_ROOT:-}" ]] && ! command -v "$tool" >/dev/null; then
     echo "Required tool is missing: $tool" >&2
     exit 1
