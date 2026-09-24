@@ -3,7 +3,7 @@
 #
 # SSH forced command of inside-telegram-deploy runs it as root through one sudoers rule:
 #   deploy <vN> <github-run-id>    rollback <vN> <github-run-id>
-# stdin: gzip tar with exactly release-manifest.json and compose.yaml of that release.
+# stdin: gzip tar with exactly release-manifest.json, compose.yaml and telegram.caddy of that release.
 # Host-owned /etc/inside/telegram/{compose.env,compose.override.yaml,application.env} are only read.
 set -euo pipefail
 
@@ -13,7 +13,7 @@ if [[ -n "${INSIDE_TELEGRAM_DEPLOY_TEST_ROOT:-}" ]]; then
     exit 1
   fi
   host_root="${INSIDE_TELEGRAM_DEPLOY_TEST_ROOT%/}"
-  readiness_attempts="${INSIDE_TELEGRAM_DEPLOY_TEST_READINESS_ATTEMPTS:-2}"
+  readiness_attempts=2
   readiness_delay=0
 else
   if [[ "$EUID" -ne 0 ]]; then
@@ -29,37 +29,40 @@ fi
 
 readonly github_repository=sachkov-inside/inside-telegram
 readonly image_pattern='^ghcr\.io/sachkov-inside/inside-telegram@sha256:[0-9a-f]{64}$'
+readonly version_pattern='^v[1-9][0-9]*$'
+readonly digest_pattern='^sha256:[0-9a-f]{64}$'
 config_dir="$host_root/etc/inside/telegram"
 releases_dir="$host_root/srv/inside/telegram/releases"
 state_dir="$host_root/var/lib/inside/telegram-deployments"
 state_file="$state_dir/state.json"
 operation_file="$state_dir/operation.json"
+caddyfile="$host_root/etc/caddy/Caddyfile"
+caddy_dir="$host_root/srv/inside/runtime/caddy"
+caddy_target="$caddy_dir/telegram.caddy"
+# Neither name ends in .caddy, so the host Caddyfile glob never imports them.
+caddy_previous="$caddy_dir/telegram.caddy.previous"
+caddy_temporary="$caddy_dir/.telegram.caddy.tmp.$$"
 
 read -r operation version run_id extra <<<"${SSH_ORIGINAL_COMMAND:-}" || true
 if [[ -n "${extra:-}" || ! "${operation:-}" =~ ^(deploy|rollback)$ ||
-      ! "${version:-}" =~ ^v[1-9][0-9]*$ || ! "${run_id:-}" =~ ^[1-9][0-9]*$ ]]; then
+      ! "${version:-}" =~ $version_pattern || ! "${run_id:-}" =~ ^[1-9][0-9]*$ ]]; then
   echo "Rejected restricted command; expected: deploy|rollback vN <github-run-id>" >&2
   exit 2
 fi
 
 install -d -m 700 "$state_dir"
 install -d -m 755 "$releases_dir"
-lock_file="$state_dir/operation.lock"
-: >>"$lock_file"
-chmod 600 "$lock_file"
-exec 9<>"$lock_file"
-if ! flock --exclusive --nonblock 9; then
-  echo "Another Telegram production operation is active" >&2
-  exit 1
-fi
-
 incoming_dir="$(mktemp -d "$state_dir/incoming.XXXXXX")"
+staged=""
 cleanup() {
   local status=$?
   trap - EXIT
-  if [[ -n "$incoming_dir" && -d "$incoming_dir" ]]; then
-    rm -r "$incoming_dir"
-  fi
+  for directory in "$incoming_dir" "$staged"; do
+    if [[ -n "$directory" && -d "$directory" ]]; then
+      rm -r "$directory"
+    fi
+  done
+  rm -f "$caddy_temporary"
   exit "$status"
 }
 trap cleanup EXIT
@@ -80,6 +83,10 @@ now() {
   date -u +%Y-%m-%dT%H:%M:%SZ
 }
 
+ordinal() {
+  echo "${1#v}"
+}
+
 # Reads at most limit+1 bytes, so an oversized input is refused without being truncated into validity.
 read_limited() {
   local destination="$1" limit="$2" label="$3"
@@ -93,14 +100,15 @@ read_limited() {
   fi
 }
 
+# The payload is read completely before the lock, so a stalled client cannot hold it.
 payload="$incoming_dir/payload.tar.gz"
 read_limited "$payload" 1048576 "Deployment payload"
 if ! gzip -dc "$payload" 2>/dev/null | read_limited "$incoming_dir/payload.tar" 4194304 "Decoded payload"; then
   echo "Deployment payload is not a valid gzip archive within its limit" >&2
   exit 1
 fi
-if [[ "$(tar -tf "$incoming_dir/payload.tar" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')" != "compose.yaml release-manifest.json " ]]; then
-  echo "Payload must contain only release-manifest.json and compose.yaml" >&2
+if [[ "$(tar -tf "$incoming_dir/payload.tar" 2>/dev/null | LC_ALL=C sort | tr '\n' ' ')" != "compose.yaml release-manifest.json telegram.caddy " ]]; then
+  echo "Payload must contain only release-manifest.json, compose.yaml and telegram.caddy" >&2
   exit 1
 fi
 if [[ "$(tar -tvf "$incoming_dir/payload.tar" | cut -c 1 | LC_ALL=C sort -u)" != - ]]; then
@@ -109,17 +117,30 @@ if [[ "$(tar -tvf "$incoming_dir/payload.tar" | cut -c 1 | LC_ALL=C sort -u)" !=
 fi
 manifest="$incoming_dir/release-manifest.json"
 compose_file="$incoming_dir/compose.yaml"
+caddy_file="$incoming_dir/telegram.caddy"
 tar -xOf "$incoming_dir/payload.tar" release-manifest.json |
   read_limited "$manifest" 65536 "Release manifest"
 tar -xOf "$incoming_dir/payload.tar" compose.yaml |
   read_limited "$compose_file" 262144 "Release compose file"
+tar -xOf "$incoming_dir/payload.tar" telegram.caddy |
+  read_limited "$caddy_file" 65536 "Release Caddy fragment"
 rm "$payload" "$incoming_dir/payload.tar"
+
+lock_file="$state_dir/operation.lock"
+: >>"$lock_file"
+chmod 600 "$lock_file"
+exec 9<>"$lock_file"
+if ! flock --exclusive --nonblock 9; then
+  echo "Another Telegram production operation is active" >&2
+  exit 1
+fi
 
 if ! jq --exit-status \
   --arg version "$version" \
   --arg repository "$github_repository" \
-  --arg imagePattern "$image_pattern" '
-  (keys == ["compose", "image", "migrations", "publication", "schemaVersion", "source", "version"]) and
+  --arg imagePattern "$image_pattern" \
+  --arg digestPattern "$digest_pattern" '
+  (keys == ["caddy", "compose", "image", "migrations", "publication", "schemaVersion", "source", "version"]) and
   .schemaVersion == "inside.telegram.release-manifest.v1" and
   .version == $version and
   (.source | keys == ["repository", "sha"]) and
@@ -127,19 +148,28 @@ if ! jq --exit-status \
   (.source.sha | test("^[0-9a-f]{40}$")) and
   (.image | test($imagePattern)) and
   (.migrations | keys == ["count", "identity", "latest"]) and
-  (.migrations.identity | test("^sha256:[0-9a-f]{64}$")) and
+  (.migrations.identity | test($digestPattern)) and
+  (.migrations.count | type == "number" and . >= 1 and floor == .) and
+  (.migrations.latest | type == "string") and
   (.compose | keys == ["asset", "sha256"]) and
   .compose.asset == "compose.yaml" and
-  (.compose.sha256 | test("^sha256:[0-9a-f]{64}$")) and
-  (.publication.workflowRunId | type == "number") and
-  .publication.workflowRunId > 0 and
-  (.publication.workflowRunId | floor) == .publication.workflowRunId
+  (.compose.sha256 | test($digestPattern)) and
+  (.caddy | keys == ["asset", "sha256"]) and
+  .caddy.asset == "telegram.caddy" and
+  (.caddy.sha256 | test($digestPattern)) and
+  (.publication | keys == ["workflowRunId", "workflowRunUrl"]) and
+  (.publication.workflowRunId | type == "number" and . > 0 and floor == .) and
+  .publication.workflowRunUrl == ("https://github.com/" + $repository + "/actions/runs/" + (.publication.workflowRunId | tostring))
 ' "$manifest" >/dev/null 2>&1; then
   echo "Release manifest does not satisfy the Telegram production contract" >&2
   exit 1
 fi
 if [[ "sha256:$(sha256_file "$compose_file")" != "$(jq --raw-output .compose.sha256 "$manifest")" ]]; then
   echo "Release compose file does not match its manifest" >&2
+  exit 1
+fi
+if [[ "sha256:$(sha256_file "$caddy_file")" != "$(jq --raw-output .caddy.sha256 "$manifest")" ]]; then
+  echo "Release Caddy fragment does not match its manifest" >&2
   exit 1
 fi
 
@@ -174,14 +204,16 @@ if ! jq --exit-status \
   --arg version "$version" \
   --arg sourceSha "$source_sha" \
   --arg base "$download_base" '
+    def url(name): [.assets[] | select(.name == name)][0].browser_download_url;
     .immutable == true and
     .draft == false and
     .prerelease == false and
     .tag_name == $version and
     .target_commitish == $sourceSha and
-    ([.assets[].name] | sort) == ["compose.yaml", "release-manifest.json"] and
-    ([.assets[] | select(.name == "release-manifest.json")][0].browser_download_url) == ($base + "/release-manifest.json") and
-    ([.assets[] | select(.name == "compose.yaml")][0].browser_download_url) == ($base + "/compose.yaml")
+    ([.assets[].name] | sort) == ["compose.yaml", "release-manifest.json", "telegram.caddy"] and
+    url("release-manifest.json") == ($base + "/release-manifest.json") and
+    url("compose.yaml") == ($base + "/compose.yaml") and
+    url("telegram.caddy") == ($base + "/telegram.caddy")
   ' "$incoming_dir/github-release.json" >/dev/null 2>&1 ||
   ! cmp -s "$manifest" "$incoming_dir/github-release-manifest.json"; then
   echo "Deployment payload does not match the immutable GitHub release $version" >&2
@@ -196,6 +228,7 @@ if ! jq --exit-status \
     .id == $runId and
     .conclusion == "success" and
     .event == "workflow_dispatch" and
+    .head_branch == "main" and
     .head_sha == $sourceSha and
     .path == ".github/workflows/release.yml"
   ' "$incoming_dir/publication-run.json" >/dev/null 2>&1; then
@@ -208,14 +241,34 @@ migrations_identity="$(jq --raw-output .migrations.identity "$manifest")"
 manifest_sha="sha256:$(sha256_file "$manifest")"
 started_at="$(now)"
 phase=preflight
+containers=""
 
-if [[ -f "$state_file" ]] && ! jq --exit-status '
-  .schemaVersion == "inside.telegram.deployment-state.v1" and
-  (.current | type == "object") and
-  (.previous == null or (.previous | type == "object"))
-' "$state_file" >/dev/null 2>&1; then
-  echo "Deployment state $state_file is invalid; repair it before any operation" >&2
+refuse() {
+  echo "$1" >&2
   exit 1
+}
+
+if [[ -f "$state_file" ]] && ! jq --exit-status \
+  --arg versionPattern "$version_pattern" \
+  --arg digestPattern "$digest_pattern" '
+  def entry: type == "object" and
+    (.version | type == "string" and test($versionPattern)) and
+    (.migrationsIdentity | type == "string" and test($digestPattern)) and
+    (.manifestSha256 | type == "string" and test($digestPattern));
+  .schemaVersion == "inside.telegram.deployment-state.v1" and
+  (.current | entry) and
+  (.previous == null or (.previous | entry))
+' "$state_file" >/dev/null 2>&1; then
+  refuse "Deployment state $state_file is invalid; repair it before any operation"
+fi
+if [[ -f "$operation_file" ]] && ! jq --exit-status \
+  --arg versionPattern "$version_pattern" \
+  --arg digestPattern "$digest_pattern" '
+  (.version | type == "string" and test($versionPattern)) and
+  (.migrationsIdentity | type == "string" and test($digestPattern)) and
+  (.status | type == "string") and (.phase | type == "string")
+' "$operation_file" >/dev/null 2>&1; then
+  refuse "Operation journal $operation_file is invalid; repair it before any operation"
 fi
 
 record_operation() {
@@ -230,6 +283,7 @@ record_operation() {
     --arg phase "$phase" \
     --arg status "$status" \
     --arg message "$message" \
+    --arg containers "$containers" \
     --arg startedAt "$started_at" \
     --arg updatedAt "$(now)" '{
       schemaVersion: "inside.telegram.deployment-operation.v1",
@@ -241,6 +295,7 @@ record_operation() {
       phase: $phase,
       status: $status,
       message: (if $message == "" then null else $message end),
+      containers: (if $containers == "" then null else ($containers | split("\n")) end),
       startedAt: $startedAt,
       updatedAt: $updatedAt
     }' >"$temporary"
@@ -248,29 +303,22 @@ record_operation() {
   mv "$temporary" "$operation_file"
 }
 
-fail() {
-  record_operation failed "$1"
-  echo "$operation $version failed in phase $phase: $1" >&2
-  echo "Diagnostics: $operation_file. Data and volumes were not changed by the gateway." >&2
-  exit 1
-}
-
-refuse() {
-  echo "$1" >&2
-  exit 1
-}
-
-release_dir="$releases_dir/$version"
+active_compose="$compose_file"
 compose() {
   TELEGRAM_IMAGE="$image" docker compose \
     --env-file "$config_dir/compose.env" \
-    -f "$release_dir/compose.yaml" \
+    -f "$active_compose" \
     -f "$config_dir/compose.override.yaml" \
     "$@"
 }
 
-ordinal() {
-  echo "${1#v}"
+fail() {
+  # Service states only: container logs may carry provider payloads and stay in docker logs.
+  containers="$(compose ps --all --format '{{.Service}} {{.State}} {{.Health}}' 2>/dev/null || true)"
+  record_operation failed "$1"
+  echo "$operation $version failed in phase $phase: $1" >&2
+  echo "Diagnostics: $operation_file. The gateway did not delete data or volumes." >&2
+  exit 1
 }
 
 current_version=""
@@ -280,16 +328,18 @@ if [[ -f "$state_file" ]]; then
   current_migrations="$(jq --raw-output .current.migrationsIdentity "$state_file")"
 fi
 
-# A failed operation after its migrations may have left a newer schema than the current release.
+# An interrupted operation after its migrations may have left the schema of its own release.
+# Only a newer deploy (repair forward) or a retry with the same migration set may follow it.
 if [[ -f "$operation_file" ]] && jq --exit-status \
   --arg migrations "$migrations_identity" '
     .status != "succeeded" and
-    (.phase == "migrate" or .phase == "start" or .phase == "readiness" or .phase == "state") and
+    (.phase | IN("migrate", "start", "readiness", "routes", "state")) and
     .migrationsIdentity != $migrations
   ' "$operation_file" >/dev/null 2>&1; then
-  interrupted="$(jq --raw-output '.operation + " " + .version' "$operation_file")"
-  if [[ "$operation" == rollback || "$version" == "$current_version" ]]; then
-    refuse "Refusing $operation $version: interrupted '$interrupted' may have migrated the database. Repair forward with the next release."
+  interrupted_version="$(jq --raw-output .version "$operation_file")"
+  interrupted="$(jq --raw-output '.operation + " " + .version + " (phase " + .phase + ")"' "$operation_file")"
+  if [[ "$operation" != deploy || "$(ordinal "$version")" -le "$(ordinal "$interrupted_version")" ]]; then
+    refuse "Refusing $operation $version: interrupted $interrupted may have migrated the database. Repair forward with a release newer than $interrupted_version."
   fi
 fi
 
@@ -319,18 +369,12 @@ else
   fi
 fi
 
-# Stage the exact release files; an ordinal is never re-staged with different content.
-if [[ -d "$release_dir" ]]; then
-  if ! cmp -s "$release_dir/release-manifest.json" "$manifest" ||
-     ! cmp -s "$release_dir/compose.yaml" "$compose_file"; then
-    refuse "Refusing to replace the already staged release $version"
-  fi
-else
-  staged="$(mktemp -d "$releases_dir/.staging.XXXXXX")"
-  install -m 644 "$manifest" "$staged/release-manifest.json"
-  install -m 644 "$compose_file" "$staged/compose.yaml"
-  chmod 755 "$staged"
-  mv "$staged" "$release_dir"
+release_dir="$releases_dir/$version"
+if [[ -d "$release_dir" ]] &&
+   { ! cmp -s "$release_dir/release-manifest.json" "$manifest" ||
+     ! cmp -s "$release_dir/compose.yaml" "$compose_file" ||
+     ! cmp -s "$release_dir/telegram.caddy" "$caddy_file"; }; then
+  refuse "Refusing to replace the already staged release $version"
 fi
 
 record_operation running
@@ -339,22 +383,39 @@ for required in compose.env application.env compose.override.yaml; do
     fail "Host configuration $config_dir/$required is missing"
   fi
 done
+if [[ ! -f "$caddyfile" || ! -d "$caddy_dir" ]]; then
+  fail "Host Caddy configuration $caddyfile or $caddy_dir is missing"
+fi
 compose config --quiet || fail "Compose configuration is invalid"
 
 phase=pull
 docker pull --quiet "$image" >/dev/null || fail "Image $image cannot be pulled"
 
+# Stage the exact release files; an ordinal is never re-staged with different content.
+phase=stage
+if [[ ! -d "$release_dir" ]]; then
+  staged="$(mktemp -d "$releases_dir/.staging.XXXXXX")"
+  install -m 644 "$manifest" "$staged/release-manifest.json"
+  install -m 644 "$compose_file" "$staged/compose.yaml"
+  install -m 644 "$caddy_file" "$staged/telegram.caddy"
+  chmod 755 "$staged"
+  mv "$staged" "$release_dir"
+  staged=""
+fi
+active_compose="$release_dir/compose.yaml"
+
+app_port=""
 readiness() {
-  local binding port attempt code
+  local binding attempt code=""
   binding="$(compose port app 3002)" || return 1
-  port="${binding##*:}"
-  if [[ "${binding%:*}" != 127.0.0.1 || ! "$port" =~ ^[0-9]+$ ]]; then
+  app_port="${binding##*:}"
+  if [[ "${binding%:*}" != 127.0.0.1 || ! "$app_port" =~ ^[0-9]+$ ]]; then
     echo "app must publish only on 127.0.0.1, got $binding" >&2
     return 1
   fi
   for ((attempt = 1; attempt <= readiness_attempts; attempt += 1)); do
     code="$(curl --silent --output /dev/null --max-time 5 --write-out '%{http_code}' \
-      "http://127.0.0.1:$port/ready" || true)"
+      "http://127.0.0.1:$app_port/ready" || true)"
     if [[ "$code" == 200 ]]; then
       return 0
     fi
@@ -364,12 +425,53 @@ readiness() {
   return 1
 }
 
+restore_routes() {
+  if [[ -f "$caddy_previous" ]]; then
+    mv "$caddy_previous" "$caddy_target"
+  else
+    rm -f "$caddy_target"
+  fi
+}
+
+# Installs the release Caddy fragment atomically; a rejected fragment restores the previous one.
+activate_routes() {
+  local fragment="$release_dir/telegram.caddy"
+  if ! grep -Fq "reverse_proxy 127.0.0.1:$app_port" "$fragment"; then
+    echo "telegram.caddy does not proxy to the app port 127.0.0.1:$app_port" >&2
+    return 1
+  fi
+  if cmp -s "$fragment" "$caddy_target"; then
+    return 0
+  fi
+  rm -f "$caddy_previous"
+  if [[ -f "$caddy_target" ]]; then
+    cp -p "$caddy_target" "$caddy_previous"
+  fi
+  install -m 644 "$fragment" "$caddy_temporary"
+  mv "$caddy_temporary" "$caddy_target"
+  if ! caddy validate --config "$caddyfile" --adapter caddyfile >/dev/null; then
+    restore_routes
+    echo "Caddy rejected telegram.caddy of $version; the previous fragment is restored" >&2
+    return 1
+  fi
+  if ! caddy reload --config "$caddyfile" --adapter caddyfile; then
+    restore_routes
+    caddy reload --config "$caddyfile" --adapter caddyfile ||
+      echo "Caddy reload with the restored fragment failed too" >&2
+    echo "Caddy reload failed; the previous fragment is restored" >&2
+    return 1
+  fi
+  rm -f "$caddy_previous"
+}
+
 if [[ "$same_release" == true ]]; then
   # Repeating the operation converges on the recorded release without stopping or migrating.
   phase=start
   compose up --detach --no-build --wait app || fail "app did not start"
   phase=readiness
   readiness || fail "app is not ready"
+  phase=routes
+  activate_routes || fail "Caddy routes were not activated"
   phase=complete
   record_operation succeeded "$version is already current; app is running and ready"
   echo "$version is already current; app is running and ready."
@@ -391,6 +493,9 @@ compose up --detach --no-build --wait app || fail "app did not start"
 phase=readiness
 readiness || fail "app is not ready"
 
+phase=routes
+activate_routes || fail "Caddy routes were not activated"
+
 phase=state
 entry="$(jq --null-input \
   --arg version "$version" \
@@ -410,10 +515,10 @@ entry="$(jq --null-input \
     githubRunId: $runId,
     completedAt: $at
   }')"
-if [[ "$operation" == deploy ]]; then
-  previous="$(if [[ -f "$state_file" ]]; then jq --compact-output .current "$state_file"; else echo null; fi)"
+if [[ "$operation" == deploy && -f "$state_file" ]]; then
+  previous="$(jq --compact-output .current "$state_file")"
 else
-  # After a rollback there is no further previous release: the next step is a new deploy.
+  # A first deploy has nothing to return to; after a rollback the next step is a new deploy.
   previous=null
 fi
 temporary="$state_file.tmp.$$"

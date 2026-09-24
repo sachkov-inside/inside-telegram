@@ -100,6 +100,7 @@ describe("release workflow", () => {
     expect(publish).toContain('--target "$SOURCE_SHA"');
     expect(publish).toContain("release-assets/release-manifest.json");
     expect(publish).toContain("release-assets/compose.yaml");
+    expect(publish).toContain("release-assets/telegram.caddy");
     expect(publish).toContain(".isImmutable == true");
     expect(stepScript(release, "Create the release manifest")).toContain(
       "cp infra/production/compose.yaml release-assets/compose.yaml",
@@ -159,6 +160,9 @@ describe("deploy workflow", () => {
     try {
       const sourceSha = "1".repeat(40);
       const compose = "name: inside-production-telegram\n";
+      const caddy = "telegram.sachkov.dev {\n}\n";
+      const digest = (value: string) =>
+        `sha256:${createHash("sha256").update(value).digest("hex")}`;
       const manifest = {
         schemaVersion: "inside.telegram.release-manifest.v1",
         version: "v1",
@@ -172,10 +176,8 @@ describe("deploy workflow", () => {
           count: 1,
           latest: "001.ts",
         },
-        compose: {
-          asset: "compose.yaml",
-          sha256: `sha256:${createHash("sha256").update(compose).digest("hex")}`,
-        },
+        compose: { asset: "compose.yaml", sha256: digest(compose) },
+        caddy: { asset: "telegram.caddy", sha256: digest(caddy) },
         publication: { workflowRunId: 91, workflowRunUrl: "https://example" },
       };
       const fixtures = path.join(directory, "fixtures");
@@ -185,10 +187,15 @@ describe("deploy workflow", () => {
         JSON.stringify(manifest),
       );
       writeFileSync(path.join(fixtures, "compose.yaml"), compose);
+      writeFileSync(path.join(fixtures, "telegram.caddy"), caddy);
       writeFileSync(
         path.join(fixtures, "release.json"),
         JSON.stringify({
-          assets: [{ name: "release-manifest.json" }, { name: "compose.yaml" }],
+          assets: [
+            { name: "release-manifest.json" },
+            { name: "compose.yaml" },
+            { name: "telegram.caddy" },
+          ],
           isImmutable: true,
           tagName: "v1",
           targetCommitish: sourceSha,
@@ -199,6 +206,7 @@ describe("deploy workflow", () => {
         JSON.stringify({
           conclusion: "success",
           event: "workflow_dispatch",
+          head_branch: "main",
           head_sha: sourceSha,
           path: ".github/workflows/release.yml",
         }),
@@ -216,7 +224,7 @@ case "$1 $2" in
   'release view') cat "$FIXTURES/release.json" ;;
   'release download')
     while [[ "$1" != --dir ]]; do shift; done
-    cp "$FIXTURES/release-manifest.json" "$FIXTURES/compose.yaml" "$2/" ;;
+    cp "$FIXTURES/release-manifest.json" "$FIXTURES/compose.yaml" "$FIXTURES/telegram.caddy" "$2/" ;;
   'api repos/sachkov-inside/inside-telegram/actions/runs/91') cat "$FIXTURES/run.json" ;;
   *) exit 1 ;;
 esac
@@ -273,7 +281,7 @@ describe("release contract", () => {
       {
         version: "v1",
         immutable: true,
-        assets: ["compose.yaml", "release-manifest.json"],
+        assets: ["compose.yaml", "release-manifest.json", "telegram.caddy"],
       },
     ],
   };
@@ -294,7 +302,6 @@ describe("release contract", () => {
     expect(result.status, result.stderr).toBe(0);
     expect(JSON.parse(result.stdout)).toEqual({
       version: "v2",
-      previousVersion: "v1",
       sourceSha: "a".repeat(40),
     });
   });
@@ -311,7 +318,7 @@ describe("release contract", () => {
           {
             version: "v1",
             immutable: false,
-            assets: ["compose.yaml", "release-manifest.json"],
+            assets: ["compose.yaml", "release-manifest.json", "telegram.caddy"],
           },
         ],
       },
@@ -371,6 +378,8 @@ describe("release contract", () => {
         `sha256:${"d".repeat(64)}`,
         "--compose",
         "infra/production/compose.yaml",
+        "--caddy",
+        "infra/production/telegram.caddy",
         "--run-id",
         "77",
         "--server-url",
@@ -381,6 +390,7 @@ describe("release contract", () => {
     expect(result.status, result.stderr).toBe(0);
     const manifest = JSON.parse(result.stdout) as Record<string, unknown>;
     expect(Object.keys(manifest).sort()).toEqual([
+      "caddy",
       "compose",
       "image",
       "migrations",
@@ -397,6 +407,12 @@ describe("release contract", () => {
         asset: "compose.yaml",
         sha256: `sha256:${createHash("sha256")
           .update(readFileSync("infra/production/compose.yaml"))
+          .digest("hex")}`,
+      },
+      caddy: {
+        asset: "telegram.caddy",
+        sha256: `sha256:${createHash("sha256")
+          .update(readFileSync("infra/production/telegram.caddy"))
           .digest("hex")}`,
       },
       publication: {

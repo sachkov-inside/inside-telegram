@@ -7,6 +7,7 @@ import {
   mkdtempSync,
   readFileSync,
   rmSync,
+  symlinkSync,
   writeFileSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
@@ -29,6 +30,7 @@ interface Release {
   version: string;
   manifest: string;
   compose: string;
+  caddy: string;
   image: string;
 }
 
@@ -54,6 +56,22 @@ beforeEach(() => {
   ]) {
     writeFileSync(path.join(config, name), `# host-owned ${name}\n`);
   }
+  mkdirSync(path.join(root, "host/etc/caddy"), { recursive: true });
+  writeFileSync(
+    path.join(root, "host/etc/caddy/Caddyfile"),
+    "import /srv/inside/runtime/caddy/*.caddy\n",
+  );
+  mkdirSync(caddyDirectory(), { recursive: true });
+  writeExecutable(
+    "caddy",
+    `#!/usr/bin/env bash
+printf '%s|%s\\n' "$*" "$(cat "$FAKE_ROOT/host/srv/inside/runtime/caddy/telegram.caddy" 2>/dev/null | head -1)" >>"$FAKE_ROOT/caddy.log"
+if [[ -n "\${FAKE_CADDY_FAIL:-}" && "$1" == "$FAKE_CADDY_FAIL" ]] &&
+   grep -q "\${FAKE_CADDY_FAIL_ON:-}" "$FAKE_ROOT/host/srv/inside/runtime/caddy/telegram.caddy" 2>/dev/null; then
+  exit 1
+fi
+`,
+  );
   writeExecutable(
     "docker",
     `#!/usr/bin/env bash
@@ -137,10 +155,22 @@ describe("inside-telegram-deploy gateway", () => {
       command.startsWith("compose"),
     )) {
       expect(call.image).toBe(v1.image);
-      expect(call.command).toContain(
-        `compose --env-file ${root}/host/etc/inside/telegram/compose.env -f ${root}/host/srv/inside/telegram/releases/v1/compose.yaml -f ${root}/host/etc/inside/telegram/compose.override.yaml `,
+      expect(call.command).toMatch(
+        new RegExp(
+          `^compose --env-file ${root}/host/etc/inside/telegram/compose\\.env -f \\S+/compose\\.yaml -f ${root}/host/etc/inside/telegram/compose\\.override\\.yaml `,
+        ),
       );
     }
+    for (const call of firstDeploy.slice(2)) {
+      expect(call.command).toContain(
+        ` -f ${root}/host/srv/inside/telegram/releases/v1/compose.yaml `,
+      );
+    }
+    expect(readFileSync(caddyTarget(), "utf8")).toBe(v1.caddy);
+    expect(caddyCalls()).toEqual([
+      `validate --config ${root}/host/etc/caddy/Caddyfile --adapter caddyfile|# v1`,
+      `reload --config ${root}/host/etc/caddy/Caddyfile --adapter caddyfile|# v1`,
+    ]);
     expect(
       readFileSync(
         path.join(root, "host/srv/inside/telegram/releases/v1/compose.yaml"),
@@ -164,10 +194,14 @@ describe("inside-telegram-deploy gateway", () => {
     state = readState();
     expect(state.current).toMatchObject({ version: "v2", image: v2.image });
     expect(state.previous).toMatchObject({ version: "v1", image: v1.image });
+    expect(readFileSync(caddyTarget(), "utf8")).toBe(v2.caddy);
+    expect(existsSync(`${caddyTarget()}.previous`)).toBe(false);
 
     clearDockerLog();
+    clearCaddyLog();
     const repeat = run("deploy v2 503", v2);
     expectSuccess(repeat);
+    expect(caddyCalls()).toEqual([]);
     expect(repeat.stdout).toContain("already current");
     expect(dockerCommands()).not.toContainEqual(
       expect.stringMatching(/ stop app$| migrate$/),
@@ -184,6 +218,7 @@ describe("inside-telegram-deploy gateway", () => {
       githubRunId: 504,
     });
     expect(state.previous).toBeNull();
+    expect(readFileSync(caddyTarget(), "utf8")).toBe(v1.caddy);
     const rollback = dockerCalls();
     expect(rollback.map(({ command }) => command)).not.toContainEqual(
       expect.stringMatching(/migrate$/),
@@ -293,6 +328,142 @@ describe("inside-telegram-deploy gateway", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("compose.override.yaml is missing");
+    expect(dockerCommands()).toEqual([expect.stringMatching(/ ps --all /)]);
+    expect(readOperation()).toMatchObject({
+      phase: "preflight",
+      status: "failed",
+    });
+  });
+
+  it("restores the previous Caddy fragment when validation rejects the new one", () => {
+    const v1 = publishRelease("v1", identityA);
+    const v2 = publishRelease("v2", identityA);
+    expectSuccess(run("deploy v1 901", v1));
+    clearCaddyLog();
+
+    const result = run("deploy v2 902", v2, {
+      FAKE_CADDY_FAIL: "validate",
+      FAKE_CADDY_FAIL_ON: "# v2",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("previous fragment is restored");
+    expect(readFileSync(caddyTarget(), "utf8")).toBe(v1.caddy);
+    expect(caddyCalls().map((call) => call.split(" ")[0])).toEqual([
+      "validate",
+    ]);
+    expect(readOperation()).toMatchObject({
+      phase: "routes",
+      status: "failed",
+    });
+    expect(readState().current).toMatchObject({ version: "v1" });
+  });
+
+  it("restores and reloads the previous Caddy fragment when reload fails", () => {
+    const v1 = publishRelease("v1", identityA);
+    const v2 = publishRelease("v2", identityA);
+    expectSuccess(run("deploy v1 911", v1));
+    clearCaddyLog();
+
+    const result = run("deploy v2 912", v2, {
+      FAKE_CADDY_FAIL: "reload",
+      FAKE_CADDY_FAIL_ON: "# v2",
+    });
+
+    expect(result.status).toBe(1);
+    expect(readFileSync(caddyTarget(), "utf8")).toBe(v1.caddy);
+    expect(caddyCalls()).toEqual([
+      expect.stringMatching(/^validate .*\|# v2$/),
+      expect.stringMatching(/^reload .*\|# v2$/),
+      expect.stringMatching(/^reload .*\|# v1$/),
+    ]);
+  });
+
+  it("removes a first Caddy fragment that Caddy rejects", () => {
+    const v1 = publishRelease("v1", identityA);
+
+    const result = run("deploy v1 921", v1, {
+      FAKE_CADDY_FAIL: "validate",
+      FAKE_CADDY_FAIL_ON: "# v1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(existsSync(caddyTarget())).toBe(false);
+  });
+
+  it("refuses a Caddy fragment that proxies to another port", () => {
+    const v1 = publishRelease("v1", identityA, { port: 3999 });
+
+    const result = run("deploy v1 931", v1);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("does not proxy to the app port");
+    expect(existsSync(caddyTarget())).toBe(false);
+  });
+
+  it("allows only a newer deploy after an interrupted migration", () => {
+    const v3 = publishRelease("v3", identityA);
+    const v4 = publishRelease("v4", identityA);
+    const v5 = publishRelease("v5", identityB);
+    const v6 = publishRelease("v6", identityB);
+    expectSuccess(run("deploy v3 941", v3));
+    expect(
+      run("deploy v5 942", v5, { FAKE_DOCKER_FAIL: "migrate" }).status,
+    ).toBe(1);
+
+    const older = run("deploy v4 943", v4);
+
+    expect(older.status).toBe(1);
+    expect(older.stderr).toContain("newer than v5");
+    expectSuccess(run("deploy v6 944", v6));
+  });
+
+  it("rejects a non-regular payload entry", () => {
+    const v1 = publishRelease("v1", identityA);
+    const directory = path.join(payloads, "link");
+    mkdirSync(directory);
+    writeFileSync(path.join(directory, "release-manifest.json"), v1.manifest);
+    writeFileSync(path.join(directory, "telegram.caddy"), v1.caddy);
+    symlinkSync("/etc/passwd", path.join(directory, "compose.yaml"));
+
+    const result = runWithInput(
+      "deploy v1 951",
+      tarGzip(directory, [
+        "release-manifest.json",
+        "compose.yaml",
+        "telegram.caddy",
+      ]),
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("must be regular files");
+  });
+
+  it("rejects a release published from another branch", () => {
+    const v1 = publishRelease("v1", identityA, { branch: "feature" });
+
+    const result = run("deploy v1 961", v1);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("publication workflow run is not verified");
+  });
+
+  it("refuses to act on an invalid state journal", () => {
+    const v1 = publishRelease("v1", identityA);
+    mkdirSync(path.dirname(stateFile()), { recursive: true });
+    writeFileSync(
+      stateFile(),
+      JSON.stringify({
+        schemaVersion: "inside.telegram.deployment-state.v1",
+        current: { version: "a[$(id)]", migrationsIdentity: identityA },
+        previous: null,
+      }),
+    );
+
+    const result = run("deploy v1 971", v1);
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("state");
     expect(dockerCommands()).toEqual([]);
   });
 
@@ -328,11 +499,17 @@ describe("inside-telegram-deploy gateway", () => {
     mkdirSync(directory);
     writeFileSync(path.join(directory, "release-manifest.json"), v1.manifest);
     writeFileSync(path.join(directory, "compose.yaml"), v1.compose);
+    writeFileSync(path.join(directory, "telegram.caddy"), v1.caddy);
     writeFileSync(path.join(directory, "run.sh"), "echo root\n");
 
     const result = runWithInput(
       "deploy v1 802",
-      tarGzip(directory, ["release-manifest.json", "compose.yaml", "run.sh"]),
+      tarGzip(directory, [
+        "release-manifest.json",
+        "compose.yaml",
+        "telegram.caddy",
+        "run.sh",
+      ]),
     );
 
     expect(result.status).toBe(1);
@@ -479,13 +656,14 @@ function sha256(value: string): string {
 function publishRelease(
   version: string,
   migrationsIdentity: string,
-  options: { immutable?: boolean } = {},
+  options: { immutable?: boolean; branch?: string; port?: number } = {},
 ): Release {
   const ordinal = Number(version.slice(1));
   const sourceSha = String(ordinal).repeat(40).slice(0, 40);
   const runId = 9000 + ordinal;
   const image = `ghcr.io/${repository}@sha256:${String(ordinal).repeat(64).slice(0, 64)}`;
   const compose = `name: inside-production-telegram\n# ${version}\n`;
+  const caddy = `# ${version}\ntelegram.sachkov.dev {\n\treverse_proxy 127.0.0.1:${options.port ?? 3303}\n}\n`;
   const manifest = `${JSON.stringify(
     {
       schemaVersion: "inside.telegram.release-manifest.v1",
@@ -498,6 +676,7 @@ function publishRelease(
         latest: "022-community-tribute-readmission.ts",
       },
       compose: { asset: "compose.yaml", sha256: sha256(compose) },
+      caddy: { asset: "telegram.caddy", sha256: sha256(caddy) },
       publication: {
         workflowRunId: runId,
         workflowRunUrl: `https://github.com/${repository}/actions/runs/${runId}`,
@@ -528,6 +707,10 @@ function publishRelease(
           name: "compose.yaml",
           browser_download_url: `${download}/compose.yaml`,
         },
+        {
+          name: "telegram.caddy",
+          browser_download_url: `${download}/telegram.caddy`,
+        },
       ],
     }),
   );
@@ -537,11 +720,12 @@ function publishRelease(
       id: runId,
       conclusion: "success",
       event: "workflow_dispatch",
+      head_branch: options.branch ?? "main",
       head_sha: sourceSha,
       path: ".github/workflows/release.yml",
     }),
   );
-  return { version, manifest, compose, image };
+  return { version, manifest, compose, caddy, image };
 }
 
 function tarGzip(directory: string, entries: string[]): Buffer {
@@ -563,7 +747,12 @@ function payloadFor(release: Release): Buffer {
     release.manifest,
   );
   writeFileSync(path.join(directory, "compose.yaml"), release.compose);
-  return tarGzip(directory, ["release-manifest.json", "compose.yaml"]);
+  writeFileSync(path.join(directory, "telegram.caddy"), release.caddy);
+  return tarGzip(directory, [
+    "release-manifest.json",
+    "compose.yaml",
+    "telegram.caddy",
+  ]);
 }
 
 function run(
@@ -646,4 +835,22 @@ function dockerCommands(): string[] {
 
 function clearDockerLog(): void {
   rmSync(path.join(root, "docker.log"), { force: true });
+}
+
+function caddyDirectory(): string {
+  return path.join(root, "host/srv/inside/runtime/caddy");
+}
+
+function caddyTarget(): string {
+  return path.join(caddyDirectory(), "telegram.caddy");
+}
+
+function caddyCalls(): string[] {
+  const log = path.join(root, "caddy.log");
+  if (!existsSync(log)) return [];
+  return readFileSync(log, "utf8").trimEnd().split("\n");
+}
+
+function clearCaddyLog(): void {
+  rmSync(path.join(root, "caddy.log"), { force: true });
 }

@@ -131,11 +131,13 @@ Actions → **Publish ordinal release** → `version` = следующий `vN` 
 - прогоняет Application CI на этом SHA;
 - собирает `infra/production/Dockerfile` с `SOURCE_COMMIT`, публикует
   `ghcr.io/sachkov-inside/inside-telegram:vN` и проверяет анонимный pull по digest;
-- создаёт неизменяемый GitHub Release `vN` с target = SHA и двумя ассетами: `compose.yaml` (копия
-  `infra/production/compose.yaml`) и `release-manifest.json`.
+- создаёт неизменяемый GitHub Release `vN` с target = SHA и тремя ассетами: `compose.yaml` (копия
+  `infra/production/compose.yaml`), `telegram.caddy` (копия `infra/production/telegram.caddy`) и
+  `release-manifest.json`.
 
 Manifest (`inside.telegram.release-manifest.v1`) связывает версию, SHA, образ
-`ghcr.io/sachkov-inside/inside-telegram@sha256:…`, sha256 файла `compose.yaml`, run публикации и
+`ghcr.io/sachkov-inside/inside-telegram@sha256:…`, sha256 файлов `compose.yaml` и `telegram.caddy`,
+run публикации и
 идентичность миграций: sha256 от упорядоченного списка файлов `src/database/migrations` и их
 содержимого (`node scripts/release-contract.mjs migrations-identity`). Одинаковая идентичность у двух
 версий значит одинаковую схему базы.
@@ -143,23 +145,31 @@ Manifest (`inside.telegram.release-manifest.v1`) связывает версию
 ### 2. Выкладка
 
 Actions → **Deploy production release** → `operation` = `deploy`, `version` = `vN`. Job работает в
-environment `Production`, ещё раз сверяет Release, manifest, `compose.yaml` и run публикации и
-передаёт оба файла по SSH пользователю `inside-telegram-deploy`. На сервере forced command запускает
+environment `Production`, ещё раз сверяет Release, manifest, `compose.yaml`, `telegram.caddy` и run
+публикации и передаёт три файла по SSH пользователю `inside-telegram-deploy`. На сервере forced command запускает
 только gateway `/usr/local/libexec/inside/inside-telegram-deploy`. Выкладки встают в очередь; активная
 не отменяется.
 
 Gateway принимает только `deploy vN <run-id>` и `rollback vN <run-id>` и вход до 1 MiB. Он повторно
 читает Release с GitHub по HTTPS и принимает manifest, только если тот побайтно совпадает с ассетом
-неизменяемого Release. Одновременно идёт одна операция (`flock`). Порядок `deploy`:
+неизменяемого Release, а run публикации — успешный `release.yml` с `main`. Вход читается целиком до
+блокировки; одновременно идёт одна операция (`flock`). Порядок `deploy`:
 
-1. preflight: `/etc/inside/telegram/compose.env`, `application.env`, `compose.override.yaml` на
-   месте, `docker compose config --quiet` проходит;
+1. preflight: `/etc/inside/telegram/compose.env`, `application.env`, `compose.override.yaml`,
+   `/etc/caddy/Caddyfile` и `/srv/inside/runtime/caddy/` на месте, `docker compose config --quiet`
+   проходит;
 2. `docker pull` образа по digest;
 3. файлы версии сохраняются в `/srv/inside/telegram/releases/vN/`; одну версию нельзя сохранить с
    другим содержимым;
 4. `stop app` → `migrate` (профиль `operations`) → `up --detach --no-build --wait app`;
-5. `GET http://127.0.0.1:<TELEGRAM_LOOPBACK_PORT>/ready` отвечает `200`;
-6. `/var/lib/inside/telegram-deployments/state.json` получает `current` и `previous`: версия, SHA,
+5. `GET http://127.0.0.1:<порт>/ready` отвечает `200`; порт — фактическая публикация `app`
+   (`docker compose port app 3002`), то есть `TELEGRAM_LOOPBACK_PORT`;
+6. маршруты: `telegram.caddy` версии должен проксировать на этот порт; он атомарно заменяет
+   `/srv/inside/runtime/caddy/telegram.caddy` (его импортирует host `Caddyfile`), затем
+   `caddy validate` и `caddy reload`. Если Caddy отклоняет фрагмент, прежний возвращается на место
+   и Caddy перезагружается с ним; операция завершается ошибкой в фазе `routes`. Неизменённый
+   фрагмент не перезагружается;
+7. `/var/lib/inside/telegram-deployments/state.json` получает `current` и `previous`: версия, SHA,
    образ, идентичность миграций, sha256 manifest, run id и время.
 
 Каждая compose-команда gateway использует три файла: `--env-file /etc/inside/telegram/compose.env
@@ -171,8 +181,8 @@ Override обязателен: в нём transport до `api.telegram.org` че�
 Фаза и итог операции пишутся в `/var/lib/inside/telegram-deployments/operation.json`. Сбой после
 `stop app` оставляет app остановленным, диагностику — в `operation.json` и журнале job; данные и
 тома gateway не трогает, job завершается ошибкой. Сбой миграций чинится повтором той же версии или
-следующей версией. Повтор той же версии идемпотентен: если она уже `current`, gateway только
-поднимает app и проверяет readiness, без остановки и миграций. Deploy версии не новее текущей
+более новой версией. Повтор той же версии идемпотентен: если она уже `current`, gateway только
+поднимает app, проверяет readiness и маршруты, без остановки и миграций. Deploy версии не новее текущей
 отклоняется: для возврата есть только rollback.
 
 ### 3. Проверки после выкладки
@@ -225,7 +235,8 @@ telegram_compose=(docker compose --env-file /etc/inside/telegram/compose.env
 2. Repository secret `RELEASE_SETTINGS_READ_TOKEN`: fine-grained token с Administration: read на
    `inside-telegram` (тот же, что у Platform, если его область включает этот репозиторий).
    `GITHUB_TOKEN` не может прочитать эту настройку.
-3. Environment `Production` с required reviewer владельца и secrets:
+3. Environment `Production` с required reviewer владельца, deployment branches — только `main`, и
+   secrets:
    - `PRODUCTION_SSH_HOST` — адрес VPS;
    - `PRODUCTION_SSH_PRIVATE_KEY` — приватная часть отдельного ключа Ed25519 только для Telegram;
    - `PRODUCTION_SSH_HOST_KEYS` — строки `known_hosts` VPS, сверенные с отпечатком из консоли
@@ -243,8 +254,10 @@ ssh-keygen -t ed25519 -N '' -C inside-telegram-deploy -f inside-telegram-deploy
 ключа; `inside-telegram-deploy.pub` → на сервер.
 
 **Сервер (root, из чистого checkout смёрженного commit).** Нужны `docker` с Compose v2, `jq`,
-`curl`, `flock`, `sudo`, `openssh-server` и `/etc/inside/telegram` с `compose.env`,
-`application.env` и `compose.override.yaml` из разделов выше.
+`curl`, `flock`, `sudo`, `openssh-server`, host Caddy с `import /srv/inside/runtime/caddy/*.caddy` в
+`/etc/caddy/Caddyfile` и `/etc/inside/telegram` с `compose.env`, `application.env` и
+`compose.override.yaml` из разделов выше. `TELEGRAM_LOOPBACK_PORT` в `compose.env` совпадает с портом
+в `infra/production/telegram.caddy` (`3303`), иначе deploy остановится в фазе `routes`.
 
 ```bash
 git clone https://github.com/sachkov-inside/inside-telegram.git /tmp/inside-telegram-install
@@ -265,7 +278,9 @@ rm -rf /tmp/inside-telegram-install /root/inside-telegram-deploy.pub
 
 Прежний `/opt/inside/telegram/compose.yaml` больше не используется. Project name
 `inside-production-telegram` общий, поэтому первый deploy через gateway останавливает контейнер,
-запущенный вручную, и заменяет его.
+запущенный вручную, и заменяет его. Тот же deploy заменяет вручную созданный
+`/srv/inside/runtime/caddy/telegram.caddy` фрагментом версии; прежний файл сохраняется только на
+время проверки Caddy.
 
 ### Аварийный ручной путь
 
@@ -336,8 +351,9 @@ networks:
 
 ## HTTPS и маршруты
 
-Возьмите `infra/production/telegram.caddy.example`, замените hostname на отдельный production
-домен с DNS на VPS и при необходимости loopback port. Проверьте Caddy config перед reload.
+Маршруты задаёт `infra/production/telegram.caddy` (`telegram.sachkov.dev`, loopback port `3303`).
+Их ставит на сервер выкладка версии ([шаг 6](#2-выкладка)); ручная правка
+`/srv/inside/runtime/caddy/telegram.caddy` будет заменена следующей выкладкой.
 Наружу принимаются только POST из точного allowlist, секреты проверяет приложение:
 
 | Путь | Вызывающий |

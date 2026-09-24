@@ -52,11 +52,12 @@ jobs:
           jq --exit-status --arg version "$VERSION" '
             .isImmutable == true and
             .tagName == $version and
-            .assets == ["compose.yaml", "release-manifest.json"]
+            .assets == ["compose.yaml", "release-manifest.json", "telegram.caddy"]
           ' "$release_dir/release.json" >/dev/null
           gh release download "$VERSION" --repo "$GITHUB_REPOSITORY" \
             --pattern release-manifest.json \
             --pattern compose.yaml \
+            --pattern telegram.caddy \
             --dir "$release_dir"
           jq --exit-status \
             --arg repository "$GITHUB_REPOSITORY" \
@@ -69,12 +70,17 @@ jobs:
               (.migrations.identity | test("^sha256:[0-9a-f]{64}$")) and
               .compose.asset == "compose.yaml" and
               (.compose.sha256 | test("^sha256:[0-9a-f]{64}$")) and
+              .caddy.asset == "telegram.caddy" and
+              (.caddy.sha256 | test("^sha256:[0-9a-f]{64}$")) and
               (.publication.workflowRunId | type == "number") and
               .publication.workflowRunId > 0
             ' "$release_dir/release-manifest.json" >/dev/null
           expected_compose_sha="$(jq --raw-output .compose.sha256 "$release_dir/release-manifest.json")"
           actual_compose_sha="sha256:$(sha256sum "$release_dir/compose.yaml" | cut -d' ' -f1)"
           [[ "$actual_compose_sha" == "$expected_compose_sha" ]]
+          expected_caddy_sha="$(jq --raw-output .caddy.sha256 "$release_dir/release-manifest.json")"
+          actual_caddy_sha="sha256:$(sha256sum "$release_dir/telegram.caddy" | cut -d' ' -f1)"
+          [[ "$actual_caddy_sha" == "$expected_caddy_sha" ]]
           source_sha="$(jq --raw-output .source.sha "$release_dir/release-manifest.json")"
           [[ "$(jq --raw-output .targetCommitish "$release_dir/release.json")" == "$source_sha" ]]
           publish_run_id="$(jq --raw-output .publication.workflowRunId "$release_dir/release-manifest.json")"
@@ -83,6 +89,7 @@ jobs:
           jq --exit-status --arg source_sha "$source_sha" '
             .conclusion == "success" and
             .event == "workflow_dispatch" and
+            .head_branch == "main" and
             .head_sha == $source_sha and
             .path == ".github/workflows/release.yml"
           ' "$release_dir/publication-run.json" >/dev/null
@@ -123,7 +130,7 @@ jobs:
         run: |
           set -euo pipefail
           tar -C "$RELEASE_DIR" -czf "$RUNNER_TEMP/payload.tar.gz" \
-            release-manifest.json compose.yaml
+            release-manifest.json compose.yaml telegram.caddy
           ssh \
             -i "$RUNNER_TEMP/telegram-deploy-key" \
             -o BatchMode=yes \

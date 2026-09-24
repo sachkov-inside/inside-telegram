@@ -41,10 +41,12 @@ jobs:
           REQUESTED_VERSION: ${{ inputs.version }}
           SOURCE_SHA: ${{ github.sha }}
         run: |
+          set -euo pipefail
           bash scripts/plan-release.sh >"$RUNNER_TEMP/release-plan.json"
-          unset RELEASE_SETTINGS_READ_TOKEN
-          echo "source_sha=$(jq --raw-output .sourceSha "$RUNNER_TEMP/release-plan.json")" >>"$GITHUB_OUTPUT"
-          echo "version=$(jq --raw-output .version "$RUNNER_TEMP/release-plan.json")" >>"$GITHUB_OUTPUT"
+          source_sha="$(jq --exit-status --raw-output .sourceSha "$RUNNER_TEMP/release-plan.json")"
+          version="$(jq --exit-status --raw-output .version "$RUNNER_TEMP/release-plan.json")"
+          echo "source_sha=$source_sha" >>"$GITHUB_OUTPUT"
+          echo "version=$version" >>"$GITHUB_OUTPUT"
 
   ci:
     needs: plan
@@ -140,11 +142,13 @@ jobs:
           set -euo pipefail
           mkdir release-assets
           cp infra/production/compose.yaml release-assets/compose.yaml
+          cp infra/production/telegram.caddy release-assets/telegram.caddy
           node scripts/release-contract.mjs manifest \
             --version "$VERSION" \
             --source-sha "$SOURCE_SHA" \
             --image-digest "$IMAGE_DIGEST" \
             --compose release-assets/compose.yaml \
+            --caddy release-assets/telegram.caddy \
             --run-id "$GITHUB_RUN_ID" \
             --server-url "$GITHUB_SERVER_URL" \
             >release-assets/release-manifest.json
@@ -161,7 +165,8 @@ jobs:
             "Image: `" + .image + "`\n\n" +
             "Migrations: `" + .migrations.identity + "` (" +
               (.migrations.count | tostring) + ", latest `" + .migrations.latest + "`)\n\n" +
-            "Compose: `" + .compose.sha256 + "`"
+            "Compose: `" + .compose.sha256 + "`\n\n" +
+            "Caddy: `" + .caddy.sha256 + "`"
           ' release-assets/release-manifest.json >"$RUNNER_TEMP/release-notes.md"
           gh release create "$VERSION" \
             --repo "$GITHUB_REPOSITORY" \
@@ -170,7 +175,8 @@ jobs:
             --notes-file "$RUNNER_TEMP/release-notes.md" \
             --latest \
             release-assets/release-manifest.json \
-            release-assets/compose.yaml
+            release-assets/compose.yaml \
+            release-assets/telegram.caddy
           gh release view "$VERSION" --repo "$GITHUB_REPOSITORY" \
             --json isImmutable,tagName,targetCommitish |
             jq --exit-status --arg version "$VERSION" --arg sha "$SOURCE_SHA" '

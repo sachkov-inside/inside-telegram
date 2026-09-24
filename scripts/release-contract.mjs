@@ -10,7 +10,11 @@ import { pathToFileURL } from "node:url";
 export const repository = "sachkov-inside/inside-telegram";
 export const imageName = "ghcr.io/sachkov-inside/inside-telegram";
 export const manifestSchemaVersion = "inside.telegram.release-manifest.v1";
-export const releaseAssets = ["compose.yaml", "release-manifest.json"];
+export const releaseAssets = [
+  "compose.yaml",
+  "release-manifest.json",
+  "telegram.caddy",
+];
 export const migrationsDirectory = "src/database/migrations";
 
 const ordinalPattern = /^v[1-9][0-9]*$/;
@@ -69,11 +73,7 @@ export function planRelease(input) {
       `requested ${input.requestedVersion}, but the next release is v${nextOrdinal}`,
     );
   }
-  return {
-    version: input.requestedVersion,
-    previousVersion: ordinal === 1 ? null : `v${ordinal - 1}`,
-    sourceSha: input.sourceSha,
-  };
+  return { version: input.requestedVersion, sourceSha: input.sourceSha };
 }
 
 /**
@@ -102,8 +102,9 @@ export async function migrationsIdentity(directory = migrationsDirectory) {
 
 /**
  * @param {{version: string, sourceSha: string, imageDigest: string,
- *   composePath: string, migrationsDirectory?: string, workflowRunId: number,
- *   serverUrl?: string}} input
+ *   composePath: string, caddyPath: string, migrationsDirectory?: string,
+ *   workflowRunId: number,
+ *   serverUrl: string}} input
  */
 export async function createManifest(input) {
   parseOrdinal(input.version);
@@ -117,7 +118,7 @@ export async function createManifest(input) {
     throw new Error("publication workflow run id must be a positive integer");
   }
   const compose = await readFile(input.composePath);
-  const serverUrl = input.serverUrl ?? "https://github.com";
+  const caddy = await readFile(input.caddyPath);
   return {
     schemaVersion: manifestSchemaVersion,
     version: input.version,
@@ -125,9 +126,10 @@ export async function createManifest(input) {
     image: `${imageName}@${input.imageDigest}`,
     migrations: await migrationsIdentity(input.migrationsDirectory),
     compose: { asset: "compose.yaml", sha256: `sha256:${sha256Hex(compose)}` },
+    caddy: { asset: "telegram.caddy", sha256: `sha256:${sha256Hex(caddy)}` },
     publication: {
       workflowRunId: input.workflowRunId,
-      workflowRunUrl: `${serverUrl}/${repository}/actions/runs/${input.workflowRunId}`,
+      workflowRunUrl: `${input.serverUrl}/${repository}/actions/runs/${input.workflowRunId}`,
     },
   };
 }
@@ -171,12 +173,13 @@ async function main(arguments_) {
       sourceSha: option(rest, "source-sha"),
       imageDigest: option(rest, "image-digest"),
       composePath: option(rest, "compose"),
+      caddyPath: option(rest, "caddy"),
       workflowRunId: Number(option(rest, "run-id")),
       serverUrl: option(rest, "server-url"),
     });
   }
   throw new Error(
-    "usage: release-contract.mjs plan | migrations-identity [dir] | manifest --version vN --source-sha <sha> --image-digest <digest> --compose <file> --run-id <id> --server-url <url>",
+    "usage: release-contract.mjs plan | migrations-identity [dir] | manifest --version vN --source-sha <sha> --image-digest <digest> --compose <file> --caddy <file> --run-id <id> --server-url <url>",
   );
 }
 
