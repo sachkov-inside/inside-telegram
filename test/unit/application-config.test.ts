@@ -4,14 +4,14 @@ import { loadApplicationConfig } from "../../src/config/application-config.js";
 
 const validEnvironment = {
   DATABASE_URL: "postgresql://inside:inside@127.0.0.1:5432/inside",
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
+  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
   TELEGRAM_BOT_IDENTITY: "inside",
   TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
   TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic link receipt",
   TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member status",
   TELEGRAM_LINKED_NON_MEMBER_TEXT: "Synthetic non-member status",
   TELEGRAM_LINKED_UNAVAILABLE_TEXT: "Synthetic unavailable status",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_secret",
+  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
   TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
 };
 
@@ -24,7 +24,8 @@ describe("application configuration", () => {
     const authorization = {
       ...validEnvironment,
       PLATFORM_AUTHOR_AUTHORIZATION_URL: "https://platform.test/authorize",
-      PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic-authorization-secret",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET:
+        "synthetic-authorization-secret-for-tests",
     };
     const url =
       "https://platform.test/integrations/telegram/v1/communications/validate-content";
@@ -104,7 +105,8 @@ describe("application configuration", () => {
     const auth = {
       PLATFORM_AUTHOR_AUTHORIZATION_URL:
         "https://platform.example.test/authorize",
-      PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic_author_secret",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET:
+        "synthetic_author_secret_for_tests_only",
     };
     expect(
       loadApplicationConfig({ ...validEnvironment, ...auth })
@@ -152,6 +154,120 @@ describe("application configuration", () => {
     ).toThrow("TELEGRAM_WEBHOOK_SECRET");
   });
 
+  it("refuses a webhook secret shorter than 32 characters", () => {
+    for (const [secret, accepted] of [
+      ["w".repeat(31), false],
+      ["w".repeat(32), true],
+      ["w".repeat(256), true],
+      ["w".repeat(257), false],
+    ] as const) {
+      const load = () =>
+        loadApplicationConfig({
+          ...validEnvironment,
+          TELEGRAM_WEBHOOK_SECRET: secret,
+        });
+      if (accepted) expect(load().webhookSecret).toBe(secret);
+      else expect(load).toThrow("TELEGRAM_WEBHOOK_SECRET");
+    }
+  });
+
+  it("refuses an integration secret shorter than 32 characters", () => {
+    const short = "s".repeat(31);
+    const evidence = {
+      PLATFORM_EVIDENCE_DELIVERY_MODE: "live",
+      PLATFORM_EVIDENCE_DELIVERY_URL: "https://platform.test/evidence",
+      PLATFORM_EVIDENCE_DELIVERY_SECRET:
+        "synthetic_evidence_secret_for_tests_only",
+    };
+    const author = {
+      PLATFORM_AUTHOR_AUTHORIZATION_URL: "https://platform.test/authorize",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET:
+        "synthetic_author_secret_for_tests_only",
+    };
+    expect(
+      loadApplicationConfig({ ...validEnvironment, ...evidence, ...author }),
+    ).toBeDefined();
+    for (const [name, base] of [
+      ["PLATFORM_INTEGRATION_SECRET", {}],
+      ["PLATFORM_EVIDENCE_DELIVERY_SECRET", evidence],
+      ["PLATFORM_AUTHOR_AUTHORIZATION_SECRET", author],
+    ] as const)
+      expect(() =>
+        loadApplicationConfig({ ...validEnvironment, ...base, [name]: short }),
+      ).toThrow(name);
+  });
+
+  it("keeps the communications API closed until its own credential is configured", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).communicationsSecret,
+    ).toBeUndefined();
+    const secret = "synthetic_communications_secret_for_tests";
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COMMUNICATIONS_SECRET: secret,
+      }).communicationsSecret,
+    ).toBe(secret);
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COMMUNICATIONS_SECRET: "s".repeat(31),
+      }),
+    ).toThrow("PLATFORM_COMMUNICATIONS_SECRET");
+  });
+
+  it("refuses any service secret shared between two directions", () => {
+    const secrets = {
+      TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
+      PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
+      PLATFORM_COMMUNICATIONS_SECRET:
+        "synthetic_communications_secret_for_tests",
+      TELEGRAM_SIGN_IN_INTEGRATION_SECRET:
+        "synthetic_sign_in_secret_for_tests_only",
+      PLATFORM_COMMUNITY_INTEGRATION_SECRET:
+        "synthetic_community_inbound_secret",
+      PLATFORM_COMMUNITY_DISPATCH_SECRET: "synthetic_community_dispatch_secret",
+      PLATFORM_EVIDENCE_DELIVERY_SECRET:
+        "synthetic_evidence_secret_for_tests_only",
+      PLATFORM_AUTHOR_AUTHORIZATION_SECRET:
+        "synthetic_author_secret_for_tests_only",
+      NOTIFICATION_AUTHORIZE_SECRET: "synthetic_notification_secret_for_tests",
+      PLATFORM_ACTIVATION_SECRET: "synthetic_activation_secret_for_tests",
+    };
+    const everyDirection = {
+      ...validEnvironment,
+      ...secrets,
+      TELEGRAM_SIGN_IN_ENABLED: "true",
+      TELEGRAM_COMMUNITY_CONTRACT_VERSION: "inside.community-entitlement.v2",
+      PLATFORM_COMMUNITY_DISPATCH_URL:
+        "https://platform.test/internal/billing-dispatch/authorize",
+      PLATFORM_EVIDENCE_DELIVERY_MODE: "live",
+      PLATFORM_EVIDENCE_DELIVERY_URL: "https://platform.test/evidence",
+      PLATFORM_AUTHOR_AUTHORIZATION_URL: "https://platform.test/authorize",
+      TELEGRAM_NOTIFICATIONS_ENABLED: "true",
+      NOTIFICATION_AMQP_URL: "amqps://telegram:synthetic@broker.test/inside",
+      NOTIFICATION_AUTHORIZE_URL:
+        "https://platform.test/internal/notifications/dispatch/authorize",
+      NOTIFICATION_QUARANTINE_KEY: "a".repeat(64),
+      TELEGRAM_ACTIVATION_ENABLED: "true",
+      PLATFORM_ACTIVATION_URL: "https://platform.test/activation",
+      PLATFORM_ACCOUNT_URL: "https://platform.test/account",
+      TELEGRAM_ACTIVATION_SOURCES: "[]",
+    };
+    expect(loadApplicationConfig(everyDirection)).toBeDefined();
+    const names = Object.keys(secrets) as (keyof typeof secrets)[];
+    for (const [index, first] of names.entries())
+      for (const second of names.slice(index + 1))
+        expect(
+          () =>
+            loadApplicationConfig({
+              ...everyDirection,
+              [second]: secrets[first],
+            }),
+          `${first} reused as ${second}`,
+        ).toThrow(/must be separate service secrets/);
+  });
+
   it("requires a distinct Platform integration credential", () => {
     expect(() =>
       loadApplicationConfig({
@@ -184,6 +300,37 @@ describe("application configuration", () => {
         PLATFORM_EVIDENCE_DELIVERY_MODE: "live",
       }),
     ).toThrow("PLATFORM_EVIDENCE_DELIVERY_URL is required");
+  });
+
+  it("delivers Membership Evidence only to a plain HTTPS endpoint outside loopback", () => {
+    const evidence = {
+      ...validEnvironment,
+      PLATFORM_EVIDENCE_DELIVERY_MODE: "live",
+      PLATFORM_EVIDENCE_DELIVERY_SECRET:
+        "synthetic_evidence_secret_for_tests_only",
+    };
+    for (const url of [
+      "https://platform.test/integrations/telegram/v1/membership-evidence",
+      "http://127.0.0.1:3001/integrations/telegram/v1/membership-evidence",
+    ])
+      expect(
+        loadApplicationConfig({
+          ...evidence,
+          PLATFORM_EVIDENCE_DELIVERY_URL: url,
+        }).platformEvidenceDeliveryUrl,
+      ).toBe(url);
+    for (const bad of [
+      "http://platform.test/evidence",
+      "https://user:password@platform.test/evidence",
+      "https://platform.test/evidence?token=synthetic",
+      "https://platform.test/evidence#fragment",
+    ])
+      expect(() =>
+        loadApplicationConfig({
+          ...evidence,
+          PLATFORM_EVIDENCE_DELIVERY_URL: bad,
+        }),
+      ).toThrow("PLATFORM_EVIDENCE_DELIVERY_URL requires HTTPS");
   });
 
   it("keeps reconciliation cadence inside the evidence validity bound", () => {
@@ -239,11 +386,12 @@ describe("application configuration", () => {
     expect(() =>
       loadApplicationConfig({
         ...validEnvironment,
+        TELEGRAM_COMMUNITY_CONTRACT_VERSION: "inside.community-entitlement.v2",
         PLATFORM_COMMUNITY_INTEGRATION_SECRET:
           "synthetic_community_shared_secret",
         PLATFORM_COMMUNITY_DISPATCH_SECRET: "synthetic_community_shared_secret",
       }),
-    ).toThrow("must differ from every other service secret");
+    ).toThrow("must be separate service secrets");
     expect(() =>
       loadApplicationConfig({
         ...validEnvironment,
@@ -367,6 +515,6 @@ describe("application configuration", () => {
         NOTIFICATION_AUTHORIZE_SECRET: dispatchSecret,
         NOTIFICATION_QUARANTINE_KEY: "a".repeat(64),
       }),
-    ).toThrow("Notifications require a separate service secret");
+    ).toThrow("must be separate service secrets");
   });
 });

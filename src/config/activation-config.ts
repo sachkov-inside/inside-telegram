@@ -13,7 +13,6 @@ export interface ActivationConfig {
 }
 export function loadActivationConfig(
   env: NodeJS.ProcessEnv,
-  otherSecrets: readonly (string | undefined)[],
   canonicalChatId: string,
 ): ActivationConfig | undefined {
   if (
@@ -24,9 +23,9 @@ export function loadActivationConfig(
   if (env.TELEGRAM_ACTIVATION_ENABLED !== "true")
     throw new Error("TELEGRAM_ACTIVATION_ENABLED must be true or false");
   const secret = env.PLATFORM_ACTIVATION_SECRET ?? "";
-  if (!/^[A-Za-z0-9_-]{32,256}$/.test(secret) || otherSecrets.includes(secret))
+  if (!/^[A-Za-z0-9_-]{32,256}$/.test(secret))
     throw new Error(
-      "PLATFORM_ACTIVATION_SECRET requires a separate base64url credential",
+      "PLATFORM_ACTIVATION_SECRET requires a base64url credential of at least 32 characters",
     );
   const endpoint = safeUrl(env.PLATFORM_ACTIVATION_URL);
   const accountUrl = safeUrl(env.PLATFORM_ACCOUNT_URL);

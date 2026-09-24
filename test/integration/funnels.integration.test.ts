@@ -56,8 +56,9 @@ const config = loadApplicationConfig({
   DATABASE_URL: databaseUrl,
   TELEGRAM_BOT_IDENTITY: "inside",
   TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook",
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
+  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
+  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
+  PLATFORM_COMMUNICATIONS_SECRET: "synthetic_communications_secret_for_tests",
   TELEGRAM_WELCOME_TEXT: "synthetic welcome",
   TELEGRAM_LINK_RECEIPT_TEXT: "synthetic receipt",
   TELEGRAM_LINKED_MEMBER_TEXT: "synthetic member",
@@ -181,7 +182,7 @@ function command(
 }
 async function http(
   request: CommunicationsRequest,
-  secret = config.platformIntegrationSecret,
+  secret = config.communicationsSecret,
 ) {
   return app.inject({
     method: "POST",

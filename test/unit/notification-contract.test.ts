@@ -145,7 +145,7 @@ it("configuration is opt-in, TLS-bound, separately scoped and capacity-bounded",
   for (const change of [
     { NOTIFICATION_AMQP_URL: "amqp://rabbit.example/inside" },
     { NOTIFICATION_PREFETCH: "0" },
-    { PLATFORM_AUTHOR_AUTHORIZATION_SECRET: env.NOTIFICATION_AUTHORIZE_SECRET },
+    { NOTIFICATION_AUTHORIZE_SECRET: "a".repeat(31) },
     { NOTIFICATION_AUTHORIZE_URL: "https://platform.example/wrong" },
   ])
     expect(() => loadNotificationConfig({ ...env, ...change })).toThrow();

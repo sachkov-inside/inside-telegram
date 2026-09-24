@@ -26,6 +26,7 @@ export class HttpPlatformEvidenceAdapter implements PlatformEvidenceDelivery {
           "x-inside-membership-evidence-source": request.source,
         },
         method: "POST",
+        redirect: "error",
         signal: AbortSignal.timeout(DELIVERY_TIMEOUT_MILLISECONDS),
       });
       if (response.ok) {

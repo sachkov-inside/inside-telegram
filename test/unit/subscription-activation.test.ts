@@ -128,7 +128,7 @@ describe("activation ingress and separate source proof", () => {
       decision: "unavailable",
     });
   });
-  it("rejects canonical source aliases and shared credentials", () => {
+  it("rejects canonical source aliases and short credentials", () => {
     const env = {
       TELEGRAM_ACTIVATION_ENABLED: "true",
       PLATFORM_ACTIVATION_URL: "https://platform.example/activation",
@@ -138,14 +138,17 @@ describe("activation ingress and separate source proof", () => {
         { sourceRef: "course", chatId: "-1", policy: "whole_group" },
       ]),
     };
-    expect(() => loadActivationConfig(env, [], "-1")).toThrow();
+    expect(() => loadActivationConfig(env, "-1")).toThrow();
     expect(() =>
       loadActivationConfig(
-        { ...env, TELEGRAM_ACTIVATION_SOURCES: "[]" },
-        [env.PLATFORM_ACTIVATION_SECRET],
+        {
+          ...env,
+          PLATFORM_ACTIVATION_SECRET: "a".repeat(31),
+          TELEGRAM_ACTIVATION_SOURCES: "[]",
+        },
         "-1",
       ),
-    ).toThrow();
+    ).toThrow("PLATFORM_ACTIVATION_SECRET");
   });
 });
 

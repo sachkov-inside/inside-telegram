@@ -56,8 +56,9 @@ const config = loadApplicationConfig({
   DATABASE_URL: databaseUrl,
   TELEGRAM_BOT_IDENTITY: "inside",
   TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret",
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret",
+  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
+  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
+  PLATFORM_COMMUNICATIONS_SECRET: "synthetic_communications_secret_for_tests",
   TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
   TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic receipt",
   TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member",
@@ -146,7 +147,7 @@ function request(): CommunicationsRequest {
 }
 async function http(
   body: unknown,
-  secret: string | undefined = config.platformIntegrationSecret,
+  secret: string | undefined = config.communicationsSecret,
 ) {
   return app.inject({
     method: "POST",
@@ -226,6 +227,9 @@ describe("versioned HTTP scenarios shared with consumer", () => {
     });
   it("rejects untrusted service callers and forged actor properties before permission lookup", async () => {
     expect((await http(request(), "wrong")).statusCode).toBe(401);
+    expect(
+      (await http(request(), config.platformIntegrationSecret)).statusCode,
+    ).toBe(401);
     expect(
       (
         await http({

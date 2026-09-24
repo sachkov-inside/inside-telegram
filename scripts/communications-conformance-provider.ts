@@ -49,11 +49,14 @@ const config = {
     DATABASE_URL: databaseUrl,
     TELEGRAM_BOT_IDENTITY: "synthetic-bot",
     TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-    TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook",
-    PLATFORM_INTEGRATION_SECRET: "synthetic_communications_secret",
+    TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_conformance",
+    PLATFORM_INTEGRATION_SECRET: "synthetic_linking_secret_conformance",
+    PLATFORM_COMMUNICATIONS_SECRET:
+      "synthetic_communications_secret_conformance",
     PLATFORM_AUTHOR_AUTHORIZATION_URL: `${platform}/integrations/telegram/v1/communications/authorize`,
     PLATFORM_AUTHOR_CONTENT_VALIDATION_URL: `${platform}/integrations/telegram/v1/communications/validate-content`,
-    PLATFORM_AUTHOR_AUTHORIZATION_SECRET: "synthetic_authorization_secret",
+    PLATFORM_AUTHOR_AUTHORIZATION_SECRET:
+      "synthetic_authorization_secret_conformance",
     PLATFORM_TRACKING_REDIRECT_URL:
       "https://inside.example/communications/visit",
     PLATFORM_TRACKING_TARGET_PREFIXES: JSON.stringify([

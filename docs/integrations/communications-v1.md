@@ -12,9 +12,10 @@ not a second product brief.
 
 ## Implemented operations
 
-`POST /integrations/platform/v1/communications` uses the existing
-`Authorization: Bearer <PLATFORM_INTEGRATION_SECRET>` service authentication. The Platform server
-owns the authenticated Account context; never expose this credential in browser/MCP clients or let
+`POST /integrations/platform/v1/communications` uses its own
+`Authorization: Bearer <PLATFORM_COMMUNICATIONS_SECRET>` service authentication, separate from the
+identity-linking secret. Without that configuration every request returns `401 unauthorized`.
+The Platform server owns the authenticated Account context; never expose this credential in browser/MCP clients or let
 clients supply the actor. It passes only `{ accountRef }`, derived from the authenticated Account.
 Telegram rechecks `communications:manage` through the authorization operation below on every
 request, including idempotent replay and reads. A service credential is the trust boundary for the

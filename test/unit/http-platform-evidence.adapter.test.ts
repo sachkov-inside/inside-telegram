@@ -20,7 +20,7 @@ const request: PlatformEvidenceDeliveryRequest = {
 };
 
 describe("HttpPlatformEvidenceAdapter", () => {
-  it("authenticates and sends the exact versioned envelope with an idempotency key", async () => {
+  it("authenticates, sends the exact versioned envelope with an idempotency key and never follows redirects", async () => {
     const calls: Array<{ input: string; init: RequestInit }> = [];
     const adapter = new HttpPlatformEvidenceAdapter(
       "https://platform.example.test/integrations/telegram/v1/membership-evidence",
@@ -44,6 +44,7 @@ describe("HttpPlatformEvidenceAdapter", () => {
         "x-inside-membership-evidence-source": request.source,
       },
       method: "POST",
+      redirect: "error",
     });
   });
 
