@@ -1,4 +1,7 @@
-/** Every service secret: 32-256 base64url characters, which is also Telegram's secret-token alphabet. */
+/**
+ * Every service secret: 32-256 base64url characters. The same alphabet is Telegram's
+ * webhook secret-token alphabet.
+ */
 export function assertServiceSecret(value: string, name: string): void {
   if (!/^[A-Za-z0-9_-]{32,256}$/.test(value))
     throw new Error(
