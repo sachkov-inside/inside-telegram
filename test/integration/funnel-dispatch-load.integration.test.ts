@@ -522,3 +522,85 @@ it("keeps answering new /start behind a head of replies that cannot be sent yet"
     ["778", "intro"],
   ]);
 });
+
+it("never holds a BotContact whose chat lane is busy while the claim continues", async () => {
+  await seedDueAudience(2);
+  // Contact 1000000 is first in due order but its chat lane is taken; 1000001 is sendable.
+  await database
+    .updateTable("communication_deliveries as d")
+    .set({ due_at: new Date(Date.now() - 5000) })
+    .from("communication_contacts as c")
+    .whereRef("c.contact_id", "=", "d.contact_id")
+    .where("c.telegram_user_id", "=", "1000000")
+    .where("d.kind", "=", "step")
+    .execute();
+  await database
+    .insertInto("telegram_transport_slots")
+    .values({
+      bot_identity: "inside",
+      lane: "chat:1000000",
+      available_at: new Date(Date.now() + 60_000),
+    })
+    .execute();
+  let reached!: () => void;
+  const reserving = new Promise<void>((resolve) => {
+    reached = resolve;
+  });
+  let resume!: () => void;
+  const paused = new Promise<void>((resolve) => {
+    resume = resolve;
+  });
+  const intercepted = new Set<unknown>();
+  // Pause the claim at its first capacity reservation, after the busy contact was scanned.
+  const pausing = database.withPlugin({
+    transformQuery(args) {
+      if (
+        !intercepted.size &&
+        args.node.kind === "InsertQueryNode" &&
+        JSON.stringify(args.node).includes("telegram_transport_fairness")
+      )
+        intercepted.add(args.queryId);
+      return args.node;
+    },
+    async transformResult(args) {
+      if (intercepted.has(args.queryId)) {
+        reached();
+        await paused;
+      }
+      return args.result;
+    },
+  });
+  const dispatch = new FunnelScheduler(
+    pausing,
+    config,
+    { now: () => new Date() },
+    {
+      send: async (message: CommunicationMessage) => {
+        sent.push({ message, at: performance.now() });
+        return { kind: "delivered", providerMessageId: "synthetic" };
+      },
+    },
+  ).processAvailable(1);
+  try {
+    await reserving;
+    const startMs = await elapsed(
+      () =>
+        app.get(BotContacts).observeStart(
+          {
+            botIdentity: "inside",
+            telegramUserId: "1000000",
+            privateChatId: "1000000",
+            updateId: "910",
+            observedAt: new Date(),
+          },
+          "none",
+        ),
+      2000,
+    );
+    expect(startMs).toBeLessThan(2000);
+  } finally {
+    resume();
+    await dispatch;
+  }
+  expect(sent.map((s) => s.message.chatId)).toEqual(["1000001"]);
+});

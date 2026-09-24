@@ -114,8 +114,8 @@ due order is kept only within one pass. Claim cost no longer depends on the audi
 Two locks order this work. The bot scheduler advisory lock belongs to planning, dispatch, results
 and author operations. A per-BotContact advisory lock serializes everything that changes one
 contact: its commands (`/start` including sign-in and linking, `/stop`/`/resume`, entry and
-contactability) and, under the scheduler lock, an operator decision, claim or result for its
-delivery. Contact commands never take the scheduler lock. A claim checks a candidate before taking
+contactability) and, under the scheduler lock, an operator decision, claim, result or stale-claim
+recovery for its delivery. Contact commands never take the scheduler lock. A claim checks a candidate before taking
 its contact lock, skips a contact whose command is in progress and commits at once when a locked
 candidate proves unsendable. Audience-wide writes (publication, broadcast launch and cancel) cannot hold
 thousands of advisory locks, so they lock the affected `communication_contacts` rows instead. A

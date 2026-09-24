@@ -2,6 +2,9 @@ import { sql, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 
 type Purpose = "general" | "subscription" | "material";
+function chatLane(chat: string): string {
+  return `chat:${chat}`;
+}
 // Shared by service and marketing dispatch. Reservations commit before external I/O.
 export async function reserveTelegramSlot(
   tx: Transaction<DatabaseSchema>,
@@ -71,7 +74,7 @@ export async function admitTelegramSlot(
   if (turns[selected] !== purpose) return "bot_busy";
   const lanes = [
     { lane: "global", delay: 40 },
-    { lane: `chat:${chat}`, delay: 1000 },
+    { lane: chatLane(chat), delay: 1000 },
   ];
   const existing = await tx
     .selectFrom("telegram_transport_slots")
@@ -121,7 +124,7 @@ export async function chatLaneBusy(
     .selectFrom("telegram_transport_slots")
     .select("available_at")
     .where("bot_identity", "=", bot)
-    .where("lane", "=", `chat:${chat}`)
+    .where("lane", "=", chatLane(chat))
     .executeTakeFirst();
   return lane !== undefined && lane.available_at > now;
 }

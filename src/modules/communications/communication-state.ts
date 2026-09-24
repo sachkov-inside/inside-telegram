@@ -18,7 +18,8 @@ export async function schedulerLock(
   await communicationLock(tx, `communications-scheduler:${bot}`);
 }
 // One BotContact's communication state: /start, stop/resume, contactability, entry, an operator
-// decision on its delivery and the dispatch claim/result. It never serializes other contacts.
+// decision on its delivery, and the dispatch claim, result and stale-claim recovery. It never
+// serializes other contacts.
 function contactKey(bot: string, telegramUserId: string): string {
   return `communications-contact:${bot}:${telegramUserId}`;
 }

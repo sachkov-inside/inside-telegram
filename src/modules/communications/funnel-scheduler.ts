@@ -98,9 +98,16 @@ export class FunnelScheduler {
     if (!this.config.marketingEnabled) return 0;
     await this.plan();
     let processed = 0;
-    for (; processed < limit; processed++) {
-      const claimed = await this.claim();
-      if (!claimed) break;
+    // A released claim freed a contact that proved unsendable; it only retries, within bounds.
+    for (
+      let attempts = 0;
+      processed < limit && attempts < 2 * limit;
+      attempts++
+    ) {
+      const outcome = await this.claim();
+      if (outcome.kind === "released") continue;
+      if (outcome.kind !== "claimed") break;
+      const claimed = outcome.claim;
       let result: TelegramDeliveryResult;
       try {
         result = await this.transport.send({
@@ -116,6 +123,7 @@ export class FunnelScheduler {
         claimed.attemptId,
         result,
       );
+      processed++;
     }
     return processed;
   }
@@ -241,10 +249,10 @@ export class FunnelScheduler {
         )
     );
   }
-  private async claim(): Promise<Claim | undefined> {
+  private async claim(): Promise<CandidateOutcome> {
     // Scan positions advance only when the claim transaction commits.
     const resumeAfter = new Map(this.resumeAfter);
-    const claim = await this.database.transaction().execute(async (tx) => {
+    const outcome = await this.database.transaction().execute(async (tx) => {
       await schedulerLock(tx, this.config.botIdentity);
       const now = this.clock.now();
       // A marketing backlog must never reserve capacity ahead of a ready service response.
@@ -255,17 +263,16 @@ export class FunnelScheduler {
         .where("state", "in", ["pending", "retry_scheduled"])
         .where("available_at", "<=", now)
         .executeTakeFirst();
-      if (service) return undefined;
+      if (service) return { kind: "capacity_busy" } as const;
       // Replies to a contact's own /start go ahead of the funnel and broadcast backlog.
       for (const queue of [REPLY_KINDS, BACKLOG_KINDS]) {
         const outcome = await this.claimFrom(tx, resumeAfter, queue, now);
-        if (outcome.kind === "claimed") return outcome.claim;
-        if (outcome.kind !== "skipped") return undefined;
+        if (outcome.kind !== "skipped") return outcome;
       }
-      return undefined;
+      return { kind: "skipped" } as const;
     });
     this.resumeAfter = resumeAfter;
-    return claim;
+    return outcome;
   }
   // Scans one queue in due order, at most CLAIM_SCAN_LIMIT rows per claim. When that many rows
   // at the head cannot be sent (a lane waiting for an earlier step, an intro not yet sent), the
