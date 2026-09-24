@@ -136,6 +136,10 @@ jobs:
             -o BatchMode=yes \
             -o IdentitiesOnly=yes \
             -o StrictHostKeyChecking=yes \
+            -o ConnectTimeout=30 \
+            -o ConnectionAttempts=3 \
+            -o ServerAliveInterval=15 \
+            -o ServerAliveCountMax=8 \
             -o "UserKnownHostsFile=$RUNNER_TEMP/telegram-known-hosts" \
             "inside-telegram-deploy@$SSH_HOST" \
             "$OPERATION $VERSION $GITHUB_RUN_ID" \

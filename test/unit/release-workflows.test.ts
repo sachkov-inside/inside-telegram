@@ -49,6 +49,9 @@ function assertDeploymentBoundary(workflow: string): void {
   expect(workflow).not.toMatch(/actions\/checkout|docker build|pnpm|npm /);
   expect(workflow).toContain("StrictHostKeyChecking=yes");
   expect(workflow).toContain("BatchMode=yes");
+  // A silent phase once outlived an idle network path in Platform deploy (Workspace #184).
+  expect(workflow).toContain("ServerAliveInterval=15");
+  expect(workflow).toContain("ConnectionAttempts=3");
   expect(workflow).toContain('"inside-telegram-deploy@$SSH_HOST"');
   expect(workflow).toContain('"$OPERATION $VERSION $GITHUB_RUN_ID"');
   expect(workflow).not.toMatch(
