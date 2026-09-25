@@ -1440,6 +1440,7 @@ describe("broadcast messages", () => {
     }));
     const dialog = card(broadcast({ parts })).click("Изменить сообщения");
     expect(dialog.labels()).not.toContain("Создать сообщение");
+    expect(dialog.labels()).not.toContain("Добавить сохранённый пост");
     expect(dialog.labels()).not.toContain("Добавить сообщения");
     expect(dialog.labels()).toContain("К рассылке");
   });
