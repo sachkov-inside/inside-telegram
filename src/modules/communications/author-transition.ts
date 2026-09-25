@@ -32,7 +32,7 @@ import {
   applyFunnelSave,
   composeInFunnel,
   formatFunnelDelay,
-  isFunnelStep,
+  isFunnelEditorAction,
   newFunnel,
   performFunnel,
   rejectFunnelSave,
@@ -122,11 +122,7 @@ export function transition(
 function step(t: Turn, event: AuthorEvent): void {
   switch (event.kind) {
     case "open":
-      t.reset();
-      return t.reply(
-        "Админка коммуникаций. Текст и медиа готовьте здесь, в Telegram.",
-        HOME,
-      );
+      return welcome(t);
     case "close":
       return close(t);
     case "callback": {
@@ -269,6 +265,10 @@ function close(t: Turn) {
   if (s.composing?.sequence) return sequenceResult(t, { kind: "finished" });
   if (s.composing)
     return composeResult(t, actComposer(t, { kind: "compose:cancel" }));
+  welcome(t);
+}
+
+function welcome(t: Turn) {
   t.reset();
   t.reply(
     "Админка коммуникаций. Текст и медиа готовьте здесь, в Telegram.",
@@ -278,7 +278,7 @@ function close(t: Turn) {
 
 function perform(t: Turn, a: AuthorAction): void {
   if (isComposerStep(a)) return composeResult(t, actComposer(t, a));
-  if (isFunnelStep(a)) return performFunnel(t, a);
+  if (isFunnelEditorAction(a)) return performFunnel(t, a);
   const s = t.state;
   const template = s.template;
   const b = s.broadcast;
@@ -592,7 +592,7 @@ function performOnBroadcast(
       }
       return t.reply(
         a.kind === "confirm-launch"
-          ? `Запустить «${t.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}.\nКому: ${b.audience.kind === "all" ? "все доступные контакты" : `выбранные воронки: ${b.audience.funnelIds.length}, без дублей`}.\nКогда: ${b.scheduledAt ? new Date(b.scheduledAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " · Москва" : "сразу после подтверждения"}.`
+          ? `Запустить «${t.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}.\nКому: ${b.audience.kind === "all" ? "все доступные контакты" : `выбранные воронки: ${b.audience.funnelIds.length}, без дублей`}.\nКогда: ${b.scheduledAt ? moscowTime(b.scheduledAt) : "сразу после подтверждения"}.`
           : "Отменить рассылку? Уже отправленные сообщения останутся у получателей.",
         [
           [
@@ -859,7 +859,7 @@ function confirmSchedule(t: Turn, date: string | null) {
   const b = selectedBroadcast(t);
   t.state.pendingSchedule = date;
   t.reply(
-    `Изменить время рассылки «${t.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}. Кому: всем доступным подписчикам.\nНовое время: ${date ? new Date(date).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " · Москва" : "сразу"}.${b.state === "paused" ? " Рассылка останется на паузе до команды «Продолжить»." : " После подтверждения рассылка будет отправлена в это время."}`,
+    `Изменить время рассылки «${t.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}. Кому: всем доступным подписчикам.\nНовое время: ${date ? moscowTime(date) : "сразу"}.${b.state === "paused" ? " Рассылка останется на паузе до команды «Продолжить»." : " После подтверждения рассылка будет отправлена в это время."}`,
     [
       ["Подтвердить время отправки", { kind: "apply-schedule" }],
       ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
@@ -886,12 +886,21 @@ function afterBroadcastSave(t: Turn, then: AfterSave): void {
     case "batch":
       return batchMenu(t);
     case "next-message":
-      t.discardComposition(then.destinationId);
-      t.state.composing = undefined;
-      return beginSequence(t, "broadcast");
+      return nextMessage(t, then.destinationId, "broadcast");
     default:
       return unhandled(then, "broadcast continuation");
   }
+}
+
+/** The sequence message is saved: drop its pending copy and ask for the next one. */
+function nextMessage(
+  t: Turn,
+  destinationId: string,
+  kind: "broadcast" | "funnel",
+) {
+  t.discardComposition(destinationId);
+  t.state.composing = undefined;
+  beginSequence(t, kind);
 }
 
 function afterFunnelSave(t: Turn, then: AfterFunnelSave): void {
@@ -899,9 +908,7 @@ function afterFunnelSave(t: Turn, then: AfterFunnelSave): void {
     case "card":
       return showFunnel(t);
     case "next-message":
-      t.discardComposition(then.destinationId);
-      t.state.composing = undefined;
-      return beginSequence(t, "funnel");
+      return nextMessage(t, then.destinationId, "funnel");
     default:
       return unhandled(then, "funnel continuation");
   }
@@ -1143,6 +1150,10 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
   }
   t.reset();
   t.reply("Выберите «Рассылки» или «Воронки», чтобы добавить сообщения.", HOME);
+}
+
+function moscowTime(date: string) {
+  return `${new Date(date).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })} · Москва`;
 }
 
 export function parseMoscowSchedule(text: string): string | null | undefined {

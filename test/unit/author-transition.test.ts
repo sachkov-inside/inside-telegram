@@ -4,7 +4,10 @@ import {
   type AuthorBroadcast,
   type AuthorState,
 } from "../../src/modules/communications/author-dialog.js";
-import { transition } from "../../src/modules/communications/author-transition.js";
+import {
+  parseMoscowSchedule,
+  transition,
+} from "../../src/modules/communications/author-transition.js";
 import type {
   AuthorEffect,
   AuthorEvent,
@@ -768,4 +771,18 @@ describe("funnel", () => {
     expect(moved.state.funnelAuthor!.dirty).toBe(true);
     expect(moved.menu!.text).toContain("Прогрев · сообщения");
   });
+});
+
+it("parses explicit Moscow time without accepting invalid dates or implicit machine timezones", () => {
+  expect(parseMoscowSchedule("01.01.2099 12:00")).toBe(
+    "2099-01-01T09:00:00.000Z",
+  );
+  expect(parseMoscowSchedule("сразу")).toBeNull();
+  for (const input of [
+    "31.02.2099 12:00",
+    "01.01.2099 25:00",
+    "tomorrow",
+    "2099-01-01",
+  ])
+    expect(parseMoscowSchedule(input)).toBeUndefined();
 });

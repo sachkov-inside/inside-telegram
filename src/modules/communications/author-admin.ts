@@ -20,6 +20,7 @@ import {
   type AuthorAuthorization,
 } from "./author-authorization.js";
 import { AuthorBroadcastDrafts } from "./author-broadcast-drafts.js";
+import { AuthorFunnelDrafts } from "./author-funnel-drafts.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
   validateAuthorContent,
@@ -29,12 +30,10 @@ import { AuthorDelivery, enqueueAuthorMessage } from "./author-delivery.js";
 import {
   emptyAuthorState,
   parseAuthorState,
-  parseFunnelDraft,
   type AuthorState,
 } from "./author-dialog.js";
 import {
   discardComposition,
-  drafts,
   loadComposition,
   pendingCompositions,
   removeAuthorDraft,
@@ -45,11 +44,7 @@ import {
 import type { AuthorInput } from "./author-input.js";
 import { authorRequest } from "./author-request.js";
 import { transition } from "./author-transition.js";
-import type {
-  AuthorEffect,
-  AuthorEvent,
-  FunnelListItem,
-} from "./author-turn.js";
+import type { AuthorEffect, AuthorEvent } from "./author-turn.js";
 import { communicationLock } from "./communication-state.js";
 import { Communications } from "./communications.js";
 import {
@@ -57,7 +52,6 @@ import {
   validRequest,
   type CommunicationsRequest,
 } from "./communications-contract.js";
-import type { IntroSnapshot } from "./funnel-types.js";
 import { Funnels } from "./funnels.js";
 
 type Tx = Transaction<DatabaseSchema>;
@@ -84,6 +78,7 @@ const RECOVERABLE = [
 @Injectable()
 export class AuthorAdmin {
   private readonly broadcastDrafts: AuthorBroadcastDrafts;
+  private readonly funnelDrafts: AuthorFunnelDrafts;
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
@@ -96,6 +91,7 @@ export class AuthorAdmin {
     private readonly validation: AuthorContentValidation,
   ) {
     this.broadcastDrafts = new AuthorBroadcastDrafts(funnels);
+    this.funnelDrafts = new AuthorFunnelDrafts(funnels);
   }
   async handle(input: AuthorInput): Promise<boolean> {
     if (input.botIdentity !== this.config.botIdentity) return false;
@@ -482,40 +478,18 @@ export class AuthorAdmin {
       case "list-funnels":
         return {
           kind: "funnels-listed",
-          ...(await this.listFunnels(c, effect.cursor)),
+          ...(await this.funnelDrafts.list(c, effect.cursor)),
         };
-      case "read-funnel": {
-        const draft = await drafts(c)
-          .where("draft_id", "=", effect.funnelId)
-          .where("kind", "=", "funnel")
-          .executeTakeFirst();
-        const snapshot = parseFunnelDraft(draft?.snapshot);
-        if (snapshot) return { kind: "funnel-read", funnelAuthor: snapshot };
-        const result = await this.funnels.execute(
-          this.request(c, "funnels.read", { funnelId: effect.funnelId }),
-          c.tx,
-        );
-        if (!("funnel" in result)) throw new CommunicationsError("malformed");
+      case "read-funnel":
         return {
           kind: "funnel-read",
-          funnelAuthor: { funnel: result.funnel, dirty: false },
+          funnelAuthor: await this.funnelDrafts.read(c, effect.funnelId),
         };
-      }
-      case "read-intro": {
-        const draft = await drafts(c)
-          .where("kind", "=", "intro")
-          .executeTakeFirst();
-        const snapshot = parseFunnelDraft(draft?.snapshot);
-        if (snapshot) return { kind: "intro-read", funnelAuthor: snapshot };
+      case "read-intro":
         return {
           kind: "intro-read",
-          funnelAuthor: {
-            intro: await this.readIntro(c),
-            target: "intro",
-            dirty: false,
-          },
+          funnelAuthor: await this.funnelDrafts.readIntro(c),
         };
-      }
       case "save-funnel": {
         const f = effect.funnel;
         const request = this.request(
@@ -612,21 +586,17 @@ export class AuthorAdmin {
           funnel: "funnel" in result ? result.funnel : undefined,
         };
       }
-      case "read-part-history": {
-        const historical = await c.tx
-          .selectFrom("communication_step_ids")
-          .select("part_ids")
-          .where("funnel_id", "=", effect.funnelId)
-          .execute();
+      case "read-part-history":
         return {
           kind: "part-history-read",
           partId: effect.partId,
           delaySeconds: effect.delaySeconds,
-          published: historical.some((step) =>
-            (step.part_ids as string[]).includes(effect.partId),
+          published: await this.funnelDrafts.published(
+            c,
+            effect.funnelId,
+            effect.partId,
           ),
         };
-      }
       default:
         return unhandled(effect, "author effect");
     }
@@ -647,64 +617,5 @@ export class AuthorAdmin {
       telegramIdentityRef: c.identityRef,
       message: { chatId: c.input.telegramUserId, ...message },
     });
-  }
-
-  /** A page of the author's funnels, saved ones and unsaved drafts together. */
-  private async listFunnels(
-    c: Context,
-    cursor: string | undefined,
-  ): Promise<{ items: FunnelListItem[]; nextCursor?: string }> {
-    let saved = c.tx
-      .selectFrom("communication_funnels")
-      .select("funnel_id as id")
-      .where("bot_identity", "=", c.input.botIdentity)
-      .where("owner_account_ref", "=", c.accountRef);
-    let scratch = c.tx
-      .selectFrom("communication_author_drafts")
-      .select("draft_id as id")
-      .where("bot_identity", "=", c.input.botIdentity)
-      .where("owner_account_ref", "=", c.accountRef)
-      .where("kind", "=", "funnel");
-    if (cursor) {
-      saved = saved.where("funnel_id", ">", cursor);
-      scratch = scratch.where("draft_id", ">", cursor);
-    }
-    const ids = await saved.union(scratch).orderBy("id").limit(11).execute();
-    const items: FunnelListItem[] = [];
-    for (const { id } of ids.slice(0, 10)) {
-      const draft = await drafts(c)
-        .where("draft_id", "=", id)
-        .executeTakeFirst();
-      if (draft) items.push({ id, name: draft.name, status: "edited" });
-      else {
-        const result = await this.funnels.execute(
-          this.request(c, "funnels.read", { funnelId: id }),
-          c.tx,
-        );
-        if ("funnel" in result)
-          items.push({
-            id,
-            name: result.funnel.name,
-            status: result.funnel.lifecycle,
-          });
-      }
-    }
-    return { items, nextCursor: ids.length > 10 ? ids[9]?.id : undefined };
-  }
-
-  /** The shared intro, or a new empty one when the author has none yet. */
-  private async readIntro(c: Context): Promise<IntroSnapshot> {
-    try {
-      const result = await this.funnels.execute(
-        this.request(c, "intro.read", {}),
-        c.tx,
-      );
-      if (!("intro" in result)) throw new CommunicationsError("malformed");
-      return result.intro;
-    } catch (error) {
-      if (!(error instanceof CommunicationsError) || error.code !== "not_found")
-        throw error;
-      return { introId: randomUUID(), revision: 0, parts: [] };
-    }
   }
 }

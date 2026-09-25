@@ -27,13 +27,15 @@ const names = {
   archived: "В архиве",
 };
 
-/** Funnel buttons that the admin handles; the funnel editor handles the rest. */
+/** Funnel buttons that start a composition; the funnel editor handles the rest. */
 const FUNNEL_ENTRIES = ["f:new", "f:posts"] as const;
-export type FunnelStep = Exclude<
+export type FunnelEditorAction = Exclude<
   FunnelAction,
   { kind: (typeof FUNNEL_ENTRIES)[number] }
 >;
-export function isFunnelStep(action: AuthorAction): action is FunnelStep {
+export function isFunnelEditorAction(
+  action: AuthorAction,
+): action is FunnelEditorAction {
   return (
     action.kind.startsWith("f:") &&
     !(FUNNEL_ENTRIES as readonly string[]).includes(action.kind)
@@ -41,7 +43,7 @@ export function isFunnelStep(action: AuthorAction): action is FunnelStep {
 }
 /** Funnel buttons that do not leave the current prompt. */
 type PromptStep = Extract<
-  FunnelStep,
+  FunnelEditorAction,
   {
     kind:
       "f:settings" | "f:messages" | "f:message" | "f:timing" | "f:timing-entry";
@@ -49,7 +51,7 @@ type PromptStep = Extract<
 >;
 /** Funnel buttons that need an open funnel. */
 type FunnelEdit = Exclude<
-  FunnelStep,
+  FunnelEditorAction,
   | PromptStep
   | {
       kind:
@@ -386,7 +388,7 @@ function partsMenu(t: Turn, offset = 0) {
   );
 }
 
-export function performFunnel(t: Turn, a: FunnelStep): void {
+export function performFunnel(t: Turn, a: FunnelEditorAction): void {
   switch (a.kind) {
     case "f:settings":
       return settings(t);
@@ -419,7 +421,10 @@ function leavePrompts(t: Turn) {
   return s;
 }
 
-function performSelection(t: Turn, a: Exclude<FunnelStep, PromptStep>): void {
+function performSelection(
+  t: Turn,
+  a: Exclude<FunnelEditorAction, PromptStep>,
+): void {
   const s = leavePrompts(t);
   switch (a.kind) {
     case "f:discard": {
@@ -523,7 +528,7 @@ function performSelection(t: Turn, a: Exclude<FunnelStep, PromptStep>): void {
 function performEdit(
   t: Turn,
   s: AuthorFunnelState,
-  a: FunnelEdit | Extract<FunnelStep, { kind: "f:save-intro" }>,
+  a: FunnelEdit | Extract<FunnelEditorAction, { kind: "f:save-intro" }>,
 ): void {
   const f = s.funnel;
   if (!f) return t.reply("Сначала откройте воронку.", root);

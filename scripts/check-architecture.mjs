@@ -138,13 +138,33 @@ function importSpecifiers(source) {
   ].map((match) => match[1]);
 }
 
-/** Imports that load code at runtime; `import type` is erased by the compiler. */
+/** Modules loaded at runtime; `import type` and all-type import lists are erased. */
 function valueImportSpecifiers(source) {
+  const statements = source.matchAll(
+    /^\s*(import|export)\s+(?!type\b)(?:([^"';]*?)\bfrom\s+)?["']([^"']+)["']/gm,
+  );
+  const dynamic = source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']/g);
   return [
-    ...source.matchAll(
-      /^\s*import\s+(?!type\b)(?:[^"';]*?\bfrom\s+)?["']([^"']+)["']/gm,
-    ),
-  ].map((match) => match[1]);
+    ...[...statements]
+      .filter(([, keyword, clause]) =>
+        keyword === "import" ? !onlyTypes(clause) : clause !== undefined,
+      )
+      .map((match) => match[3]),
+    ...[...dynamic].map((match) => match[1]),
+  ];
+}
+
+/** `{ type A, type B }`: an import clause that names only types. */
+function onlyTypes(clause) {
+  const names = /^\{([^}]*)\}\s*$/.exec(clause?.trim() ?? "")?.[1];
+  return (
+    names !== undefined &&
+    names
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .every((name) => name.startsWith("type "))
+  );
 }
 
 /** The imported file relative to the root, or undefined for a package import. */

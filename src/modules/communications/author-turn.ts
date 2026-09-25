@@ -2,6 +2,7 @@ import type { AuthorContentValidationResult } from "./author-content-validation.
 import {
   emptyAuthorState,
   pageAuthorMenu,
+  type AuthorAction,
   type AuthorBroadcast,
   type AuthorButton,
   type AuthorFunnelState,
@@ -30,7 +31,10 @@ export interface DialogEnvironment {
 }
 
 export type StatisticsCounts = StatisticsResult["statistics"]["deliveries"];
-export type LifecycleAction = "pause" | "resume" | "archive" | "restore";
+export type LifecycleAction = Extract<
+  AuthorAction,
+  { kind: "f:life" }
+>["value"];
 
 /** What the dialog shows once a saved funnel comes back. */
 export type AfterFunnelSave =
