@@ -54,20 +54,24 @@ import scenarios from "../../src/modules/communications/contracts/inside-communi
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const database = createDatabase(databaseUrl);
-const config = loadApplicationConfig({
-  DATABASE_URL: databaseUrl,
-  TELEGRAM_BOT_IDENTITY: "inside",
-  TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
-  PLATFORM_COMMUNICATIONS_SECRET: "synthetic_communications_secret_for_tests",
-  TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
-  TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic receipt",
-  TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member",
-  TELEGRAM_LINKED_NON_MEMBER_TEXT: "Synthetic non-member",
-  TELEGRAM_LINKED_UNAVAILABLE_TEXT: "Synthetic unavailable",
-  WORKERS_ENABLED: "false",
-});
+const config = {
+  ...loadApplicationConfig({
+    DATABASE_URL: databaseUrl,
+    TELEGRAM_BOT_IDENTITY: "inside",
+    TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
+    TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
+    PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
+    PLATFORM_COMMUNICATIONS_SECRET: "synthetic_communications_secret_for_tests",
+    TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
+    TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic receipt",
+    TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member",
+    TELEGRAM_LINKED_NON_MEMBER_TEXT: "Synthetic non-member",
+    TELEGRAM_LINKED_UNAVAILABLE_TEXT: "Synthetic unavailable",
+    WORKERS_ENABLED: "false",
+  }),
+  // Scripted conversations exceed the per-user limit, which ordinary-start covers.
+  senderRate: { requests: 10_000, windowMs: 10_000 },
+};
 class FakeAuthorization implements AuthorAuthorization {
   result: "allowed" | "denied" | "unavailable" = "allowed";
   subjects: AuthorSubject[] = [];

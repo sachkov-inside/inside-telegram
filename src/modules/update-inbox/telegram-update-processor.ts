@@ -24,7 +24,11 @@ import {
   RUNTIME_COUNTERS,
   type RuntimeCounters,
 } from "../../shared/runtime-counters.js";
-import { TelegramUpdateInbox } from "./telegram-update-inbox.js";
+import {
+  TelegramUpdateInbox,
+  type ClaimedTelegramUpdate,
+} from "./telegram-update-inbox.js";
+import { SenderRateLimit, type SenderAdmission } from "./sender-rate-limit.js";
 import {
   TELEGRAM_UPDATE_TRANSLATOR,
   type TelegramUpdateCommand,
@@ -32,11 +36,24 @@ import {
 } from "./telegram-update-command.js";
 import {
   APPLICATION_CONFIG,
+  DEFAULT_SENDER_RATE,
   type ApplicationConfig,
 } from "../../config/application-config.js";
 
+const SENDER_RATE_NOTICE =
+  "Слишком много запросов подряд. Подождите несколько секунд и повторите.";
+
+/** The person behind a request made in the bot's private chat. */
+interface UserRequest {
+  readonly telegramUserId: string;
+  readonly privateChatId: string;
+  readonly callbackQueryId?: string;
+}
+
 @Injectable()
 export class TelegramUpdateProcessor {
+  private readonly senderLimit: SenderRateLimit;
+
   constructor(
     @Inject(SubscriptionActivation)
     private readonly activation: Pick<
@@ -65,7 +82,12 @@ export class TelegramUpdateProcessor {
     private readonly replies: StartResponseDeliveryQueue,
     @Inject(TELEGRAM_UPDATE_TRANSLATOR)
     private readonly translator: TelegramUpdateTranslator,
-  ) {}
+  ) {
+    // Counted by webhook arrival, so a backlog after a processing delay is not refused.
+    this.senderLimit = new SenderRateLimit(
+      config.senderRate ?? DEFAULT_SENDER_RATE,
+    );
+  }
 
   async processAvailable(
     limit = 50,
@@ -86,14 +108,28 @@ export class TelegramUpdateProcessor {
           update.payload,
           update.receivedAt,
         );
-        await this.handle(command);
+        const request = userRequest(command);
+        const admission = request
+          ? this.senderLimit.admit(
+              `${update.botIdentity}:${request.telegramUserId}`,
+              update.updateId,
+              update.receivedAt,
+            )
+          : "admitted";
+        if (request && admission !== "admitted")
+          await this.refuse(update, request, admission);
+        else await this.handle(command);
 
         if (!(await this.inbox.markProcessed(update, now ?? new Date())))
           reportCondition("update-inbox.process", "lease_lost", {
             update_id: update.updateId,
           });
         this.metrics.increment(
-          command.kind === "ignored" ? "update_ignored" : "update_processed",
+          admission !== "admitted"
+            ? "update_rate_limited"
+            : command.kind === "ignored"
+              ? "update_ignored"
+              : "update_processed",
         );
       } catch (error) {
         const failure = reportFailure("update-inbox.process", error, {
@@ -111,6 +147,26 @@ export class TelegramUpdateProcessor {
       }
     }
     return processed;
+  }
+
+  /** A refused press still stops its button spinner; one notice per window explains the silence. */
+  private async refuse(
+    update: ClaimedTelegramUpdate,
+    request: UserRequest,
+    admission: Exclude<SenderAdmission, "admitted">,
+  ): Promise<void> {
+    if (request.callbackQueryId)
+      await this.callbackAnswers.answer(request.callbackQueryId);
+    if (admission === "notify")
+      await this.replies.enqueue({
+        botIdentity: update.botIdentity,
+        telegramUserId: request.telegramUserId,
+        privateChatId: request.privateChatId,
+        messageText: SENDER_RATE_NOTICE,
+        sourceKey: `sender-rate:${update.botIdentity}:${update.updateId}`,
+        triggerUpdateId: update.updateId,
+        now: update.receivedAt,
+      });
   }
 
   private async handle(command: TelegramUpdateCommand): Promise<void> {
@@ -240,4 +296,44 @@ export class TelegramUpdateProcessor {
       now: contact.observedAt,
     });
   }
+}
+
+/** Requests a person makes in the private chat; Telegram's reports about them are never limited. */
+function userRequest(command: TelegramUpdateCommand): UserRequest | undefined {
+  switch (command.kind) {
+    case "access-action":
+    case "sign-in-decision":
+      return {
+        ...contactOf(command.value),
+        callbackQueryId: command.callbackQueryId,
+      };
+    case "author-input":
+      return {
+        ...contactOf(command.value),
+        callbackQueryId: command.value.callbackQueryId,
+      };
+    case "marketing_preference":
+    case "start":
+      return contactOf(command.value.contact);
+    case "community-request":
+    case "template-intake":
+      return contactOf(command.value);
+    case "contactability":
+    case "membership":
+    case "join-request":
+    case "ignored":
+      return undefined;
+    default:
+      return unhandled(command, "Telegram update command");
+  }
+}
+
+function contactOf(value: {
+  readonly telegramUserId: string;
+  readonly privateChatId: string;
+}): UserRequest {
+  return {
+    telegramUserId: value.telegramUserId,
+    privateChatId: value.privateChatId,
+  };
 }
