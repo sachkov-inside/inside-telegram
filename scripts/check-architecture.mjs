@@ -146,8 +146,9 @@ function valueImportSpecifiers(source) {
   const dynamic = source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']/g);
   return [
     ...[...statements]
-      .filter(([, keyword, clause]) =>
-        keyword === "import" ? !onlyTypes(clause) : clause !== undefined,
+      .filter(
+        ([, keyword, clause]) =>
+          !onlyTypes(clause) && (keyword === "import" || clause !== undefined),
       )
       .map((match) => match[3]),
     ...[...dynamic].map((match) => match[1]),

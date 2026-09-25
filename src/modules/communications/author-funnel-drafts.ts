@@ -7,7 +7,10 @@ import type { FunnelListItem } from "./author-turn.js";
 import { CommunicationsError } from "./communications-contract.js";
 import type { Funnels } from "./funnels.js";
 
-/** Reads the author's funnels and shared intro, preferring an unsaved draft to the saved version. */
+/**
+ * Reads the author's funnels and shared intro, preferring an unsaved draft to the saved version,
+ * and the delivery history of their steps.
+ */
 export class AuthorFunnelDrafts {
   constructor(private readonly funnels: Funnels) {}
 
@@ -95,7 +98,11 @@ export class AuthorFunnelDrafts {
   }
 
   /** Whether any published version of the funnel already delivered this message. */
-  async published(c: Context, funnelId: string, partId: string) {
+  async wasPublished(
+    c: Context,
+    funnelId: string,
+    partId: string,
+  ): Promise<boolean> {
     const historical = await c.tx
       .selectFrom("communication_step_ids")
       .select("part_ids")

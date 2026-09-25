@@ -591,7 +591,7 @@ export class AuthorAdmin {
           kind: "part-history-read",
           partId: effect.partId,
           delaySeconds: effect.delaySeconds,
-          published: await this.funnelDrafts.published(
+          published: await this.funnelDrafts.wasPublished(
             c,
             effect.funnelId,
             effect.partId,
