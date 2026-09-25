@@ -30,7 +30,8 @@ export type QueueValues<T extends Table> = {
  *
  * With `lane`, rows that share the lane columns run one at a time and in queue order: a row
  * waits while its lane has a leased row or an earlier ready row, even one not yet due for a
- * retry. A null lane column puts a row in no lane.
+ * retry. A settled row, whatever its outcome, no longer holds its lane. A null lane column puts
+ * a row in no lane.
  */
 export interface DurableQueue<T extends Table> {
   readonly table: T;

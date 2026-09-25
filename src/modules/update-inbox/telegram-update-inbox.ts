@@ -11,12 +11,15 @@ import {
 
 const MAX_PROCESS_ATTEMPTS = 5;
 
-/** One lane per sender: a sender's updates run in order, other senders run in parallel. */
+/**
+ * One lane per user conversation and one per chat whose membership changes: each lane's updates
+ * run in order, other lanes run in parallel.
+ */
 const updates: DurableQueue<"telegram_updates"> = {
   table: "telegram_updates",
   key: ["bot_identity", "update_id"],
   order: ["update_id"],
-  lane: ["bot_identity", "ordering_key"],
+  lane: ["bot_identity", "lane_key"],
   ready: ["pending"],
   leased: "processing",
   due: "available_at",
@@ -60,7 +63,7 @@ export class TelegramUpdateInbox {
         bot_identity: botIdentity,
         failure_code: null,
         locked_at: null,
-        ordering_key: senderOf(payload),
+        lane_key: laneOf(payload),
         payload,
         process_attempt_count: 0,
         processed_at: null,
@@ -151,23 +154,27 @@ export class TelegramUpdateInbox {
 }
 
 /**
- * The Telegram user an update concerns: the member whose status changed, otherwise the user who
- * acted, otherwise the chat. An update without one runs in no lane.
+ * Membership changes of a group run in that chat's lane, as they did when every update ran in
+ * one order: provider and member events of the canonical chat keep their relative order, and
+ * only one of them at a time waits on the provider lock (ADR 0003). Everything else runs in the
+ * lane of the user who sent it; an update without a sender runs in no lane.
  */
-function senderOf(payload: unknown): string | null {
+function laneOf(payload: unknown): string | null {
   const update = record(payload);
+  const membership = record(update?.chat_member ?? update?.my_chat_member);
+  const chat = record(membership?.chat);
   const id =
-    record(record(record(update?.chat_member)?.new_chat_member)?.user)?.id ??
-    [
-      "callback_query",
-      "chat_join_request",
-      "my_chat_member",
-      "message",
-      "edited_message",
-    ]
-      .map((kind) => record(record(update?.[kind])?.from)?.id)
-      .find((value) => value !== undefined) ??
-    record(record(update?.message ?? update?.edited_message)?.chat)?.id;
+    chat && chat.type !== "private"
+      ? chat.id
+      : [
+          "message",
+          "edited_message",
+          "callback_query",
+          "chat_join_request",
+          "my_chat_member",
+        ]
+          .map((kind) => record(record(update?.[kind])?.from)?.id)
+          .find((value) => value !== undefined);
   return typeof id === "number" || typeof id === "string" ? String(id) : null;
 }
 

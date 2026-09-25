@@ -503,6 +503,7 @@ describe("durable author intake", () => {
     await seedLink();
     const platform = slowPlatform();
     const inbox = app.get(TelegramUpdateInbox);
+    const processor = app.get(TelegramUpdateProcessor);
     await inbox.accept(
       "inside",
       "1",
@@ -516,26 +517,31 @@ describe("durable author intake", () => {
       new Date(),
     );
 
-    const processing = app.get(TelegramUpdateProcessor).processAvailable();
+    const first = processor.processAvailable();
     await until(async () => authorization.subjects.length === 1);
+    await processor.processAvailable();
     expect(await updateState("2")).toBe("pending");
 
     platform.answer();
-    await processing;
+    await first;
     expect(await updateState("1")).toBe("processed");
     expect(await updateState("2")).toBe("processed");
     expect(await rows()).toHaveLength(1);
   });
-  it("does not let a slow Platform answer for one sender delay another sender's /start", async () => {
+  it("does not let a slow Platform answer for one sender delay another sender's later /start", async () => {
     await seedLink();
     const platform = slowPlatform();
     const inbox = app.get(TelegramUpdateInbox);
+    const processor = app.get(TelegramUpdateProcessor);
     await inbox.accept(
       "inside",
       "1",
       update(1, { text: "/template" }),
       new Date(),
     );
+    const slow = processor.processAvailable();
+    await until(async () => authorization.subjects.length === 1);
+
     await inbox.accept(
       "inside",
       "2",
@@ -551,13 +557,12 @@ describe("durable author intake", () => {
       },
       new Date(),
     );
-
-    const processing = app.get(TelegramUpdateProcessor).processAvailable();
-    await until(async () => (await updateState("2")) === "processed");
+    await expect(processor.processAvailable()).resolves.toBe(1);
+    expect(await updateState("2")).toBe("processed");
     expect(await updateState("1")).toBe("processing");
 
     platform.answer();
-    await processing;
+    await slow;
     expect(await updateState("1")).toBe("processed");
   });
   it("rejects unsupported content explicitly, permits correction, and closes mode after one capture", async () => {

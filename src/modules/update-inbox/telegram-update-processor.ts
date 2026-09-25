@@ -24,10 +24,7 @@ import {
   RUNTIME_COUNTERS,
   type RuntimeCounters,
 } from "../../shared/runtime-counters.js";
-import {
-  TelegramUpdateInbox,
-  type ClaimedTelegramUpdate,
-} from "./telegram-update-inbox.js";
+import { TelegramUpdateInbox } from "./telegram-update-inbox.js";
 import {
   TELEGRAM_UPDATE_TRANSLATOR,
   type TelegramUpdateCommand,
@@ -37,12 +34,6 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-
-/**
- * Senders processed at once. Most of the pool (10 connections in `create-database.ts`) stays with
- * the webhook and the other background cycles.
- */
-const UPDATE_WORKERS = 4;
 
 @Injectable()
 export class TelegramUpdateProcessor {
@@ -76,65 +67,50 @@ export class TelegramUpdateProcessor {
     private readonly translator: TelegramUpdateTranslator,
   ) {}
 
-  /**
-   * Processes up to `limit` updates with parallel workers. The inbox hands out one update per
-   * sender at a time, so a slow sender holds only its own worker.
-   */
   async processAvailable(
     limit = 50,
     now?: Date,
     signal?: AbortSignal,
   ): Promise<number> {
-    let claimed = 0;
-    const worker = async (): Promise<void> => {
-      while (claimed < limit && !signal?.aborted) {
-        claimed += 1;
-        const update = await this.inbox.claimNext(now ?? new Date());
-        if (!update) {
-          claimed -= 1;
-          return;
-        }
-        await this.process(update, now);
+    let processed = 0;
+    for (; processed < limit && !signal?.aborted; processed += 1) {
+      const update = await this.inbox.claimNext(now ?? new Date());
+      if (!update) {
+        break;
       }
-    };
-    await Promise.all(Array.from({ length: UPDATE_WORKERS }, worker));
-    return claimed;
-  }
 
-  private async process(
-    update: ClaimedTelegramUpdate,
-    now: Date | undefined,
-  ): Promise<void> {
-    try {
-      const command = this.translator.translate(
-        update.botIdentity,
-        update.updateId,
-        update.payload,
-        update.receivedAt,
-      );
-      await this.handle(command);
+      try {
+        const command = this.translator.translate(
+          update.botIdentity,
+          update.updateId,
+          update.payload,
+          update.receivedAt,
+        );
+        await this.handle(command);
 
-      if (!(await this.inbox.markProcessed(update, now ?? new Date())))
-        reportCondition("update-inbox.process", "lease_lost", {
+        if (!(await this.inbox.markProcessed(update, now ?? new Date())))
+          reportCondition("update-inbox.process", "lease_lost", {
+            update_id: update.updateId,
+          });
+        this.metrics.increment(
+          command.kind === "ignored" ? "update_ignored" : "update_processed",
+        );
+      } catch (error) {
+        const failure = reportFailure("update-inbox.process", error, {
           update_id: update.updateId,
+          attempt: update.processAttemptCount,
         });
-      this.metrics.increment(
-        command.kind === "ignored" ? "update_ignored" : "update_processed",
-      );
-    } catch (error) {
-      const failure = reportFailure("update-inbox.process", error, {
-        update_id: update.updateId,
-        attempt: update.processAttemptCount,
-      });
-      const outcome = await this.inbox.markFailed(
-        update,
-        now ?? new Date(),
-        failure,
-      );
-      if (outcome === "failed") {
-        this.metrics.increment("update_failed");
+        const outcome = await this.inbox.markFailed(
+          update,
+          now ?? new Date(),
+          failure,
+        );
+        if (outcome === "failed") {
+          this.metrics.increment("update_failed");
+        }
       }
     }
+    return processed;
   }
 
   private async handle(command: TelegramUpdateCommand): Promise<void> {

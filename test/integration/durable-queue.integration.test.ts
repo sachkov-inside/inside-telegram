@@ -31,7 +31,7 @@ const queue: DurableQueue<"telegram_updates"> = {
 /** The same queue with one lane per sender: a sender's rows run one at a time, in order. */
 const lanes: DurableQueue<"telegram_updates"> = {
   ...queue,
-  lane: ["bot_identity", "ordering_key"],
+  lane: ["bot_identity", "lane_key"],
 };
 const expired = {
   failure_code: "worker_lease_expired",
@@ -196,7 +196,7 @@ function claimLane(now: Date) {
 async function insert(
   updateId: string,
   availableAt: Date,
-  orderingKey: string | null = null,
+  laneKey: string | null = null,
 ): Promise<void> {
   await database
     .insertInto("telegram_updates")
@@ -205,7 +205,7 @@ async function insert(
       bot_identity: "inside",
       failure_code: null,
       locked_at: null,
-      ordering_key: orderingKey,
+      lane_key: laneKey,
       payload: JSON.stringify({ update_id: Number(updateId) }),
       process_attempt_count: 0,
       processed_at: null,

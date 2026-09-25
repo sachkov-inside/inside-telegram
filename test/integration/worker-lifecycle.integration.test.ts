@@ -24,10 +24,12 @@ import {
   type DatabaseSchema,
 } from "../../src/database/database.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
+import { TELEGRAM_CALLBACK_ANSWERS } from "../../src/modules/bot-sign-in/telegram-callback-answers.js";
 import { AUTHOR_TRANSPORT } from "../../src/modules/communications/author-delivery.js";
 import { PLATFORM_EVIDENCE_DELIVERY } from "../../src/modules/membership-evidence/platform-evidence-delivery.js";
 import { TELEGRAM_MEMBERSHIP } from "../../src/modules/membership-evidence/telegram-membership.js";
 import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-response-delivery-queue.js";
+import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
 import {
   TELEGRAM_MESSAGES,
   type TelegramDeliveryResult,
@@ -169,6 +171,70 @@ describe("background worker lifecycle", () => {
     expect(delivery).toEqual({ attempt_count: 1, state: "delivered" });
   });
 
+  it("starts another sender's later update while one sender waits on Telegram", async () => {
+    let answer!: () => void;
+    const answering = vi.fn(
+      () => new Promise<void>((resolve) => (answer = resolve)),
+    );
+    const app = await start(
+      {
+        sendText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+        editText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+      },
+      undefined,
+      { answer: answering },
+    );
+    try {
+      const inbox = app.get(TelegramUpdateInbox);
+      await inbox.accept(
+        "inside",
+        "1",
+        {
+          update_id: 1,
+          callback_query: {
+            id: "synthetic-callback",
+            from: { id: 41, is_bot: false },
+            message: { chat: { id: 41, type: "private" }, message_id: 1 },
+            data: "signin:approve:00000000-0000-4000-8000-000000000000",
+          },
+        },
+        new Date(),
+      );
+      await vi.waitFor(() => expect(answering).toHaveBeenCalled(), {
+        timeout: 5000,
+      });
+
+      await inbox.accept(
+        "inside",
+        "2",
+        {
+          update_id: 2,
+          message: {
+            message_id: 2,
+            date: 1788696000,
+            chat: { id: 42, type: "private" },
+            from: { id: 42, is_bot: false },
+            text: "/start",
+          },
+        },
+        new Date(),
+      );
+      await vi.waitFor(
+        async () => expect(await updateState("2")).toBe("processed"),
+        { timeout: 2000 },
+      );
+      expect(await updateState("1")).toBe("processing");
+      answer();
+      await vi.waitFor(
+        async () => expect(await updateState("1")).toBe("processed"),
+        { timeout: 5000 },
+      );
+    } finally {
+      answer?.();
+      await app.close();
+    }
+  });
+
   it("queries an idle database rarely", async () => {
     let statements = 0;
     const app = await start(
@@ -201,6 +267,9 @@ async function start(
     editText: () => Promise<TelegramDeliveryResult>;
   },
   onStatement?: () => void,
+  callbackAnswers: { answer: () => Promise<void> } = {
+    answer: async () => undefined,
+  },
 ): Promise<NestFastifyApplication> {
   const counted = new Kysely<DatabaseSchema>({
     dialect: new PostgresDialect({
@@ -217,6 +286,8 @@ async function start(
     .useValue(counted)
     .overrideProvider(TELEGRAM_MESSAGES)
     .useValue(messages)
+    .overrideProvider(TELEGRAM_CALLBACK_ANSWERS)
+    .useValue(callbackAnswers)
     .overrideProvider(AUTHOR_TRANSPORT)
     .useValue({
       send: async () => ({ kind: "delivered", providerMessageId: "1" }),
@@ -243,4 +314,13 @@ async function start(
   );
   await app.init();
   return app;
+}
+
+async function updateState(updateId: string) {
+  const row = await database
+    .selectFrom("telegram_updates")
+    .select("state")
+    .where("update_id", "=", updateId)
+    .executeTakeFirst();
+  return row?.state;
 }

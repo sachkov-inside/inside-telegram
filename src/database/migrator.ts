@@ -1,4 +1,4 @@
-import { updateSenderLanesMigration } from "./migrations/025-update-sender-lanes.js";
+import { updateLanesMigration } from "./migrations/025-update-lanes.js";
 import { membershipCheckRetentionMigration } from "./migrations/024-membership-check-retention.js";
 import { communicationDispatchQueueMigration } from "./migrations/023-communication-dispatch-queue.js";
 import { communityTributeReadmissionMigration } from "./migrations/022-community-tribute-readmission.js";
@@ -34,7 +34,7 @@ import { communicationsTemplatesMigration } from "./migrations/010-communication
 import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
-  "025-update-sender-lanes": updateSenderLanesMigration,
+  "025-update-lanes": updateLanesMigration,
   "024-membership-check-retention": membershipCheckRetentionMigration,
   "023-communication-dispatch-queue": communicationDispatchQueueMigration,
   "022-community-tribute-readmission": communityTributeReadmissionMigration,

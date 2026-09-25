@@ -34,6 +34,8 @@ import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-upd
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
 import {
+  canonicalMembershipUpdate,
+  canonicalProviderMembershipUpdate,
   privateContactabilityUpdate,
   privateStartUpdate,
 } from "../support/synthetic-telegram-updates.js";
@@ -347,6 +349,31 @@ describe("Telegram webhook contract", () => {
     await expect(tableCount("bot_contacts")).resolves.toBe(1);
     await expect(tableCount("bot_contact_events")).resolves.toBe(3);
     await expect(tableCount("start_response_deliveries")).resolves.toBe(2);
+  });
+
+  it("runs a chat's membership changes in one lane and each user's updates in their own", async () => {
+    const acceptedAt = new Date("2026-08-30T12:00:00.000Z");
+    const inbox = application.get(TelegramUpdateInbox);
+    for (const payload of [
+      canonicalProviderMembershipUpdate(50, -100, 999, "administrator"),
+      canonicalMembershipUpdate(51, -100, 42, "member"),
+      canonicalMembershipUpdate(52, -100, 43, "member"),
+      privateStartUpdate(53, 42),
+      privateContactabilityUpdate(54, 44, "kicked"),
+      privateStartUpdate(55, 44),
+    ])
+      await inbox.accept(
+        "inside",
+        String(payload.update_id),
+        payload,
+        acceptedAt,
+      );
+
+    const claimed = [];
+    for (let worker = 0; worker < 4; worker += 1)
+      claimed.push((await inbox.claimNext(acceptedAt))?.updateId);
+
+    expect(claimed).toEqual(["50", "53", "54", undefined]);
   });
 
   it("recovers an update whose worker lease expired", async () => {
