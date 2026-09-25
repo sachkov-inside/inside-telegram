@@ -2,6 +2,9 @@ import { readFile, readdir } from "node:fs/promises";
 import path from "node:path";
 import process from "node:process";
 
+// Architecture rules of this repository, checked by `pnpm check`. They keep domain decisions
+// testable without Telegram or the broker, and each table's invariants in one module.
+// Every rule has a negative fixture in test/architecture/fixtures.
 // Paths below are relative to the checked source root (`src` by default).
 
 // A transport adapter depends on application interfaces, never on persistence or the framework.
@@ -15,7 +18,7 @@ const adapterForbiddenImports = [
 
 // Application modules reach Telegram, Platform and the broker only through adapters.
 const transportPackages = ["grammy", "amqplib"];
-const networkCall = /(?<![.\w$])fetch\s*\(/;
+const networkCall = /(?:\bglobalThis\.|(?<![.\w$]))fetch\s*\(/;
 
 // A module never depends on the layers that compose or drive it.
 const moduleForbiddenLayers = [

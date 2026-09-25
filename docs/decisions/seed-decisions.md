@@ -28,22 +28,6 @@ Marketing по умолчанию выключен.
   proof.
 - Exact bot username остаётся открытым до проверки доступности и отдельного BotFather write.
 
-## Границы кода
-
-Правила проверяет `scripts/check-architecture.mjs` в `pnpm check`. У каждого правила есть negative
-fixture в `test/architecture/fixtures`.
-
-- `src/modules` не импортирует `src/adapters`, `src/operations` и composition root, не использует
-  `grammy`, `amqplib` и `fetch`. Transport adapter реализует порт модуля, например
-  `TelegramUpdateTranslator`.
-- `src/shared` — общее ядро: `Clock`, диагностика сбоев, порт счётчиков, проверенные значения
-  контакта. Оно не зависит от modules, adapters, operations и config.
-- Между modules нет циклов, включая импорты только типов.
-- Таблицей владеет один module, остальные вызывают его interface: `platform_links` — у
-  `identity-linking` (`platform-links.ts`), reply outbox (`start_response_deliveries` и
-  `start_response_delivery_attempts`) — у `outbound` (`enqueueReply`). Схема, миграции и retention
-  остаются в `src/database`.
-
 ## Product boundary
 
 - Первый release — Membership bridge, а не campaign platform.
