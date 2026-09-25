@@ -640,12 +640,13 @@ describe("funnel", () => {
     expect(dialog.labels()).toEqual([
       "Добавить сообщение",
       "Применить изменения",
-      "Приостановить",
-      "Отменить воронку",
+      "Сообщения",
+      "Настройки",
+      "Ещё →",
       "Все воронки",
     ]);
 
-    dialog.click("Приостановить");
+    dialog.click("Ещё →").click("Приостановить");
     expect(dialog.query("change-funnel")).toEqual({
       kind: "change-funnel",
       funnelId: uuid(800),
@@ -657,7 +658,7 @@ describe("funnel", () => {
       funnel: funnel({ lifecycle: "paused", revision: 3 }),
     });
     expect(dialog.kinds()).toEqual(["remove-draft", "menu"]);
-    expect(dialog.labels()).toContain("Продолжить");
+    expect(dialog.click("Ещё →").labels()).toContain("Продолжить");
   });
 
   it("previews publication only for the locked revision with valid materials", () => {
@@ -774,5 +775,321 @@ describe("funnel", () => {
     expect(f.steps[0]!.parts.map((p) => p.partId)).toEqual([uuid(805)]);
     expect(moved.state.funnelAuthor!.dirty).toBe(true);
     expect(moved.menu!.text).toContain("Прогрев · сообщения");
+  });
+});
+
+describe("funnel settings", () => {
+  function card(f: FunnelSnapshot = funnel(), dirty = false) {
+    return new Dialog({
+      ...emptyAuthorState("menu"),
+      actions: [{ kind: "f:show" }],
+      funnelAuthor: { funnel: f, dirty },
+    }).send({ kind: "callback", data: "author:menu:0" });
+  }
+
+  it("opens settings and messages from the funnel card and returns to it", () => {
+    const dialog = card();
+    expect(dialog.labels()).toEqual([
+      "Добавить сообщение",
+      "Применить изменения",
+      "Сообщения",
+      "Настройки",
+      "Ещё →",
+      "Все воронки",
+    ]);
+
+    dialog.click("Настройки");
+    expect(dialog.menu!.text).toBe("Настройки · Прогрев");
+    expect(dialog.labels()).toEqual([
+      "Название",
+      "Первый ответ",
+      "Шаги и задержки",
+      "Источники",
+      "Ещё →",
+      "К воронке",
+    ]);
+    dialog.click("Ещё →");
+    expect(dialog.labels()).toEqual([
+      "Сделать основной",
+      "Общий вводный блок",
+      "← Предыдущие действия",
+      "К воронке",
+    ]);
+    dialog.click("К воронке");
+    expect(dialog.menu!.text).toContain("Прогрев\nОпубликована");
+
+    dialog.click("Сообщения");
+    expect(dialog.menu!.text).toContain("Прогрев · сообщения");
+    dialog.click("К воронке");
+    expect(dialog.labels()).toContain("Настройки");
+  });
+
+  it("restores an archived funnel from its settings", () => {
+    const dialog = card(funnel({ lifecycle: "archived" }));
+    expect(dialog.labels()).toEqual(["Настройки", "Все воронки"]);
+
+    dialog.click("Настройки");
+    expect(dialog.labels()).toEqual([
+      "Восстановить",
+      "Общий вводный блок",
+      "К воронке",
+    ]);
+    dialog.click("Восстановить");
+    expect(dialog.query("change-funnel")).toEqual({
+      kind: "change-funnel",
+      funnelId: uuid(800),
+      revision: 2,
+      action: "restore",
+    });
+  });
+
+  const timed = () =>
+    funnel({
+      steps: [
+        {
+          stepId: uuid(803),
+          delaySeconds: 3600,
+          delayAnchor: "entry",
+          parts: [{ partId: uuid(804), content: text("Урок") }],
+        },
+        {
+          stepId: uuid(805),
+          delaySeconds: 7200,
+          delayAnchor: "entry",
+          parts: [{ partId: uuid(806), content: text("Задание") }],
+        },
+      ],
+    });
+  const delays = (dialog: Dialog) =>
+    dialog.state.funnelAuthor!.funnel!.steps.map((step) => [
+      step.stepId,
+      step.delaySeconds,
+      step.delayAnchor,
+    ]);
+
+  it("keeps steps timed from entry in time order when the author edits them", () => {
+    const dialog = card(timed()).click("Настройки").click("Шаги и задержки");
+    expect(dialog.labels()).toEqual([
+      "Шаг 1 · 1 ч от входа",
+      "Шаг 2 · 2 ч от входа",
+      "Добавить шаг",
+      "К воронке",
+    ]);
+
+    dialog.click("Добавить шаг");
+    const added = dialog.state.funnelAuthor!.target!;
+    expect(dialog.menu!.text).toBe("Шаг 3\nЧерез 26 ч от входа\nСообщений: 0");
+    expect(delays(dialog)).toEqual([
+      [uuid(803), 3600, "entry"],
+      [uuid(805), 7200, "entry"],
+      [added, 93600, "entry"],
+    ]);
+
+    dialog.click("Задержка");
+    expect(dialog.menu!.text).toContain("от входа");
+    dialog.write("30 мин");
+    expect(dialog.menu!.text).toBe(
+      "Шаг 1\nЧерез 30 мин от входа\nСообщений: 0",
+    );
+    expect(delays(dialog)).toEqual([
+      [added, 1800, "entry"],
+      [uuid(803), 3600, "entry"],
+      [uuid(805), 7200, "entry"],
+    ]);
+
+    dialog.click("Все шаги").click("Шаг 3 · 2 ч от входа").click("Поднять шаг");
+    expect(delays(dialog)).toEqual([
+      [added, 1800, "entry"],
+      [uuid(805), 3600, "entry"],
+      [uuid(803), 7200, "entry"],
+    ]);
+
+    dialog.click("Шаг 1 · 30 мин от входа").click("Убрать шаг");
+    expect(delays(dialog)).toEqual([
+      [uuid(805), 3600, "entry"],
+      [uuid(803), 7200, "entry"],
+    ]);
+    expect(dialog.state.funnelAuthor!.dirty).toBe(true);
+  });
+
+  it("keeps a chain of steps timed after the previous one", () => {
+    const chained = funnel({
+      steps: timed().steps.map(({ stepId, delaySeconds, parts }) => ({
+        stepId,
+        delaySeconds,
+        parts,
+      })),
+    });
+    const dialog = card(chained).click("Настройки").click("Шаги и задержки");
+    expect(dialog.labels()).toContain("Шаг 2 · 2 ч после предыдущего шага");
+
+    dialog.click("Добавить шаг");
+    const added = dialog.state.funnelAuthor!.target!;
+    dialog.click("Задержка").write("30 мин");
+    dialog.click("Все шаги").click("Шаг 3 · 30 мин после предыдущего шага");
+    dialog.click("Поднять шаг");
+    expect(delays(dialog)).toEqual([
+      [uuid(803), 3600, undefined],
+      [added, 1800, undefined],
+      [uuid(805), 7200, undefined],
+    ]);
+  });
+
+  it("times a message from entry and keeps the steps in time order", () => {
+    const f = timed();
+    const dialog = card(
+      funnel({
+        ...f,
+        entryResponse: {
+          ...f.entryResponse,
+          parts: [
+            ...f.entryResponse.parts,
+            { partId: uuid(807), content: text("Бонус") },
+          ],
+        },
+      }),
+    ).click("Сообщения");
+    expect(dialog.menu!.text).toBe(
+      "Прогрев · сообщения\nВремя отсчитывается от входа. Выберите сообщение для настройки.",
+    );
+    expect(dialog.labels()).toEqual([
+      "1. При входе · 📝 Текст · Вход",
+      "2. При входе · 📝 Текст · Бонус",
+      "3. Через 1 ч · 📝 Текст · Урок",
+      "4. Через 2 ч · 📝 Текст · Задание",
+      "Добавить сообщения",
+      "К воронке",
+    ]);
+
+    dialog.click("4. Через 2 ч · 📝 Текст · Задание").click("Когда отправить");
+    expect(dialog.menu!.text).toContain("от входа");
+    dialog.write("30 мин");
+    expect(delays(dialog)).toEqual([
+      [uuid(805), 1800, "entry"],
+      [uuid(803), 3600, "entry"],
+    ]);
+
+    dialog
+      .click("2. При входе · 📝 Текст · Бонус")
+      .click("Когда отправить")
+      .write("90 мин");
+    expect(dialog.query("read-part-history")).toMatchObject({
+      partId: uuid(807),
+      delaySeconds: 5400,
+    });
+    dialog.send({
+      kind: "part-history-read",
+      partId: uuid(807),
+      delaySeconds: 5400,
+      published: false,
+    });
+    const steps = dialog.state.funnelAuthor!.funnel!.steps;
+    expect(steps.map((step) => [step.delaySeconds, step.delayAnchor])).toEqual([
+      [1800, "entry"],
+      [3600, "entry"],
+      [5400, "entry"],
+    ]);
+    expect(steps[2]!.parts.map((p) => p.partId)).toEqual([uuid(807)]);
+    expect(dialog.labels()).toContain("4. Через 90 мин · 📝 Текст · Бонус");
+  });
+
+  it("renames the funnel, sets it as the main one and manages its sources", () => {
+    const dialog = card().click("Настройки").click("Название");
+    dialog.write("Весенний прогрев");
+    expect(dialog.menu!.text).toMatch(/^Весенний прогрев\n/);
+
+    dialog.click("Настройки").click("Ещё →").click("Сделать основной");
+    expect(dialog.state.funnelAuthor!.funnel!.isDefault).toBe(true);
+    dialog.click("Настройки").click("Ещё →");
+    expect(dialog.labels()).toContain("Убрать из основных");
+
+    dialog.click("К воронке").click("Настройки").click("Источники");
+    dialog.click("Добавить источник").write("Канал");
+    dialog.write("m_x y");
+    expect(dialog.menu!.text).toContain("Код должен начинаться с m_");
+    dialog.write("m_channel");
+    expect(dialog.labels()).toEqual([
+      "Канал",
+      "Добавить источник",
+      "К воронке",
+    ]);
+    dialog.click("Канал");
+    expect(dialog.menu!.text).toContain("?start=m_channel");
+    dialog.click("Убрать источник");
+    expect(dialog.state.funnelAuthor!.funnel!.sources).toEqual([]);
+
+    dialog.click("К воронке").click("Сохранить черновик");
+    const save = dialog.query("save-funnel");
+    expect(save.funnel).toMatchObject({
+      name: "Весенний прогрев",
+      isDefault: true,
+      sources: [],
+    });
+  });
+
+  it("edits the first response and the shared intro", () => {
+    const dialog = card().click("Настройки").click("Первый ответ");
+    expect(dialog.menu!.text).toMatch(/^Первый ответ\n1\. /);
+    expect(dialog.labels()).toContain("Добавить сохранённый пост");
+    dialog.click("Сообщение 1").click("Убрать сообщение");
+    expect(dialog.state.funnelAuthor!.funnel!.entryResponse.parts).toEqual([]);
+
+    dialog.click("К воронке").click("Настройки").click("Ещё →");
+    dialog.click("Общий вводный блок");
+    expect(dialog.kinds()).toEqual(["retain-funnel-draft", "read-intro"]);
+    const intro = {
+      introId: uuid(700),
+      revision: 1,
+      parts: [{ partId: uuid(701), content: text("Привет") }],
+    };
+    dialog.send({
+      kind: "intro-read",
+      funnelAuthor: { intro, target: "intro", dirty: false },
+    });
+    expect(dialog.menu!.text).toMatch(/^Общий вводный блок\n1\. /);
+    dialog.click("Сохранить общий блок");
+    expect(dialog.query("validate-content")).toMatchObject({
+      purpose: "intro",
+      parts: intro.parts,
+    });
+    dialog.send({
+      kind: "content-validated",
+      purpose: "intro",
+      result: { status: "ok", targetErrors: [] },
+    });
+    expect(dialog.query("save-intro")).toEqual({ kind: "save-intro", intro });
+    dialog.send({ kind: "intro-saved", intro: { ...intro, revision: 2 } });
+    expect(dialog.menu!.text).toContain("Общий вводный блок сохранён");
+  });
+
+  it("lists every step and source on one screen and every action of a middle step", () => {
+    const steps = [1, 2, 3, 4, 5].map((n) => ({
+      stepId: uuid(810 + n),
+      delaySeconds: n * 3600,
+      delayAnchor: "entry" as const,
+      parts: [{ partId: uuid(820 + n), content: text(`Шаг ${n}`) }],
+    }));
+    const sources = [1, 2, 3, 4, 5].map((n) => ({
+      sourceId: uuid(830 + n),
+      code: `m_s${n}`,
+      name: `Источник ${n}`,
+    }));
+    const dialog = card(funnel({ steps, sources }))
+      .click("Настройки")
+      .click("Шаги и задержки");
+    expect(dialog.labels()).toHaveLength(7);
+
+    dialog.click("Шаг 3 · 3 ч от входа");
+    expect(dialog.labels()).toEqual([
+      "Сообщения шага",
+      "Задержка",
+      "Поднять шаг",
+      "Опустить шаг",
+      "Убрать шаг",
+      "Все шаги",
+    ]);
+
+    dialog.click("Все шаги").click("К воронке").click("Настройки");
+    expect(dialog.click("Источники").labels()).toHaveLength(7);
   });
 });

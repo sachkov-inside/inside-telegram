@@ -12,9 +12,14 @@ import {
   CommunicationsError,
   type TemplateContent,
 } from "./communications-contract.js";
-import type { FunnelSnapshot, MessagePart } from "./funnel-types.js";
+import type {
+  FunnelSnapshot,
+  FunnelStep,
+  MessagePart,
+} from "./funnel-types.js";
 
 type Buttons = AuthorButton[];
+const MAX_DELAY = 2147483647;
 const back: Buttons = [["К воронке", { kind: "f:show" }]];
 const root: Buttons = [
   ["Все воронки", { kind: "f:list" }],
@@ -154,10 +159,7 @@ export function showFunnel(t: Turn): void {
   const pending = t.compositionButtons(f.funnelId);
   t.reply(
     `${f.name}\n${names[f.lifecycle]}${s.dirty ? " · есть правки" : ""}\nСообщений: ${f.entryResponse.parts.length + f.steps.reduce((n, step) => n + step.parts.length, 0)}. Основная воронка: ${f.isDefault ? "да" : "нет"}.\n${f.steps
-      .map(
-        (step, i) =>
-          `${i + 1}. Через ${formatFunnelDelay(step.delaySeconds)} ${step.delayAnchor === "entry" ? "от входа" : "после предыдущего шага"}`,
-      )
+      .map((step, i) => `${i + 1}. Через ${stepTime(step)}`)
       .slice(0, 5)
       .join("\n")}`,
     [
@@ -181,6 +183,10 @@ export function showFunnel(t: Turn): void {
             ] as AuthorButton,
           ]
         : []),
+      ...(f.lifecycle !== "archived"
+        ? [["Сообщения", { kind: "f:messages" }] as AuthorButton]
+        : []),
+      ["Настройки", { kind: "f:settings" }],
       ...(f.lifecycle === "draft" && !f.isDefault
         ? [["Сделать основной", { kind: "f:default" }] as AuthorButton]
         : []),
@@ -208,50 +214,37 @@ export function showFunnel(t: Turn): void {
   );
 }
 
+/**
+ * The funnel's configuration. Saving, publication and the other lifecycle actions stay on its
+ * card; an archived funnel is restored here.
+ */
 function settings(t: Turn) {
   const s = funnelState(t),
     f = openFunnel(s);
-  const editable = f.lifecycle !== "archived";
   t.reply(`Настройки · ${f.name}`, [
     ...t.compositionButtons(f.funnelId),
-    ...(editable
+    ...(f.lifecycle !== "archived"
       ? ([
           ["Название", { kind: "f:name" }],
           ["Первый ответ", { kind: "f:parts", id: "entry" }],
           ["Шаги и задержки", { kind: "f:steps" }],
           ["Источники", { kind: "f:sources" }],
           [
-            f.isDefault ? "Убрать выбор для /start" : "Выбрать для /start",
+            f.isDefault ? "Убрать из основных" : "Сделать основной",
             { kind: "f:default" },
           ],
-          ["Сохранить черновик", { kind: "f:save" }],
-          ["Проверить публикацию", { kind: "f:preview" }],
         ] as Buttons)
-      : []),
-    ...(!s.dirty && f.publishedRevision !== null
-      ? ([
-          ...(f.lifecycle === "published"
-            ? ([
-                ["Приостановить", { kind: "f:life", value: "pause" }],
-              ] as Buttons)
-            : []),
-          ...(f.lifecycle === "paused"
-            ? ([["Продолжить", { kind: "f:life", value: "resume" }]] as Buttons)
-            : []),
+      : [
           [
-            f.lifecycle === "archived" ? "Восстановить" : "В архив",
-            {
-              kind: "f:life",
-              value: f.lifecycle === "archived" ? "restore" : "archive",
-            },
-          ],
-        ] as Buttons)
-      : []),
+            "Восстановить",
+            { kind: "f:life", value: "restore" },
+          ] as AuthorButton,
+        ]),
+    ["Общий вводный блок", { kind: "f:intro" }],
     ...(s.dirty
       ? [["Отказаться от правок", { kind: "f:discard" }] as AuthorButton]
       : []),
-    ["Общий вводный блок", { kind: "f:intro" }],
-    ...root,
+    ...back,
   ]);
 }
 
@@ -381,7 +374,8 @@ function partsMenu(t: Turn, offset = 0) {
       ...(s.target === "intro"
         ? ([
             ["Сохранить общий блок", { kind: "f:save-intro" }],
-            ...root,
+            // One way out keeps the save button on the first page of a short intro.
+            ["Все воронки", { kind: "f:list" }],
           ] as Buttons)
         : back),
     ],
@@ -402,7 +396,9 @@ export function performFunnel(t: Turn, a: FunnelEditorAction): void {
       s.timingPartId = a.id;
       s.prompt = "part-delay";
       return t.reply(
-        "Когда отправить это сообщение? Пришлите задержку: например, 20 минут или 1 день. Она отсчитывается после предыдущего шага; для первого отложенного шага — после входа. Новое отложенное сообщение добавится в конец цепочки.",
+        timingAnchor(openFunnel(s), a.id) === "entry"
+          ? "Когда отправить это сообщение? Пришлите время от входа: например, 20 минут или 1 день."
+          : "Когда отправить это сообщение? Пришлите задержку: например, 20 минут или 1 день. Она отсчитывается после предыдущего шага; для первого отложенного шага — после входа. Новое отложенное сообщение добавится в конец цепочки.",
         [["Сразу при входе", { kind: "f:timing-entry", id: a.id }], ...back],
       );
     }
@@ -544,12 +540,14 @@ function performEdit(
     case "f:steps": {
       const offset = Number(a.value ?? 0);
       return t.reply(
-        "Шаги идут по порядку. Задержка отсчитывается после завершения предыдущего шага.",
+        timedFromEntry(f.steps)
+          ? "Шаги отправляются по времени от входа."
+          : "Шаги отправляются по порядку.",
         [
           ...f.steps
             .slice(offset, offset + 15)
             .map((step, i): AuthorButton => [
-              `Шаг ${offset + i + 1} · ${formatFunnelDelay(step.delaySeconds)}`,
+              `Шаг ${offset + i + 1} · ${stepTime(step)}`,
               { kind: "f:step", id: step.stepId },
             ]),
           ...(offset > 0
@@ -576,7 +574,15 @@ function performEdit(
     case "f:add-step": {
       if (f.steps.length >= 100)
         return t.reply("В воронке может быть до 100 шагов.", back);
-      const step = { stepId: t.newId(), delaySeconds: 86400, parts: [] };
+      const fromEntry = timedFromEntry(f.steps);
+      const step: FunnelStep = {
+        stepId: t.newId(),
+        delaySeconds: fromEntry
+          ? Math.min((f.steps.at(-1)?.delaySeconds ?? 0) + 86400, MAX_DELAY)
+          : 86400,
+        ...(fromEntry && { delayAnchor: "entry" as const }),
+        parts: [],
+      };
       s.funnel = { ...f, steps: [...f.steps, step] };
       s.dirty = true;
       return performFunnel(t, { kind: "f:step", id: step.stepId });
@@ -587,7 +593,7 @@ function performEdit(
       if (!step) throw new CommunicationsError("not_found");
       s.target = step.stepId;
       return t.reply(
-        `Шаг ${index + 1}\nЧерез ${formatFunnelDelay(step.delaySeconds)} после предыдущего\nСообщений: ${step.parts.length}`,
+        `Шаг ${index + 1}\nЧерез ${stepTime(step)}\nСообщений: ${step.parts.length}`,
         [
           ["Сообщения шага", { kind: "f:parts", id: step.stepId }],
           ["Задержка", { kind: "f:delay" }],
@@ -609,14 +615,16 @@ function performEdit(
             : []),
           ["Убрать шаг", { kind: "f:remove-step", id: step.stepId }],
           ["Все шаги", { kind: "f:steps" }],
-          ...back,
         ],
       );
     }
     case "f:delay":
       s.prompt = "delay";
       return t.reply(
-        "Напишите задержку: 30 мин, 2 ч, 1 д или 0 для отправки сразу после предыдущего шага.",
+        f.steps.find((step) => step.stepId === s.target)?.delayAnchor ===
+          "entry"
+          ? "Напишите время от входа: 30 мин, 2 ч, 1 д или 0 для отправки сразу после первого ответа."
+          : "Напишите задержку: 30 мин, 2 ч, 1 д или 0 для отправки сразу после предыдущего шага.",
         back,
       );
     case "f:move-step":
@@ -628,7 +636,14 @@ function performEdit(
       else {
         const next = index + Number(a.value);
         const [step, other] = [steps[index], steps[next]];
-        if (step && other) [steps[index], steps[next]] = [other, step];
+        // Steps timed from entry keep their times in place, so moving a step moves its messages.
+        if (step && other)
+          [steps[index], steps[next]] = timedFromEntry(f.steps)
+            ? [
+                { ...other, delaySeconds: step.delaySeconds },
+                { ...step, delaySeconds: other.delaySeconds },
+              ]
+            : [other, step];
       }
       s.funnel = { ...f, steps };
       s.dirty = true;
@@ -745,7 +760,13 @@ function messages(t: Turn, offset: number) {
     ),
   ];
   t.reply(
-    `${f.name} · сообщения\nЗадержка шага отсчитывается после предыдущего шага. Выберите сообщение для настройки.`,
+    `${f.name} · сообщения\n${
+      timedFromEntry(f.steps)
+        ? "Время отсчитывается от входа."
+        : f.steps.some((step) => step.delayAnchor === "entry")
+          ? "Время каждого шага указано в настройках, в разделе «Шаги и задержки»."
+          : "Задержка шага отсчитывается после предыдущего шага."
+    } Выберите сообщение для настройки.`,
     [
       ...entries
         .slice(offset, offset + 5)
@@ -819,8 +840,10 @@ function moveTimedPart(
     if (delaySeconds !== null && source?.parts.length === 1)
       s.funnel = {
         ...f,
-        steps: f.steps.map((step) =>
-          step.stepId === source.stepId ? { ...step, delaySeconds } : step,
+        steps: inTimeOrder(
+          f.steps.map((step) =>
+            step.stepId === source.stepId ? { ...step, delaySeconds } : step,
+          ),
         ),
       };
     else {
@@ -840,7 +863,17 @@ function moveTimedPart(
         steps:
           delaySeconds === null
             ? steps
-            : [...steps, { stepId: t.newId(), delaySeconds, parts: [part] }],
+            : inTimeOrder([
+                ...steps,
+                {
+                  stepId: t.newId(),
+                  delaySeconds,
+                  ...(timedFromEntry(f.steps) && {
+                    delayAnchor: "entry" as const,
+                  }),
+                  parts: [part],
+                },
+              ]),
       };
     }
     s.dirty = true;
@@ -914,8 +947,10 @@ export function answerFunnel(t: Turn, input: { text: string }) {
         );
       s.funnel = {
         ...f,
-        steps: f.steps.map((step) =>
-          step.stepId === s.target ? { ...step, delaySeconds } : step,
+        steps: inTimeOrder(
+          f.steps.map((step) =>
+            step.stepId === s.target ? { ...step, delaySeconds } : step,
+          ),
         ),
       };
       s.dirty = true;
@@ -1107,10 +1142,38 @@ export function parseFunnelDelay(value: string): number | undefined {
           : match[2]?.startsWith("д")
             ? 86400
             : 1));
-  return Number.isSafeInteger(seconds) && seconds <= 2147483647
+  return Number.isSafeInteger(seconds) && seconds <= MAX_DELAY
     ? seconds
     : undefined;
 }
+/** When a delayed step is sent, as the author reads it. */
+function stepTime(step: FunnelStep) {
+  return `${formatFunnelDelay(step.delaySeconds)} ${step.delayAnchor === "entry" ? "от входа" : "после предыдущего шага"}`;
+}
+
+/**
+ * Whether every step counts from entry, as the bot has authored funnels since #43. New steps of
+ * such a funnel count from entry too, and its step order follows time.
+ */
+function timedFromEntry(steps: readonly FunnelStep[]) {
+  return steps.every((step) => step.delayAnchor === "entry");
+}
+
+/** The anchor of a message's new time: a step with only this message keeps its own anchor. */
+function timingAnchor(f: FunnelSnapshot, partId: string) {
+  const own = f.steps.find(
+    (step) => step.parts.length === 1 && step.parts[0]?.partId === partId,
+  );
+  return own ? own.delayAnchor : timedFromEntry(f.steps) ? "entry" : undefined;
+}
+
+/** Sorts steps timed from entry by time; a chain of steps keeps the author's order. */
+function inTimeOrder(steps: readonly FunnelStep[]): FunnelStep[] {
+  return timedFromEntry(steps)
+    ? [...steps].sort((a, b) => a.delaySeconds - b.delaySeconds)
+    : [...steps];
+}
+
 export function formatFunnelDelay(seconds: number): string {
   for (const [unit, factor] of [
     ["д", 86400],
