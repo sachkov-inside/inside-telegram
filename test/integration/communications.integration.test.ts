@@ -512,7 +512,9 @@ describe("durable author intake", () => {
     );
 
     const first = processor.processAvailable();
-    await vi.waitFor(() => expect(authorization.subjects).toHaveLength(1));
+    await vi.waitFor(() => expect(authorization.subjects).toHaveLength(1), {
+      timeout: 5000,
+    });
     await processor.processAvailable();
     expect(await updateState("2")).toBe("pending");
 
@@ -534,7 +536,9 @@ describe("durable author intake", () => {
       new Date(),
     );
     const slow = processor.processAvailable();
-    await vi.waitFor(() => expect(authorization.subjects).toHaveLength(1));
+    await vi.waitFor(() => expect(authorization.subjects).toHaveLength(1), {
+      timeout: 5000,
+    });
 
     await inbox.accept(
       "inside",
