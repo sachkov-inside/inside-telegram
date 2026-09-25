@@ -63,6 +63,7 @@ const config: ApplicationConfig = {
   linkedUnavailableText: "Synthetic unavailable status",
   marketingEnabled: false,
   membershipMode: "live",
+  membershipCheckRetentionDays: 90,
   membershipReconciliationCadenceMilliseconds: 240_000,
   notifications: {
     // Nothing listens here: the broker stays unavailable while durable work continues.

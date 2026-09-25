@@ -8,11 +8,18 @@ const BATCH = 1000;
 /**
  * Technical records that no decision reads once they are old. Telegram redelivers an update
  * for about a day, so a month covers every replay a stored key or receipt can still stop.
- * Contact, link, Membership, communication and notification history is not listed: its
- * retention is an owner decision.
  */
 const OPERATIONAL_DAYS = 30;
 const PUBLISHED_RESULT_DAYS = 7;
+
+/**
+ * Owner-decided periods (inside-telegram#91). Contact, link, Membership audit, communication
+ * and notification history has no period and is kept.
+ */
+export interface RetentionPeriods {
+  /** Membership check results with their evidence deliveries. */
+  readonly membershipCheckDays: number;
+}
 
 /**
  * Deletes one bounded batch of each expired record kind. Returns how many rows were deleted;
@@ -21,13 +28,11 @@ const PUBLISHED_RESULT_DAYS = 7;
 export async function purgeExpiredRecords(
   database: Database,
   now: Date,
+  periods: RetentionPeriods,
 ): Promise<number> {
-  const operational = new Date(
-    now.getTime() - OPERATIONAL_DAYS * DAY_MILLISECONDS,
-  );
-  const published = new Date(
-    now.getTime() - PUBLISHED_RESULT_DAYS * DAY_MILLISECONDS,
-  );
+  const operational = daysBefore(now, OPERATIONAL_DAYS);
+  const published = daysBefore(now, PUBLISHED_RESULT_DAYS);
+  const checks = daysBefore(now, periods.membershipCheckDays);
   const batches: RawBuilder<unknown>[] = [
     // Settled updates keep only their deduplication key and redacted failure code.
     sql`delete from telegram_updates where (bot_identity, update_id) in (
@@ -63,6 +68,18 @@ export async function purgeExpiredRecords(
       select message_id from notification_result_outbox
       where published_at < ${published}
       limit ${BATCH})`,
+    // Each identity keeps its latest check, and a delivery still in flight keeps its check;
+    // the evidence delivery follows by cascade.
+    sql`delete from membership_check_results where id in (
+      select c.id from membership_check_results c
+      where c.observed_at < ${checks}
+        and exists (select 1 from membership_check_results n
+          where n.telegram_identity_ref = c.telegram_identity_ref
+            and (n.observed_at, n.id) > (c.observed_at, c.id))
+        and not exists (select 1 from membership_evidence_outbox o
+          where o.result_ref = c.result_ref
+            and o.state not in ('delivered', 'rejected'))
+      limit ${BATCH})`,
   ];
   let deleted = 0;
   for (const batch of batches) {
@@ -70,4 +87,8 @@ export async function purgeExpiredRecords(
     deleted += Number(result.numAffectedRows ?? 0n);
   }
   return deleted;
+}
+
+function daysBefore(now: Date, days: number): Date {
+  return new Date(now.getTime() - days * DAY_MILLISECONDS);
 }
