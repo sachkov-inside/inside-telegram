@@ -176,18 +176,15 @@ export class AuthorDelivery {
       ? work(transaction)
       : this.database.transaction().execute(work);
   }
-  /**
-   * Sends at most one due author message. Returns 1 when it found due work, including a message
-   * that waits for its Telegram turn, so the worker keeps asking at its busy pace.
-   */
+  /** Sends at most one due author message; returns how many rows it settled. */
   async processAvailable(now = new Date()): Promise<number> {
     if (this.config.deliveryMode !== "live") return 0;
     // Platform authorization is answered with no transaction open; see transactionWithExternalReads.
-    const { item, outgoing, rejected, waiting } =
-      await transactionWithExternalReads(this.database, async (tx) => {
+    const { item, outgoing, rejected } = await transactionWithExternalReads(
+      this.database,
+      async (tx) => {
         // Each round starts clean: a replayed round must not see an earlier round's decisions.
         let rejected = false;
-        let waiting = false;
         let outgoing: CommunicationMessage | undefined;
         // A process dying after dispatch cannot know whether Telegram accepted the post.
         await expireLeases(tx, authorOutbox, now, { state: "unknown" });
@@ -263,10 +260,8 @@ export class AuthorDelivery {
                 row.telegram_user_id,
                 now,
               ))
-            ) {
-              waiting = true;
+            )
               return undefined;
-            }
             const message = row.message as CommunicationMessage;
             outgoing = message;
             if (
@@ -299,9 +294,10 @@ export class AuthorDelivery {
             return {};
           },
         });
-        return { item, outgoing, rejected, waiting };
-      });
-    if (!item || !outgoing) return rejected || waiting ? 1 : 0;
+        return { item, outgoing, rejected };
+      },
+    );
+    if (!item || !outgoing) return rejected ? 1 : 0;
     let result;
     try {
       result = await this.transport.send(outgoing);

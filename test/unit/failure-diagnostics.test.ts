@@ -65,6 +65,12 @@ describe("failure diagnostics", () => {
     });
     expect(line).not.toContain("123:ABC");
   });
+
+  it("accepts only opaque references", () => {
+    vi.spyOn(process.stderr, "write").mockImplementation(() => true);
+    // @ts-expect-error A Telegram chat ID is personal data and must not reach the log.
+    reportFailure("worker.updates", new Error("x"), { chat_id: "42" });
+  });
 });
 
 function telegram(errorCode: number): GrammyError {

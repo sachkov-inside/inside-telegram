@@ -32,10 +32,11 @@ const UPDATES: WorkerPacing = { busyMs: 250, idleMs: 5000 };
 const DELIVERY: WorkerPacing = { busyMs: 250, idleMs: 2000 };
 const BACKGROUND: WorkerPacing = { busyMs: 500, idleMs: 5000 };
 /**
- * Probes start 3 s apart and slow to once a minute: a deployment waiting on `/ready` sees a
- * fresh result soon after start, and a degraded provider is not re-recorded every few seconds.
+ * The first probe runs at start, the next ones after doubling pauses up to once a minute: a
+ * deployment waiting on `/ready` sees a fresh result soon, and a degraded provider is not
+ * re-recorded every few seconds.
  */
-const PROVIDER_PROBE: WorkerPacing = { busyMs: 3000, idleMs: 60_000 };
+const PROVIDER_PROBE: WorkerPacing = { busyMs: 1500, idleMs: 60_000 };
 const RETENTION: WorkerPacing = { busyMs: 1000, idleMs: 3_600_000 };
 
 /**
@@ -101,9 +102,13 @@ export class BackgroundWorkers
     const deliveries =
       this.config.deliveryMode === "live"
         ? add("delivery", DELIVERY, async (signal) => {
-            const replies = await this.deliveries.processDue(signal);
+            const replies = await this.deliveries.processAvailable(
+              50,
+              undefined,
+              signal,
+            );
             const posts = await this.authorDelivery.processAvailable();
-            return replies || posts > 0;
+            return replies + posts > 0 || (await this.turnPending("general"));
           })
         : undefined;
 
@@ -125,12 +130,7 @@ export class BackgroundWorkers
         BACKGROUND,
         async () =>
           (await this.funnels.processAvailable()) > 0 ||
-          (await telegramTurnPending(
-            this.database,
-            this.config.botIdentity,
-            "general",
-            this.clock.now(),
-          )),
+          (await this.turnPending("general")),
       );
     }
 
@@ -176,6 +176,19 @@ export class BackgroundWorkers
 
     this.loops = loops;
     for (const loop of loops) loop.start();
+  }
+
+  /**
+   * A sender refused a Telegram turn keeps its busy pace: the fairness cursor holds that turn
+   * for it, so a sleeping sender would stall every other sender until it wakes.
+   */
+  private turnPending(purpose: "general"): Promise<boolean> {
+    return telegramTurnPending(
+      this.database,
+      this.config.botIdentity,
+      purpose,
+      this.clock.now(),
+    );
   }
 
   async onModuleDestroy(): Promise<void> {

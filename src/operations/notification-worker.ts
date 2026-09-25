@@ -17,6 +17,7 @@ import {
   type TelegramMessages,
 } from "../modules/outbound/telegram-messages.js";
 import { CLOCK, type Clock } from "../modules/identity-linking/clock.js";
+import { telegramTurnPending } from "../modules/outbound/telegram-transport-slots.js";
 import { reportCondition } from "./failure-diagnostics.js";
 import { WorkerLoop, type WorkerPacing } from "./worker-loop.js";
 
@@ -73,7 +74,16 @@ export class NotificationWorker
                     notifications.batchSize,
                   );
                   if (dispatched > 0) results.wake();
-                  return dispatched > 0;
+                  // A category refused a Telegram turn keeps asking: the fairness cursor holds it.
+                  return (
+                    dispatched > 0 ||
+                    (await telegramTurnPending(
+                      this.db,
+                      this.config.botIdentity,
+                      category,
+                      this.clock.now(),
+                    ))
+                  );
                 },
                 NOTIFICATIONS,
               ),
