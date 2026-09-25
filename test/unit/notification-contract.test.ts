@@ -1,5 +1,5 @@
-import { randomUUID } from "node:crypto";
-import { readFileSync } from "node:fs";
+import { createHash, randomUUID } from "node:crypto";
+import { existsSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 import { HttpNotificationAuthorization } from "../../src/adapters/platform/http-notification-authorization.adapter.js";
 import {
@@ -10,6 +10,7 @@ import {
 } from "../../src/modules/notifications/notification-contract.js";
 import { loadNotificationConfig } from "../../src/config/notification-config.js";
 import fixtures from "../../docs/contracts/notifications-v1/fixtures.json" with { type: "json" };
+import manifest from "../../docs/contracts/notifications-v1/manifest.json" with { type: "json" };
 const c = fixtures.find((f) => f.name === "subscription-telegram")!
   .value as NotificationCommand;
 const envelope = {
@@ -20,10 +21,13 @@ const envelope = {
   messageId: c.operationId,
   persistent: true,
 };
-it("runtime schema is byte-identical to the approved corpus", () => {
+it("the runtime schema is the single copy of the approved corpus schema", () => {
   expect(
-    readFileSync("src/modules/notifications/contracts/schema.json"),
-  ).toEqual(readFileSync("docs/contracts/notifications-v1/schema.json"));
+    createHash("sha256")
+      .update(readFileSync("src/modules/notifications/contracts/schema.json"))
+      .digest("hex"),
+  ).toBe(manifest.artifacts["schema.json"].sha256);
+  expect(existsSync("docs/contracts/notifications-v1/schema.json")).toBe(false);
 });
 it.each([
   { exchange: "inside.notifications.email.v1" },
