@@ -123,7 +123,7 @@ def project_data(api, number):
     if not data:
         raise TrackerError(f'Cannot access project {number}')
     fields = {f['name']: f for f in data['fields']['nodes'] if f}
-    required = {'Todo', 'In Progress', 'Done'} if number == 2 else {'Inbox', 'Ready', 'In progress', 'Review', 'Blocked', 'Done'}
+    required = {'Todo', 'In Progress', 'Done'} if number == 2 else {'Inbox', 'Ready', 'In progress', 'Review', 'Blocked', 'Acceptance', 'Done'}
     if 'Status' not in fields or not required <= {x['name'] for x in fields['Status']['options']}:
         raise TrackerError(f'Project {number} Status schema does not match the contract')
     return dict(id=data['id'], fields=fields)

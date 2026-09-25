@@ -17,7 +17,7 @@ from pathlib import Path
 
 from inside_tracker import (CONTROLLER, REPOSITORIES, GitHub, MARKER, Reconciler, TrackerError, TransientError,
                            identity, run_gh, snapshot)
-from tracker_policy import ROLES, open_items, unfinished
+from tracker_policy import ACCEPTANCE, ROLES, open_items, unfinished
 
 SESSION_WORKFLOW = 'inside-agent-sessions.yml'
 # Existing automation credential owner; changing the writer is an explicit migration.
@@ -97,6 +97,8 @@ def transition(item, state, command, session, branch, reason, request):
         if item['kind'] != 'Issue' or item['state'] != 'OPEN':
             raise TrackerError('Start requires an open issue')
         labels = set(item['labels'])
+        if ACCEPTANCE in labels:
+            raise TrackerError(f'Delivered work awaits owner acceptance; the owner removes {ACCEPTANCE} to reopen delivery')
         if labels & ROLES != {'ready-for-agent'} or labels & {'backlog:human', 'tracker:gate', 'tracker:paused'}:
             raise TrackerError('Task is not ready for autonomous delivery')
         open_children = [github_reference(c) for c in open_items(item.get('children', []))]

@@ -7,15 +7,20 @@ pagination, failure and event-boundary fitness. All installed copies are version
 ## Facts and decisions
 
 Issues and PRs hold facts; Projects display them. Developer Pipeline uses Inbox, Ready, In progress,
-Review, Blocked and Done. Human Backlog uses Todo, In Progress and Done. Only Workspace issues may
-carry `backlog:human`. Human outcomes keep their manually accepted open state and close explicitly.
-Priority, Area and product decisions are not inferred from prose.
+Review, Blocked, Acceptance and Done. Human Backlog uses Todo, In Progress and Done. Only Workspace
+issues may carry `backlog:human`. Human outcomes keep their manually accepted open state and close
+explicitly. Priority, Area and product decisions are not inferred from prose.
 
 - Closed issues project to Done, retaining `completed` or `not_planned` on the issue.
 - Merged PRs project to Done. Closed, unmerged PR rows are archived. Draft PRs project to In progress;
   open non-draft PRs project to Review. A linked draft does not prove review readiness.
 - Unresolved native blockers, `needs-info`, `ready-for-human` or `tracker:gate` keep a leaf Blocked.
   A dependency closed as `not_planned` needs an explicit scope decision and removal of that edge.
+- `tracker:acceptance` on an open Developer Pipeline issue projects to Acceptance once its children
+  are closed, and it outranks gate labels, because owner acceptance is the remaining gate. An active
+  or blocked session, an open linked PR or an unresolved native blocker keeps its usual state.
+  Start refuses such an issue, and `tracker:auto-complete` never closes it. Human Backlog outcomes
+  keep their manual status.
 - Complete readiness with no active work projects to Ready. Existing active manual states without
   session metadata remain unchanged and are reported for adoption; do not take over another session.
 - Aggregate progress is not inferred from one blocked child. Preserve its manual open status.
