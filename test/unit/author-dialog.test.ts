@@ -111,7 +111,6 @@ describe("stored author session", () => {
       menu: { text: "Воронки", buttons: [["В меню", { kind: "home" }]] },
       prompt: { kind: "button-url", buttonTitle: "Купить" },
       batch: "broadcast",
-      pendingSchedule: null,
     };
 
     expect(parseAuthorState(JSON.parse(JSON.stringify(state)))).toEqual(state);
@@ -132,6 +131,31 @@ describe("stored author session", () => {
       { ...current, composing: { destination: { kind: "post", id: "p" } } },
     ])
       expect(parseAuthorState(stored), JSON.stringify(stored)).toBeUndefined();
+  });
+
+  it("resets a session saved with a button or prompt no screen shows any more", () => {
+    const current = JSON.parse(JSON.stringify(stateWith([{ kind: "home" }])));
+    for (const kind of [
+      "new",
+      "copy-broadcast",
+      "rename-broadcast",
+      "send-options",
+      "send-now",
+      "schedule",
+      "apply-schedule",
+    ]) {
+      const button = [kind, { kind }];
+      for (const stored of [
+        { ...current, actions: [{ kind }] },
+        { ...current, menu: { text: "Рассылка", buttons: [button] } },
+      ])
+        expect(parseAuthorState(stored), kind).toBeUndefined();
+    }
+    for (const kind of ["capture", "broadcast-name", "schedule"])
+      expect(
+        parseAuthorState({ ...current, prompt: { kind } }),
+        kind,
+      ).toBeUndefined();
   });
 
   it("trusts only buttons that carry the data their kind needs", () => {
@@ -258,8 +282,8 @@ describe("stored author session", () => {
       parseAuthorState({
         token: "menu-token",
         actions: [],
-        prompt: "schedule",
+        prompt: "post-search",
       }),
-    ).toEqual({ ...stateWith([]), prompt: { kind: "schedule" } });
+    ).toEqual({ ...stateWith([]), prompt: { kind: "post-search" } });
   });
 });

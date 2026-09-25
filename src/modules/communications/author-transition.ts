@@ -82,7 +82,6 @@ type BroadcastAction = Extract<
       | "move-part"
       | "remove-part"
       | "statistics"
-      | "schedule"
       | "confirm-launch"
       | "confirm-cancel"
       | "launch"
@@ -308,41 +307,6 @@ function perform(t: Turn, a: AuthorAction): void {
       if (kind === "funnel") return performFunnel(t, { kind: "f:save" });
       return broadcastCard(t);
     }
-    case "send-options": {
-      const selected = selectedBroadcast(t);
-      return t.reply(
-        "Все сообщения этой рассылки отправятся подряд всем подписчикам. Когда начать?",
-        [
-          ["Сейчас", { kind: "send-now" }],
-          ["Запланировать", { kind: "schedule" }],
-          ...(selected.state === "draft" && selected.scheduledAt
-            ? [
-                [
-                  "Подтвердить отправку",
-                  { kind: "confirm-launch" },
-                ] as AuthorButton,
-              ]
-            : []),
-          ["Назад", { kind: "read-broadcast", id: selected.broadcastId }],
-        ],
-      );
-    }
-    case "apply-schedule": {
-      if (s.pendingSchedule === undefined)
-        throw new CommunicationsError("revision_conflict");
-      const selected = selectedBroadcast(t);
-      selected.scheduledAt = s.pendingSchedule;
-      selected.audience = { kind: "all" };
-      s.pendingSchedule = undefined;
-      return saveBroadcast(t, { kind: "card" });
-    }
-    case "send-now": {
-      const selected = selectedBroadcast(t);
-      if (selected.state !== "draft") return confirmSchedule(t, null);
-      selected.audience = { kind: "all" };
-      selected.scheduledAt = null;
-      return saveBroadcast(t, { kind: "confirm-launch" });
-    }
     case "compose:broadcast":
     case "compose:funnel":
     case "compose:edit-broadcast":
@@ -367,20 +331,6 @@ function perform(t: Turn, a: AuthorAction): void {
       s.broadcastName = undefined;
       t.retainBroadcast();
       return beginSequence(t, "broadcast");
-    case "rename-broadcast":
-      s.prompt = { kind: "broadcast-name" };
-      return t.reply("Напишите название рассылки (до 128 символов).", [
-        [
-          "К рассылке",
-          { kind: "read-broadcast", id: selectedBroadcast(t).broadcastId },
-        ],
-      ]);
-    case "copy-broadcast":
-      if (!b) return unavailable();
-      s.broadcast = newBroadcast(t, b.parts);
-      s.broadcast.audience = { kind: "all" };
-      s.broadcastName = `Копия: ${s.broadcastName ?? "Рассылка"}`.slice(0, 128);
-      return saveBroadcast(t, { kind: "card" });
     case "overview":
       return t.ask({ kind: "read-statistics" });
     case "f:new":
@@ -391,11 +341,9 @@ function perform(t: Turn, a: AuthorAction): void {
       t.retainFunnelDraft();
       t.reset();
       return t.reply("Админка коммуникаций", HOME);
-    case "new":
     case "replace":
-      if (a.kind === "replace" && !template)
-        return t.reply("Выберите пост.", HOME);
-      s.prompt = { kind: a.kind === "new" ? "capture" : "replace" };
+      if (!template) return t.reply("Выберите пост.", HOME);
+      s.prompt = { kind: "replace" };
       return t.reply(
         "Пришлите одно сообщение: текст, фото, видео, кружок, голосовое или документ. Используйте форматирование Telegram. Альбомы и опросы пока не поддерживаются. /cancel — выйти.",
       );
@@ -463,7 +411,6 @@ function perform(t: Turn, a: AuthorAction): void {
     case "move-part":
     case "remove-part":
     case "statistics":
-    case "schedule":
     case "confirm-launch":
     case "confirm-cancel":
     case "launch":
@@ -579,11 +526,6 @@ function performOnBroadcast(
       return saveBroadcast(t, { kind: "card" });
     case "statistics":
       return t.ask({ kind: "read-statistics", broadcastId: b.broadcastId });
-    case "schedule":
-      t.state.prompt = { kind: "schedule" };
-      return t.reply(
-        "Введите дату и время по Москве: ДД.ММ.ГГГГ ЧЧ:ММ (UTC+3). Или напишите «сразу». Сохранение времени ещё не запускает черновик.",
-      );
     case "confirm-launch":
     case "confirm-cancel":
       if (a.kind === "confirm-launch" && b.audience.kind !== "all") {
@@ -855,18 +797,6 @@ function sequenceResult(t: Turn, result: SequenceResult): void {
   performFunnel(t, { kind: "f:show" });
 }
 
-function confirmSchedule(t: Turn, date: string | null) {
-  const b = selectedBroadcast(t);
-  t.state.pendingSchedule = date;
-  t.reply(
-    `Изменить время рассылки «${t.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}. Кому: всем доступным подписчикам.\nНовое время: ${date ? moscowTime(date) : "сразу"}.${b.state === "paused" ? " Рассылка останется на паузе до команды «Продолжить»." : " После подтверждения рассылка будет отправлена в это время."}`,
-    [
-      ["Подтвердить время отправки", { kind: "apply-schedule" }],
-      ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
-    ],
-  );
-}
-
 /** Saves the selected broadcast; an empty unsaved one stays only a local draft. */
 function saveBroadcast(t: Turn, then: AfterSave) {
   const b = selectedBroadcast(t);
@@ -1063,12 +993,6 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
   }
   if (s.composing) return answerComposer(t, input);
   const text = input.text;
-  if (s.prompt?.kind === "broadcast-name") {
-    if (!text || text.length > 128)
-      return t.reply("Введите от 1 до 128 символов.");
-    s.broadcastName = text;
-    return saveBroadcast(t, { kind: "card" });
-  }
   if (s.prompt?.kind === "post-search") {
     if (!text || text.length > 128)
       return t.reply("Введите от 1 до 128 символов.");
@@ -1078,7 +1002,6 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
   if (s.funnelAuthor?.prompt) return answerFunnel(t, input);
   const prompt = s.prompt;
   switch (prompt?.kind) {
-    case "capture":
     case "replace": {
       const content = input.content;
       try {
@@ -1088,15 +1011,13 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
           "Не удалось принять оформление. Пришлите отдельное поддерживаемое сообщение.",
         );
       }
-      const prior = prompt.kind === "replace" ? s.template : undefined;
+      const template = s.template;
+      if (!template) throw new CommunicationsError("not_found");
       return t.ask({
         kind: "save-post",
-        templateId: prior?.templateId ?? t.newId(),
-        content: {
-          ...content,
-          ...(prior ? { buttons: prior.content.buttons } : {}),
-        },
-        revision: prior?.revision ?? 0,
+        templateId: template.templateId,
+        content: { ...content, buttons: template.content.buttons },
+        revision: template.revision,
         reportConflict: true,
       });
     }
@@ -1128,20 +1049,6 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
         reportConflict: false,
       });
     }
-    case "schedule": {
-      const b = s.broadcast;
-      if (!b) break;
-      const date = parseMoscowSchedule(text);
-      if (date === undefined || (date !== null && new Date(date) <= t.now))
-        return t.reply(
-          "Нужна будущая дата ДД.ММ.ГГГГ ЧЧ:ММ по Москве или слово «сразу».",
-        );
-      s.prompt = undefined;
-      if (b.state !== "draft") return confirmSchedule(t, date);
-      b.scheduledAt = date;
-      return saveBroadcast(t, { kind: "confirm-launch" });
-    }
-    case "broadcast-name":
     case "post-search":
     case undefined:
       break;
@@ -1154,15 +1061,4 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
 
 function moscowTime(date: string) {
   return `${new Date(date).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" })} · Москва`;
-}
-
-export function parseMoscowSchedule(text: string): string | null | undefined {
-  if (text.toLowerCase() === "сразу") return null;
-  const m = /^(\d{2})\.(\d{2})\.(\d{4}) (\d{2}):(\d{2})$/.exec(text);
-  if (!m) return;
-  const value = new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:00+03:00`);
-  if (!Number.isFinite(value.getTime())) return;
-  const local = new Date(value.getTime() + 3 * 3600000).toISOString();
-  if (local.slice(0, 16) !== `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}`) return;
-  return value.toISOString();
 }

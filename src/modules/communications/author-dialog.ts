@@ -18,7 +18,6 @@ interface PayloadSpec {
  * it showed, so a persisted session may only contain actions that match this table.
  */
 const AUTHOR_ACTIONS = {
-  "apply-schedule": {},
   "batch:broadcast": {},
   "batch:done": {},
   "batch:funnel": {},
@@ -28,13 +27,11 @@ const AUTHOR_ACTIONS = {
   cancel: {},
   "confirm-cancel": {},
   "confirm-launch": {},
-  "copy-broadcast": {},
   "create-broadcast": {},
   home: {},
   launch: {},
   "menu:page": { value: "required" },
   "move-part": { value: "required" },
-  new: {},
   "new-broadcast": {},
   overview: {},
   parts: { value: "optional" },
@@ -47,14 +44,10 @@ const AUTHOR_ACTIONS = {
   "read-post": { id: "required" },
   "remove-button": { value: "required" },
   "remove-part": { value: "required" },
-  "rename-broadcast": {},
   replace: {},
   "replace-part": { value: "required" },
   resume: {},
   sample: {},
-  schedule: {},
-  "send-now": {},
-  "send-options": {},
   "show-part": { id: "required" },
   statistics: {},
   "compose:accept": {},
@@ -157,14 +150,7 @@ export interface AuthorMenu {
   buttons: AuthorButton[];
 }
 
-const AUTHOR_PROMPT_KINDS = [
-  "capture",
-  "replace",
-  "button-title",
-  "schedule",
-  "broadcast-name",
-  "post-search",
-] as const;
+const AUTHOR_PROMPT_KINDS = ["replace", "button-title", "post-search"] as const;
 
 /** The text the dialog waits for from the author outside a composer or funnel prompt. */
 export type AuthorPrompt =
@@ -234,7 +220,6 @@ export interface AuthorState {
   menu?: AuthorMenu;
   composing?: ComposerState;
   broadcastName?: string;
-  pendingSchedule?: string | null;
   libraryQuery?: string;
   funnelAuthor?: AuthorFunnelState;
   template?: TemplateSnapshot;
@@ -365,7 +350,6 @@ function isAuthorState(value: unknown): value is AuthorState {
     optional(value.menu, isAuthorMenu) &&
     optional(value.composing, isComposerState) &&
     optional(value.broadcastName, isString) &&
-    optional(value.pendingSchedule, (v) => v === null || isString(v)) &&
     optional(value.libraryQuery, isString) &&
     optional(value.funnelAuthor, isFunnelState) &&
     optional(value.template, (v) => validTemplate(v)) &&
