@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { transactionWithExternalReads } from "../../database/external-reads.js";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
 import { sql, type Transaction } from "kysely";
@@ -14,6 +15,7 @@ import {
 import type { TemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
 import {
   AUTHOR_AUTHORIZATION,
+  authorizeAuthor,
   type AuthorAuthorization,
   type AuthorSubject,
 } from "./author-authorization.js";
@@ -192,7 +194,7 @@ export class Communications {
   }
 
   async intake(input: TemplateIntake): Promise<void> {
-    await this.database.transaction().execute(async (tx) => {
+    await transactionWithExternalReads(this.database, async (tx) => {
       await lock(
         tx,
         `communications-intake:${input.botIdentity}:${input.telegramUserId}`,
@@ -249,7 +251,7 @@ export class Communications {
         .forShare()
         .executeTakeFirst();
       const permission = link
-        ? await this.authorization.authorize({
+        ? await authorizeAuthor(this.authorization, {
             kind: "telegram",
             accountRef: link.account_ref,
             telegramIdentityRef: link.telegram_identity_ref,
@@ -342,7 +344,7 @@ export class Communications {
     });
   }
   private async requireAuthor(subject: AuthorSubject): Promise<void> {
-    const result = await this.authorization.authorize(subject);
+    const result = await authorizeAuthor(this.authorization, subject);
     if (result !== "allowed")
       throw new CommunicationsError(
         result === "denied" ? "forbidden" : "authorization_unavailable",

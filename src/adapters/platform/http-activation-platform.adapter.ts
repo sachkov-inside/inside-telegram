@@ -13,6 +13,7 @@ import {
 } from "../../modules/subscription-activation/activation-contract.js";
 import type { ActivationPlatform } from "../../modules/subscription-activation/activation-ports.js";
 import type { ValidateFunction } from "ajv";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 /** Only the source-authority secret crosses this boundary; redirects are forbidden. */
 export class HttpActivationPlatform implements ActivationPlatform {
@@ -94,7 +95,8 @@ export class HttpActivationPlatform implements ActivationPlatform {
       }
       const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       return validate(body) ? (body as T) : undefined;
-    } catch {
+    } catch (error) {
+      reportFailure("platform.activation", error);
       return;
     }
   }

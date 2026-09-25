@@ -4,6 +4,7 @@ import type {
   TelegramChatMemberResult,
   TelegramMembership,
 } from "../../modules/membership-evidence/telegram-membership.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 export class GrammyMembershipAdapter implements TelegramMembership {
   private readonly api: TelegramApi;
@@ -76,6 +77,7 @@ function toSafeTelegramNumber(value: string): number {
 }
 
 function unavailable(error?: unknown): TelegramChatMemberResult {
+  if (error !== undefined) reportFailure("telegram.membership", error);
   return {
     ...(error instanceof GrammyError &&
     Number.isFinite(error.parameters.retry_after)

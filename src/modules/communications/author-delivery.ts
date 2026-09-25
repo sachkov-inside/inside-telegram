@@ -12,6 +12,7 @@ import {
 } from "../../config/application-config.js";
 import {
   AUTHOR_AUTHORIZATION,
+  authorizeAuthor,
   type AuthorAuthorization,
 } from "./author-authorization.js";
 import {
@@ -29,8 +30,30 @@ import {
   deferTelegramSlot,
 } from "../outbound/telegram-transport-slots.js";
 import type { Transaction } from "kysely";
+import {
+  claim,
+  expireLeases,
+  retryDelay,
+  settle,
+  type DurableQueue,
+} from "../../database/durable-queue.js";
+import { transactionWithExternalReads } from "../../database/external-reads.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 export const AUTHOR_TRANSPORT = Symbol("AUTHOR_TRANSPORT");
+
+const authorOutbox: DurableQueue<"communication_author_outbox"> = {
+  table: "communication_author_outbox",
+  key: ["delivery_id"],
+  order: ["sequence_id"],
+  ready: ["pending"],
+  leased: "sending",
+  due: "available_at",
+  attempts: "attempt_count",
+  leasedAt: "attempted_at",
+  leaseMs: 60_000,
+  retry: { initialMs: 5000, maxMs: 5000 },
+};
 export async function enqueueAuthorMessage(
   tx: Transaction<DatabaseSchema>,
   input: {
@@ -78,7 +101,7 @@ export class AuthorDelivery {
     if (!("accountRef" in request.actor))
       throw new CommunicationsError("forbidden");
     const accountRef = request.actor.accountRef;
-    const permission = await this.authorization.authorize({
+    const permission = await authorizeAuthor(this.authorization, {
       kind: "account",
       accountRef,
     });
@@ -153,159 +176,164 @@ export class AuthorDelivery {
       ? work(transaction)
       : this.database.transaction().execute(work);
   }
-  async processAvailable(now = new Date()): Promise<void> {
-    if (this.config.deliveryMode !== "live") return;
-    // A process dying after dispatch cannot know whether Telegram accepted the post.
-    await this.database
-      .updateTable("communication_author_outbox")
-      .set({ state: "unknown" })
-      .where("bot_identity", "=", this.config.botIdentity)
-      .where("state", "=", "sending")
-      .where("attempted_at", "<", new Date(now.getTime() - 60_000))
-      .execute();
-    const item = await this.database.transaction().execute(async (tx) => {
-      const row = await tx
-        .selectFrom("communication_author_outbox")
-        .selectAll()
-        .where("bot_identity", "=", this.config.botIdentity)
-        .where("state", "=", "pending")
-        .where("available_at", "<=", now)
-        .where((eb) =>
-          eb.not(
-            eb.exists(
-              eb
-                .selectFrom("communication_author_outbox as earlier")
-                .select("earlier.delivery_id")
-                .whereRef(
-                  "earlier.bot_identity",
-                  "=",
-                  "communication_author_outbox.bot_identity",
-                )
-                .whereRef(
-                  "earlier.telegram_user_id",
-                  "=",
-                  "communication_author_outbox.telegram_user_id",
-                )
-                .whereRef(
-                  "earlier.sequence_id",
-                  "<",
-                  "communication_author_outbox.sequence_id",
-                )
-                .where("earlier.state", "in", ["pending", "sending"]),
-            ),
-          ),
-        )
-        .orderBy("sequence_id")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-      if (!row) return;
-      const link = await tx
-        .selectFrom("platform_links")
-        .selectAll()
-        .where("bot_identity", "=", row.bot_identity)
-        .where("telegram_user_id", "=", row.telegram_user_id)
-        .forShare()
-        .executeTakeFirst();
-      const allowed =
-        link?.account_ref === row.account_ref &&
-        link.telegram_identity_ref === row.telegram_identity_ref
-          ? await this.authorization.authorize({
-              kind: "telegram",
-              accountRef: row.account_ref,
-              telegramIdentityRef: row.telegram_identity_ref,
-              botIdentity: row.bot_identity,
-            })
-          : "denied";
-      if (allowed === "unavailable") return;
-      if (allowed !== "allowed") {
-        await tx
-          .updateTable("communication_author_outbox")
-          .set({ state: "rejected" })
-          .where("delivery_id", "=", row.delivery_id)
-          .execute();
-        return;
-      }
-      if (
-        !(await reserveTelegramSlot(
-          tx,
-          row.bot_identity,
-          row.telegram_user_id,
-          now,
-        ))
-      )
-        return;
-      const message = row.message as CommunicationMessage;
-      if (message.authorMenu && message.editMenu && !message.editMessageId) {
-        const previous = await tx
-          .selectFrom("communication_author_outbox")
-          .select(["message", "provider_message_id", "state"])
-          .where("bot_identity", "=", row.bot_identity)
-          .where("account_ref", "=", row.account_ref)
-          .where("telegram_identity_ref", "=", row.telegram_identity_ref)
-          .where("telegram_user_id", "=", row.telegram_user_id)
-          .where("sequence_id", "<", row.sequence_id)
-          .orderBy("sequence_id", "desc")
-          .executeTakeFirst();
-        if (
-          previous?.state === "delivered" &&
-          (previous.message as CommunicationMessage)?.authorMenu &&
-          previous?.provider_message_id
-        )
-          row.message = {
-            ...message,
-            editMessageId: previous.provider_message_id,
-          };
-      }
-      await tx
-        .updateTable("communication_author_outbox")
-        .set({
-          message: JSON.stringify(row.message),
-          state: "sending",
-          attempted_at: now,
-          attempt_count: row.attempt_count + 1,
-        })
-        .where("delivery_id", "=", row.delivery_id)
-        .execute();
-      return row;
-    });
-    if (!item) return;
+  /** Sends at most one due author message; returns how many rows it settled. */
+  async processAvailable(now = new Date()): Promise<number> {
+    if (this.config.deliveryMode !== "live") return 0;
+    // Platform authorization is answered with no transaction open; see transactionWithExternalReads.
+    const { item, outgoing, rejected } = await transactionWithExternalReads(
+      this.database,
+      async (tx) => {
+        // Each round starts clean: a replayed round must not see an earlier round's decisions.
+        let rejected = false;
+        let outgoing: CommunicationMessage | undefined;
+        // A process dying after dispatch cannot know whether Telegram accepted the post.
+        await expireLeases(tx, authorOutbox, now, { state: "unknown" });
+        const item = await claim(tx, authorOutbox, now, {
+          select: [
+            "account_ref",
+            "bot_identity",
+            "delivery_id",
+            "message",
+            "sequence_id",
+            "telegram_identity_ref",
+            "telegram_user_id",
+          ],
+          where: (eb) =>
+            eb.and([
+              eb("bot_identity", "=", this.config.botIdentity),
+              eb.not(
+                eb.exists(
+                  eb
+                    .selectFrom("communication_author_outbox as earlier")
+                    .select("earlier.delivery_id")
+                    .whereRef(
+                      "earlier.bot_identity",
+                      "=",
+                      "communication_author_outbox.bot_identity",
+                    )
+                    .whereRef(
+                      "earlier.telegram_user_id",
+                      "=",
+                      "communication_author_outbox.telegram_user_id",
+                    )
+                    .whereRef(
+                      "earlier.sequence_id",
+                      "<",
+                      "communication_author_outbox.sequence_id",
+                    )
+                    .where("earlier.state", "in", ["pending", "sending"]),
+                ),
+              ),
+            ]),
+          prepare: async (tx, row) => {
+            const link = await tx
+              .selectFrom("platform_links")
+              .selectAll()
+              .where("bot_identity", "=", row.bot_identity)
+              .where("telegram_user_id", "=", row.telegram_user_id)
+              .forShare()
+              .executeTakeFirst();
+            const allowed =
+              link?.account_ref === row.account_ref &&
+              link.telegram_identity_ref === row.telegram_identity_ref
+                ? await authorizeAuthor(this.authorization, {
+                    kind: "telegram",
+                    accountRef: row.account_ref,
+                    telegramIdentityRef: row.telegram_identity_ref,
+                    botIdentity: row.bot_identity,
+                  })
+                : "denied";
+            if (allowed === "unavailable") return undefined;
+            if (allowed !== "allowed") {
+              await tx
+                .updateTable("communication_author_outbox")
+                .set({ state: "rejected" })
+                .where("delivery_id", "=", row.delivery_id)
+                .execute();
+              rejected = true;
+              return undefined;
+            }
+            if (
+              !(await reserveTelegramSlot(
+                tx,
+                row.bot_identity,
+                row.telegram_user_id,
+                now,
+              ))
+            )
+              return undefined;
+            const message = row.message as CommunicationMessage;
+            outgoing = message;
+            if (
+              message.authorMenu &&
+              message.editMenu &&
+              !message.editMessageId
+            ) {
+              const previous = await tx
+                .selectFrom("communication_author_outbox")
+                .select(["message", "provider_message_id", "state"])
+                .where("bot_identity", "=", row.bot_identity)
+                .where("account_ref", "=", row.account_ref)
+                .where("telegram_identity_ref", "=", row.telegram_identity_ref)
+                .where("telegram_user_id", "=", row.telegram_user_id)
+                .where("sequence_id", "<", row.sequence_id)
+                .orderBy("sequence_id", "desc")
+                .executeTakeFirst();
+              if (
+                previous?.state === "delivered" &&
+                (previous.message as CommunicationMessage)?.authorMenu &&
+                previous?.provider_message_id
+              ) {
+                outgoing = {
+                  ...message,
+                  editMessageId: previous.provider_message_id,
+                };
+                return { message: JSON.stringify(outgoing) };
+              }
+            }
+            return {};
+          },
+        });
+        return { item, outgoing, rejected };
+      },
+    );
+    if (!item || !outgoing) return rejected ? 1 : 0;
     let result;
     try {
-      result = await this.transport.send(item.message as CommunicationMessage);
-    } catch {
+      result = await this.transport.send(outgoing);
+    } catch (error) {
+      reportFailure("communications.author-delivery", error, {
+        delivery_id: item.row.delivery_id,
+      });
       result = { kind: "transport_unknown" as const };
     }
-    const retry = result.kind === "api_retryable" && item.attempt_count < 2;
+    const retry = result.kind === "api_retryable" && item.attempt < 3;
     const availableAt = new Date(
       now.getTime() +
-        (result.kind === "api_retryable"
-          ? (result.retryAfterSeconds ?? 5)
-          : 0) *
-          1000,
+        (result.kind !== "api_retryable"
+          ? 0
+          : result.retryAfterSeconds
+            ? result.retryAfterSeconds * 1000
+            : retryDelay(authorOutbox, item.attempt)),
     );
     await this.database.transaction().execute(async (tx) => {
       if (result.kind === "api_retryable" && result.providerErrorCode === 429)
-        await deferTelegramSlot(tx, item.bot_identity, availableAt);
-      await tx
-        .updateTable("communication_author_outbox")
-        .set({
-          state:
-            result.kind === "delivered"
-              ? "delivered"
-              : result.kind === "transport_unknown"
-                ? "unknown"
-                : retry
-                  ? "pending"
-                  : "rejected",
-          available_at: availableAt,
-          diagnostic_code: result.kind,
-          provider_message_id:
-            result.kind === "delivered" ? result.providerMessageId : null,
-        })
-        .where("delivery_id", "=", item.delivery_id)
-        .where("state", "=", "sending")
-        .execute();
+        await deferTelegramSlot(tx, item.row.bot_identity, availableAt);
+      await settle(tx, authorOutbox, item, {
+        state:
+          result.kind === "delivered"
+            ? "delivered"
+            : result.kind === "transport_unknown"
+              ? "unknown"
+              : retry
+                ? "pending"
+                : "rejected",
+        available_at: availableAt,
+        diagnostic_code: result.kind,
+        provider_message_id:
+          result.kind === "delivered" ? result.providerMessageId : null,
+      });
     });
+    return 1;
   }
 }

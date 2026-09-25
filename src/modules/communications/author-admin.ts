@@ -3,6 +3,7 @@ import {
   type SequenceResult,
 } from "./author-sequence-composer.js";
 import { formatFunnelDelay } from "./author-funnels.js";
+import { transactionWithExternalReads } from "../../database/external-reads.js";
 import {
   validateAuthorButtonUrl,
   appendAuthorButton,
@@ -45,6 +46,7 @@ import {
 import type { AuthorInput } from "../../adapters/telegram/grammy-author-admin.adapter.js";
 import {
   AUTHOR_AUTHORIZATION,
+  authorizeAuthor,
   type AuthorAuthorization,
 } from "./author-authorization.js";
 import { Communications } from "./communications.js";
@@ -123,7 +125,8 @@ export class AuthorAdmin {
   }
   async handle(input: AuthorInput): Promise<boolean> {
     if (input.botIdentity !== this.config.botIdentity) return false;
-    return this.database.transaction().execute(async (tx) => {
+    // Platform answers are fetched with no transaction open; see transactionWithExternalReads.
+    return transactionWithExternalReads(this.database, async (tx) => {
       await communicationLock(
         tx,
         `communications-intake:${input.botIdentity}:${input.telegramUserId}`,
@@ -176,7 +179,7 @@ export class AuthorAdmin {
         .forShare()
         .executeTakeFirst();
       const allowed = link
-        ? await this.authorization.authorize({
+        ? await authorizeAuthor(this.authorization, {
             kind: "telegram",
             accountRef: link.account_ref,
             telegramIdentityRef: link.telegram_identity_ref,

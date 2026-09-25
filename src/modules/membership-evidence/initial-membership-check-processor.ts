@@ -5,6 +5,7 @@ import {
   MembershipEvidenceProvider,
 } from "./membership-evidence-provider.js";
 import { InitialMembershipCheckQueue } from "./initial-membership-check-queue.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 @Injectable()
 export class InitialMembershipCheckProcessor {
@@ -25,6 +26,7 @@ export class InitialMembershipCheckProcessor {
       await this.queue.complete(check, now);
       return outcome;
     } catch (error) {
+      reportFailure("membership.initial-check", error, { check_id: check.id });
       await this.queue.retry(check, now);
       throw error;
     }

@@ -7,6 +7,10 @@ import {
   COMMUNICATIONS_VERSION,
   contractValidator,
 } from "../../modules/communications/communications-contract.js";
+import {
+  reportCondition,
+  reportFailure,
+} from "../../operations/failure-diagnostics.js";
 const validResponse = contractValidator("authorizationResponse");
 export class HttpAuthorAuthorizationAdapter implements AuthorAuthorization {
   constructor(
@@ -35,7 +39,13 @@ export class HttpAuthorAuthorizationAdapter implements AuthorAuthorization {
         }),
       });
       if (response.status === 401 || response.status === 403) return "denied";
-      if (!response.ok) return "unavailable";
+      if (!response.ok) {
+        reportCondition(
+          "platform.author-authorization",
+          `http_${response.status}`,
+        );
+        return "unavailable";
+      }
       const body: unknown = await response.json();
       if (!validResponse(body)) return "unavailable";
       const result = body as {
@@ -46,7 +56,8 @@ export class HttpAuthorAuthorizationAdapter implements AuthorAuthorization {
       if (result.requestId !== requestId) return "unavailable";
       if (result.status === "denied") return "denied";
       return result.accountRef === subject.accountRef ? "allowed" : "denied";
-    } catch {
+    } catch (error) {
+      reportFailure("platform.author-authorization", error);
       return "unavailable";
     }
   }

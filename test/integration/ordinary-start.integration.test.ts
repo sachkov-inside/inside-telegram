@@ -3,7 +3,15 @@ import { FastifyAdapter } from "@nestjs/platform-fastify";
 import { NestFactory } from "@nestjs/core";
 import type { FastifyInstance } from "fastify";
 import { sql } from "kysely";
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest";
 
 import { AppModule } from "../../src/app.module.js";
 import type { ApplicationConfig } from "../../src/config/application-config.js";
@@ -357,6 +365,36 @@ describe("Telegram webhook contract", () => {
       .executeTakeFirstOrThrow();
     expect(update).toEqual({ process_attempt_count: 2, state: "processed" });
     await expect(tableCount("bot_contacts")).resolves.toBe(1);
+  });
+
+  it("records why an update failed and stops after its last attempt", async () => {
+    const acceptedAt = new Date("2026-08-30T12:00:00.000Z");
+    const inbox = application.get(TelegramUpdateInbox);
+    await inbox.accept("inside", "41", privateStartUpdate(41, 42), acceptedAt);
+    const deadlock = Object.assign(new Error("synthetic deadlock"), {
+      code: "40P01",
+      severity: "ERROR",
+    });
+    const observeStart = vi
+      .spyOn(application.get(BotContacts), "observeStart")
+      .mockRejectedValue(deadlock);
+    const processor = application.get(TelegramUpdateProcessor);
+    try {
+      let now = acceptedAt;
+      for (let attempt = 1; attempt <= 5; attempt += 1) {
+        await expect(processor.processAvailable(1, now)).resolves.toBe(1);
+        const update = await database
+          .selectFrom("telegram_updates")
+          .select(["available_at", "failure_code", "state"])
+          .executeTakeFirstOrThrow();
+        expect(update.failure_code).toBe("pg_40P01");
+        expect(update.state).toBe(attempt < 5 ? "pending" : "failed");
+        now = update.available_at;
+      }
+    } finally {
+      observeStart.mockRestore();
+    }
+    await expect(processor.processAvailable(1, acceptedAt)).resolves.toBe(0);
   });
 });
 

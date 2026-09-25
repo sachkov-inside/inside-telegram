@@ -16,6 +16,7 @@ import { authorRequest } from "./author-request.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
   type AuthorContentValidation,
+  validateAuthorContent,
 } from "./author-content-validation.js";
 import { enqueueAuthorMessage } from "./author-delivery.js";
 import {
@@ -651,7 +652,8 @@ export class AuthorFunnels {
         return reply("Добавьте хотя бы один сохранённый пост.", [
           ["К сообщениям", { kind: "f:parts-page", value: "0" }],
         ]);
-      const validation = await this.validation.validate(
+      const validation = await validateAuthorContent(
+        this.validation,
         {
           kind: "telegram",
           accountRef: c.accountRef,
@@ -880,14 +882,16 @@ export class AuthorFunnels {
           "Сначала сохраните черновик. Проверка и публикация относятся к сохранённой версии.",
           back,
         );
-      // Read locks definition changes through this transaction. Validate precisely the same revision.
+      // Read locks definition changes through this transaction. Validation is answered for
+      // exactly these parts outside the transaction, so it covers precisely the locked revision.
       const loaded = await this.funnels.execute(
         this.request(c, "funnels.read", { funnelId: f.funnelId }),
         c.tx,
       );
       if (!("funnel" in loaded) || loaded.funnel.revision !== f.revision)
         throw new CommunicationsError("revision_conflict");
-      const result = await this.validation.validate(
+      const result = await validateAuthorContent(
+        this.validation,
         {
           kind: "telegram",
           accountRef: c.accountRef,

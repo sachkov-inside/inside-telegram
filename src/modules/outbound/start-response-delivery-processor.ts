@@ -1,5 +1,6 @@
 import { Inject, Injectable } from "@nestjs/common";
 
+import { reportCondition } from "../../operations/failure-diagnostics.js";
 import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
 import {
   APPLICATION_CONFIG,
@@ -22,9 +23,13 @@ export class StartResponseDeliveryProcessor {
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
   ) {}
 
-  async processAvailable(limit = 50, now?: Date): Promise<number> {
+  async processAvailable(
+    limit = 50,
+    now?: Date,
+    signal?: AbortSignal,
+  ): Promise<number> {
     let processed = 0;
-    for (; processed < limit; processed += 1) {
+    for (; processed < limit && !signal?.aborted; processed += 1) {
       const attemptedAt = now ?? new Date();
       const delivery = await this.queue.claimNext(
         attemptedAt,
@@ -59,7 +64,10 @@ export class StartResponseDeliveryProcessor {
                 }
               : {}),
           });
-      await this.queue.recordResult(delivery, result, now ?? new Date());
+      if (!(await this.queue.recordResult(delivery, result, now ?? new Date())))
+        reportCondition("outbound.delivery", "lease_lost", {
+          delivery_id: delivery.id,
+        });
       this.metrics.increment(`delivery_${result.kind}`);
     }
     return processed;

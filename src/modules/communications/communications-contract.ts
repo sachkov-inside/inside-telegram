@@ -87,6 +87,7 @@ export type CommunicationsErrorCode =
 export class CommunicationsError extends Error {
   constructor(readonly code: CommunicationsErrorCode) {
     super(code);
+    this.name = "CommunicationsError";
   }
 }
 const ajv = new Ajv({ strict: true });

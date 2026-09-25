@@ -40,6 +40,7 @@ import {
   type TelegramChatMemberResult,
   type TelegramMembership,
 } from "./telegram-membership.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 const EVIDENCE_VALIDITY_MILLISECONDS = 5 * 60 * 1000;
 const TELEGRAM_READ_TIMEOUT_MILLISECONDS = 5_000;
@@ -86,6 +87,8 @@ export interface EvidenceOutcome {
 
 @Injectable()
 export class MembershipEvidenceProvider {
+  private probedState?: MembershipProviderState;
+
   constructor(
     @Inject(DATABASE) private readonly database: Database,
     @Inject(APPLICATION_CONFIG)
@@ -95,26 +98,42 @@ export class MembershipEvidenceProvider {
     private readonly telegram: TelegramMembership,
   ) {}
 
-  async validateReadiness(): Promise<MembershipProviderState> {
+  /**
+   * Readiness from this process's latest provider probe. It never calls Telegram and never
+   * writes, so a monitor can poll it freely; it fails closed until the first probe completes.
+   */
+  readiness(): MembershipProviderState {
+    if (this.config.membershipMode === "disabled") {
+      return "ready";
+    }
+    return this.probedState ?? "unavailable";
+  }
+
+  /** Observes whether the bot can read the canonical chat and records it as provider evidence. */
+  async probeProvider(): Promise<MembershipProviderState> {
     if (this.config.membershipMode === "disabled") {
       return "ready";
     }
     const prerequisite = await this.readProviderPrerequisite();
     const checkedAt = this.clock.now();
-    return this.database.transaction().execute(async (transaction) => {
-      await lockProviderStateChanges(transaction, this.config.botIdentity);
-      const observation = await recordProviderObservation(transaction, {
-        botIdentity: this.config.botIdentity,
-        canonicalChatId: this.config.canonicalChatId,
-        diagnosticCode: prerequisite.diagnosticCode,
-        observedAt: checkedAt,
-        sourceKind: "direct",
-        sourceRef: `readiness:${randomUUID()}`,
-        sourceUpdateId: null,
-        state: prerequisite.providerState,
+    const state = await this.database
+      .transaction()
+      .execute(async (transaction) => {
+        await lockProviderStateChanges(transaction, this.config.botIdentity);
+        const observation = await recordProviderObservation(transaction, {
+          botIdentity: this.config.botIdentity,
+          canonicalChatId: this.config.canonicalChatId,
+          diagnosticCode: prerequisite.diagnosticCode,
+          observedAt: checkedAt,
+          sourceKind: "direct",
+          sourceRef: `readiness:${randomUUID()}`,
+          sourceUpdateId: null,
+          state: prerequisite.providerState,
+        });
+        return observation.currentState;
       });
-      return observation.currentState;
-    });
+    this.probedState = state;
+    return state;
   }
 
   async accept(
@@ -643,7 +662,8 @@ async function safeTelegramRead(
         timer.unref();
       }),
     ]);
-  } catch {
+  } catch (error) {
+    reportFailure("membership.telegram-read", error);
     return {
       diagnosticCode: "telegram_api_unavailable",
       kind: "unavailable",

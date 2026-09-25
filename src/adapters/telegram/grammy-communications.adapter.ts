@@ -6,6 +6,7 @@ import type {
   CommunicationMessage,
 } from "../../modules/communications/communication-delivery.js";
 import type { TelegramDeliveryResult } from "../../modules/outbound/telegram-messages.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 export class GrammyCommunicationsAdapter implements CommunicationTransport {
   constructor(
     private readonly api: Pick<
@@ -108,7 +109,10 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
       }
       return { kind: "delivered", providerMessageId: String(sent.message_id) };
     } catch (error) {
-      if (!(error instanceof GrammyError)) return { kind: "transport_unknown" };
+      if (!(error instanceof GrammyError)) {
+        reportFailure("telegram.communications", error);
+        return { kind: "transport_unknown" };
+      }
       if (error.error_code === 429 || error.error_code >= 500)
         return {
           kind: "api_retryable",

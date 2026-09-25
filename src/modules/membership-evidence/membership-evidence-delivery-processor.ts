@@ -6,6 +6,7 @@ import {
   type PlatformEvidenceDelivery,
   type PlatformEvidenceDeliveryResult,
 } from "./platform-evidence-delivery.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 @Injectable()
 export class MembershipEvidenceDeliveryProcessor {
@@ -32,7 +33,8 @@ export class MembershipEvidenceDeliveryProcessor {
             idempotencyKey: delivery.idempotencyKey,
             source: delivery.source,
           });
-        } catch {
+        } catch (error) {
+          reportFailure("membership.evidence-delivery", error);
           return {
             diagnosticCode: "platform_transport_unavailable",
             kind: "retryable",

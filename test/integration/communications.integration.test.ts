@@ -69,10 +69,20 @@ const config = loadApplicationConfig({
 class FakeAuthorization implements AuthorAuthorization {
   result: "allowed" | "denied" | "unavailable" = "allowed";
   subjects: AuthorSubject[] = [];
+  openTransactions: number[] = [];
   async authorize(subject: AuthorSubject) {
     this.subjects.push(subject);
+    this.openTransactions.push(await openTransactions());
     return this.result;
   }
+}
+// Connections of this database that wait inside a transaction while the caller does other I/O.
+async function openTransactions(): Promise<number> {
+  const result = await sql<{ open: string }>`
+    select count(*)::text as open from pg_stat_activity
+    where datname = current_database() and state = 'idle in transaction'
+  `.execute(database);
+  return Number(result.rows[0]?.open ?? 0);
 }
 const authorization = new FakeAuthorization();
 const contentValidation = {
@@ -315,6 +325,18 @@ describe("versioned HTTP scenarios shared with consumer", () => {
   });
 });
 describe("durable author intake", () => {
+  it("asks Platform for permission with no transaction open", async () => {
+    await seedLink();
+    authorization.openTransactions = [];
+    await intake(1, { text: "/template" });
+    await authorMessage(2, "/admin");
+
+    expect(authorization.subjects.length).toBeGreaterThanOrEqual(2);
+    expect(authorization.openTransactions).toEqual(
+      authorization.subjects.map(() => 0),
+    );
+  });
+
   it("requires explicit mode, a real link and fresh permission; username and forward origin do not authorize", async () => {
     await intake(1, { text: "Ordinary message" });
     await intake(2, {

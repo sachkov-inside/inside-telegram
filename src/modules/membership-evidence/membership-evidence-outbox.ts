@@ -10,15 +10,35 @@ import {
   type MembershipEvidenceSource,
   readStoredMembershipEvidence,
 } from "./membership-evidence.js";
+import {
+  claimNext,
+  held,
+  retryDelay,
+  settle,
+  type DurableQueue,
+  type Lease,
+} from "../../database/durable-queue.js";
 import { withProviderDeliveryLock } from "./membership-provider-delivery-lock.js";
 import type { PlatformEvidenceDeliveryResult } from "./platform-evidence-delivery.js";
 
-const DELIVERY_LEASE_MILLISECONDS = 60_000;
+const evidenceOutbox: DurableQueue<"membership_evidence_outbox"> = {
+  table: "membership_evidence_outbox",
+  key: ["id"],
+  order: ["id"],
+  ready: ["pending", "retry_scheduled"],
+  leased: "delivering",
+  due: "available_at",
+  attempts: "attempt_count",
+  leasedAt: "locked_at",
+  leaseMs: 60_000,
+  retry: { initialMs: 1000, maxMs: 5 * 60_000 },
+};
 
 export interface ClaimedMembershipEvidenceDelivery {
   readonly attemptNumber: number;
   readonly evidence: MembershipEvidence;
   readonly idempotencyKey: string;
+  readonly lease: Lease<"membership_evidence_outbox">;
   readonly source: MembershipEvidenceSource;
 }
 
@@ -29,66 +49,32 @@ export class MembershipEvidenceOutbox {
   async claimNext(
     now: Date,
   ): Promise<ClaimedMembershipEvidenceDelivery | undefined> {
-    return this.database.transaction().execute(async (transaction) => {
-      const stale = await transaction
-        .selectFrom("membership_evidence_outbox")
-        .select("id")
-        .where("state", "=", "delivering")
-        .where(
-          "locked_at",
-          "<=",
-          new Date(now.getTime() - DELIVERY_LEASE_MILLISECONDS),
-        )
-        .orderBy("id")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-      if (stale) {
-        await transaction
-          .updateTable("membership_evidence_outbox")
-          .set({
-            available_at: now,
-            diagnostic_code: "worker_lease_expired",
-            locked_at: null,
-            state: "retry_scheduled",
-            updated_at: now,
-          })
-          .where("id", "=", stale.id)
-          .execute();
-      }
-
-      const delivery = await transaction
-        .selectFrom("membership_evidence_outbox")
-        .select(["attempt_count", "envelope", "id", "source"])
-        .where("state", "in", ["pending", "retry_scheduled"])
-        .where("available_at", "<=", now)
-        .orderBy("id")
-        .forUpdate()
-        .skipLocked()
-        .executeTakeFirst();
-      if (!delivery) {
-        return undefined;
-      }
-
-      const attemptNumber = delivery.attempt_count + 1;
-      await transaction
-        .updateTable("membership_evidence_outbox")
-        .set({
-          attempt_count: attemptNumber,
-          diagnostic_code: null,
-          locked_at: now,
-          state: "delivering",
-          updated_at: now,
-        })
-        .where("id", "=", delivery.id)
-        .execute();
-      return {
-        attemptNumber,
-        evidence: readStoredMembershipEvidence(delivery.envelope),
-        idempotencyKey: delivery.id,
-        source: delivery.source,
-      };
-    });
+    const claimed = await claimNext(
+      this.database,
+      evidenceOutbox,
+      now,
+      {
+        available_at: now,
+        diagnostic_code: "worker_lease_expired",
+        locked_at: null,
+        state: "retry_scheduled",
+        updated_at: now,
+      },
+      {
+        select: ["envelope", "id", "source"],
+        prepare: async () => ({ diagnostic_code: null, updated_at: now }),
+      },
+    );
+    if (!claimed) {
+      return undefined;
+    }
+    return {
+      attemptNumber: claimed.attempt,
+      evidence: readStoredMembershipEvidence(claimed.row.envelope),
+      idempotencyKey: claimed.row.id,
+      lease: claimed,
+      source: claimed.row.source,
+    };
   }
 
   async recordResult(
@@ -97,27 +83,21 @@ export class MembershipEvidenceOutbox {
     attemptedAt: Date,
   ): Promise<void> {
     const state = deliveryState(result);
-    const retryDelay = Math.min(
-      5 * 60_000,
-      1000 * 2 ** (delivery.attemptNumber - 1),
-    );
-    await this.database
-      .updateTable("membership_evidence_outbox")
-      .set({
-        available_at:
-          state === "retry_scheduled"
-            ? new Date(attemptedAt.getTime() + retryDelay)
-            : attemptedAt,
-        delivered_at: state === "delivered" ? attemptedAt : null,
-        diagnostic_code:
-          result.kind === "delivered" ? null : result.diagnosticCode,
-        locked_at: null,
-        state,
-        updated_at: attemptedAt,
-      })
-      .where("id", "=", delivery.idempotencyKey)
-      .where("state", "=", "delivering")
-      .execute();
+    await settle(this.database, evidenceOutbox, delivery.lease, {
+      available_at:
+        state === "retry_scheduled"
+          ? new Date(
+              attemptedAt.getTime() +
+                retryDelay(evidenceOutbox, delivery.attemptNumber),
+            )
+          : attemptedAt,
+      delivered_at: state === "delivered" ? attemptedAt : null,
+      diagnostic_code:
+        result.kind === "delivered" ? null : result.diagnosticCode,
+      locked_at: null,
+      state,
+      updated_at: attemptedAt,
+    });
   }
 
   async deliverIfClaimActive<Result>(
@@ -146,14 +126,13 @@ export class MembershipEvidenceOutbox {
       this.database,
       owner.bot_identity,
       async (connection) => {
+        // Only the current lease holder delivers; a worker whose lease expired stays silent.
         const stored = await connection
           .selectFrom("membership_evidence_outbox")
-          .select("state")
-          .where("id", "=", delivery.idempotencyKey)
+          .select("id")
+          .where(held(evidenceOutbox, delivery.lease))
           .executeTakeFirst();
-        return stored?.state === "delivering"
-          ? operation()
-          : Promise.resolve(undefined);
+        return stored ? operation() : Promise.resolve(undefined);
       },
     );
   }

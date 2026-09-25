@@ -6,6 +6,7 @@ import type {
   TelegramMessageEdit,
   TelegramTextMessage,
 } from "../../modules/outbound/telegram-messages.js";
+import { reportFailure } from "../../operations/failure-diagnostics.js";
 
 export class GrammyMessagesAdapter implements TelegramMessages {
   private readonly api: TelegramApi;
@@ -81,6 +82,7 @@ function deliveryFailure(error: unknown): TelegramDeliveryResult {
     }
     return { kind: "api_rejected", providerErrorCode: error.error_code };
   }
+  reportFailure("telegram.messages", error);
   return { kind: "transport_unknown" };
 }
 
