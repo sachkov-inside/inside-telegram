@@ -4,10 +4,7 @@ import {
   type AuthorBroadcast,
   type AuthorState,
 } from "../../src/modules/communications/author-dialog.js";
-import {
-  parseMoscowSchedule,
-  transition,
-} from "../../src/modules/communications/author-transition.js";
+import { transition } from "../../src/modules/communications/author-transition.js";
 import type {
   AuthorEffect,
   AuthorEvent,
@@ -241,6 +238,26 @@ describe("stale menu", () => {
     expect(dialog.state.composing).toEqual(composing);
   });
 
+  it("offers an unfinished message on its broadcast card after the session started over", () => {
+    // An untrusted stored session starts over; unfinished messages live outside it.
+    const dialog = new Dialog(emptyAuthorState("fresh"));
+    dialog.pending.add(uuid(900));
+    dialog.send({ kind: "callback", data: "author:old:0" });
+    expect(dialog.labels()).toEqual(["Рассылки", "Воронки", "Статистика"]);
+    expect(dialog.kinds()).not.toContain("discard-composition");
+
+    dialog.send({
+      kind: "callback",
+      data: `author:open-broadcast:${uuid(900)}`,
+    });
+    dialog.send({
+      kind: "broadcast-read",
+      broadcast: broadcast(),
+      name: "Анонс",
+    });
+    expect(dialog.labels()).toContain("Продолжить сообщение");
+  });
+
   it("still opens home, the broadcast list and a broadcast link", () => {
     const dialog = new Dialog(emptyAuthorState("current"));
     dialog.send({ kind: "callback", data: "author:broadcasts:0" });
@@ -412,28 +429,15 @@ describe("broadcast", () => {
     ]);
   });
 
-  it("accepts only a future Moscow time before confirming the launch", () => {
-    const state: AuthorState = {
+  it("confirms the Moscow launch time a broadcast was scheduled for through the API", () => {
+    const dialog = new Dialog({
       ...emptyAuthorState("menu"),
-      broadcast: broadcast(),
+      actions: [{ kind: "confirm-launch" }],
+      broadcast: broadcast({ scheduledAt: "2030-01-01T09:30:00.000Z" }),
       broadcastName: "Анонс",
-      prompt: { kind: "schedule" },
-    };
-    const past = new Dialog(state).write("01.01.2030 11:59");
-    expect(past.menu!.text).toBe(
-      "Нужна будущая дата ДД.ММ.ГГГГ ЧЧ:ММ по Москве или слово «сразу».",
-    );
+    }).send({ kind: "callback", data: "author:menu:0" });
 
-    const future = new Dialog(state).write("01.01.2030 12:30");
-    const save = future.query("save-broadcast");
-    expect(save.broadcast.scheduledAt).toBe("2030-01-01T09:30:00.000Z");
-    expect(save.then).toEqual({ kind: "confirm-launch" });
-    future.send({
-      kind: "broadcast-saved",
-      broadcast: save.broadcast,
-      then: save.then,
-    });
-    expect(future.menu!.text).toContain("Когда: 01.01.2030, 12:30:00 · Москва");
+    expect(dialog.menu!.text).toContain("Когда: 01.01.2030, 12:30:00 · Москва");
   });
 });
 
@@ -771,18 +775,4 @@ describe("funnel", () => {
     expect(moved.state.funnelAuthor!.dirty).toBe(true);
     expect(moved.menu!.text).toContain("Прогрев · сообщения");
   });
-});
-
-it("parses explicit Moscow time without accepting invalid dates or implicit machine timezones", () => {
-  expect(parseMoscowSchedule("01.01.2099 12:00")).toBe(
-    "2099-01-01T09:00:00.000Z",
-  );
-  expect(parseMoscowSchedule("сразу")).toBeNull();
-  for (const input of [
-    "31.02.2099 12:00",
-    "01.01.2099 25:00",
-    "tomorrow",
-    "2099-01-01",
-  ])
-    expect(parseMoscowSchedule(input)).toBeUndefined();
 });

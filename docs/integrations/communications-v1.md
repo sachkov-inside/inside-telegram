@@ -305,10 +305,11 @@ ID, credentials or provider payload is returned by the management API.
 
 The original composer remains for persisted-session recovery. The current `/admin` flow is
 described in [Simple Telegram authoring](#simple-telegram-authoring-43). Every command and callback checks the current confirmed link
-and `communications:manage`. The menu creates/replaces native posts, lists saved posts, configures
+and `communications:manage`. The menu replaces native posts, lists saved posts, configures
 HTTPS button text/URL with automatic placement, sends samples to the author, and assembles ordered broadcast parts.
-The all-contact audience, schedule (explicit Moscow UTC+3 input), launch/pause/resume/cancel and statistics call the
-same `Communications`/`Funnels` operations as the authenticated API. `/template` remains compatible.
+The all-contact audience, launch/pause/resume/cancel and statistics call the same
+`Communications`/`Funnels` operations as the authenticated API. A launch time is set only through
+that API; the bot shows it in Moscow time before launch. `/template` remains compatible.
 Callbacks carry a session menu token; stale menus cannot apply a mutation against a newer screen.
 Session state, update receipt, operation receipt, mutation and author reply queue commit together.
 
