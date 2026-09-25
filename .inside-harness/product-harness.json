@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "package": "inside-engineering",
-  "version": "0.4.9",
+  "version": "0.4.10",
   "profile": "core",
   "managedSkills": [
     "ask-matt",
@@ -43,7 +43,9 @@
     ".github/workflows/add-to-inside-project.yml",
     "docs/agents/tracker-automation.md",
     ".github/scripts/tracker_sessions.py",
-    ".github/workflows/inside-agent-sessions.yml"
+    ".github/workflows/inside-agent-sessions.yml",
+    ".github/workflows/inside-harness-health.yml",
+    ".github/scripts/.gitignore"
   ],
   "targets": {
     "portable": ".agents/skills",

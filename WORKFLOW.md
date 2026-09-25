@@ -47,11 +47,20 @@ promotion never removes the label or moves the human item.
 - `In progress`: actively being worked;
 - `Review`: implementation is in pull request review;
 - `Blocked`: cannot advance without a dependency or owner decision;
+- `Acceptance`: the delivery is merged or otherwise finished, and the issue waits for the owner's
+  acceptance;
 - `Done`: the issue is closed or the pull request is merged.
 
-`Priority` is `Now`, `Next`, or `Later`. `Area` is `Product`, `Platform`, `Landing`, or
-`Operations`. Triage and Wayfinder labels describe readiness and work shape; they do not duplicate
-delivery state or priority.
+An open issue whose remaining acceptance criterion is the owner's own check, such as acceptance on
+a stand or in production, carries the `tracker:acceptance` label. The writing agent adds it when
+the last delivery for the issue is merged or finished and names what the owner accepts in an issue
+comment. The label projects the issue to `Acceptance` and makes it unavailable to a new session.
+The owner closes the issue after acceptance, or removes the label and states what returns to
+delivery.
+
+`Priority` is `Now`, `Next`, or `Later`. `Area` is `Product`, `Platform`, `Telegram`, `Content`, or
+`Operations`; `Landing` remains only on history of the deprecated landing. Triage and Wayfinder
+labels describe readiness and work shape; they do not duplicate delivery state or priority.
 
 Every issue in either Project has exactly one native GitHub issue type, set when the issue is
 created:
