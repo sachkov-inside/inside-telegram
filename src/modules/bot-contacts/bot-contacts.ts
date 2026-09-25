@@ -1,3 +1,4 @@
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import { contactLock } from "../communications/communication-state.js";
 import { updateMarketingAvailability } from "../communications/marketing-preferences.js";
 import { sql } from "kysely";
@@ -106,35 +107,20 @@ export class BotContacts {
 
       if (responseKind === "none") return { contact, responsePlanned: false };
 
-      const responseDelivery = await transaction
-        .insertInto("start_response_deliveries")
-        .values({
-          attempt_count: 0,
-          available_at: start.observedAt,
-          bot_identity: start.botIdentity,
-          created_at: start.observedAt,
-          delivered_at: null,
-          diagnostic_code: null,
-          locked_at: null,
-          message_text:
-            responseKind === "link-receipt"
-              ? this.config.linkReceiptText
-              : this.config.welcomeText,
-          private_chat_id: start.privateChatId,
-          source_key: `telegram-update:${start.botIdentity}:${start.updateId}`,
-          state: "pending",
-          telegram_user_id: start.telegramUserId,
-          trigger_update_id: start.updateId,
-          updated_at: start.observedAt,
-        })
-        .onConflict((conflict) => conflict.doNothing())
-        .returning("id")
-        .executeTakeFirst();
+      const responsePlanned = await enqueueReply(transaction, {
+        botIdentity: start.botIdentity,
+        telegramUserId: start.telegramUserId,
+        privateChatId: start.privateChatId,
+        messageText:
+          responseKind === "link-receipt"
+            ? this.config.linkReceiptText
+            : this.config.welcomeText,
+        sourceKey: `telegram-update:${start.botIdentity}:${start.updateId}`,
+        triggerUpdateId: start.updateId,
+        now: start.observedAt,
+      });
 
-      return {
-        contact,
-        responsePlanned: responseDelivery !== undefined,
-      };
+      return { contact, responsePlanned };
     });
   }
 

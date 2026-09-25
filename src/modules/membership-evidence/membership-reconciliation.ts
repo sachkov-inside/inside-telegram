@@ -1,3 +1,4 @@
+import { linkedIdentities } from "../identity-linking/platform-links.js";
 import { randomUUID } from "node:crypto";
 
 import { sql } from "kysely";
@@ -166,16 +167,16 @@ async function ensureSchedules(
       updated_at
     )
     select
-      platform_links.telegram_identity_ref,
+      links.telegram_identity_ref,
       'pending',
-      platform_links.linked_at + ${cadenceMilliseconds} * interval '1 millisecond',
+      links.linked_at + ${cadenceMilliseconds} * interval '1 millisecond',
       0,
       null,
       null,
       null,
       null,
       ${now}
-    from platform_links
+    from (${linkedIdentities(database)}) as links
     on conflict (telegram_identity_ref) do nothing
   `.execute(database);
 }

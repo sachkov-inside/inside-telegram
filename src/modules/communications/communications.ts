@@ -1,3 +1,5 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import { randomUUID } from "node:crypto";
 import { transactionWithExternalReads } from "../../database/external-reads.js";
 import { isDeepStrictEqual } from "node:util";
@@ -243,18 +245,19 @@ export class Communications {
         return;
       }
       // Hold the persisted link against exceptional transfer until the authorization decision and save commit.
-      const link = await tx
-        .selectFrom("platform_links")
-        .selectAll()
-        .where("bot_identity", "=", input.botIdentity)
-        .where("telegram_user_id", "=", input.telegramUserId)
-        .forShare()
-        .executeTakeFirst();
+      const link = await findPlatformLink(
+        tx,
+        {
+          botIdentity: input.botIdentity,
+          telegramUserId: input.telegramUserId,
+        },
+        "share",
+      );
       const permission = link
         ? await authorizeAuthor(this.authorization, {
             kind: "telegram",
-            accountRef: link.account_ref,
-            telegramIdentityRef: link.telegram_identity_ref,
+            accountRef: link.accountRef,
+            telegramIdentityRef: link.telegramIdentityRef,
             botIdentity: input.botIdentity,
           })
         : "denied";
@@ -263,7 +266,7 @@ export class Communications {
       if (
         permission !== "allowed" ||
         !link ||
-        (input.action === "capture" && mode?.account_ref !== link.account_ref)
+        (input.action === "capture" && mode?.account_ref !== link.accountRef)
       ) {
         await tx
           .deleteFrom("communication_author_modes")
@@ -284,13 +287,13 @@ export class Communications {
           .values({
             bot_identity: input.botIdentity,
             telegram_user_id: input.telegramUserId,
-            account_ref: link.account_ref,
+            account_ref: link.accountRef,
             enabled: true,
             last_update_id: input.updateId,
           })
           .onConflict((c) =>
             c.columns(["bot_identity", "telegram_user_id"]).doUpdateSet({
-              account_ref: link.account_ref,
+              account_ref: link.accountRef,
               enabled: true,
               last_update_id: input.updateId,
             }),
@@ -323,7 +326,7 @@ export class Communications {
         .values({
           template_id: templateId,
           bot_identity: input.botIdentity,
-          owner_account_ref: link.account_ref,
+          owner_account_ref: link.accountRef,
           revision: 1,
           content: JSON.stringify(input.content),
           created_at: now,
@@ -377,24 +380,12 @@ async function reply(
   input: TemplateIntake,
   text: string,
 ) {
-  const now = new Date();
-  await tx
-    .insertInto("start_response_deliveries")
-    .values({
-      attempt_count: 0,
-      available_at: now,
-      bot_identity: input.botIdentity,
-      created_at: now,
-      delivered_at: null,
-      diagnostic_code: null,
-      locked_at: null,
-      message_text: text,
-      private_chat_id: input.privateChatId,
-      source_key: `communications-intake:${input.botIdentity}:${input.updateId}`,
-      state: "pending",
-      telegram_user_id: input.telegramUserId,
-      trigger_update_id: null,
-      updated_at: now,
-    })
-    .execute();
+  await enqueueReply(tx, {
+    botIdentity: input.botIdentity,
+    telegramUserId: input.telegramUserId,
+    privateChatId: input.privateChatId,
+    messageText: text,
+    sourceKey: `communications-intake:${input.botIdentity}:${input.updateId}`,
+    now: new Date(),
+  });
 }

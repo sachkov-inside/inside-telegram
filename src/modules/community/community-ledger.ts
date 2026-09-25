@@ -1,3 +1,4 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
 import { randomUUID } from "node:crypto";
 
 import { sql, type Selectable, type Transaction } from "kysely";
@@ -251,22 +252,18 @@ export async function resolveIdentity(
   telegramIdentityRef: string,
   allowHistorical: boolean,
 ): Promise<string | undefined> {
-  const link = await tx
-    .selectFrom("platform_links")
-    .select("telegram_user_id")
-    .where("bot_identity", "=", bot)
-    .where("account_ref", "=", accountRef)
-    .where("telegram_identity_ref", "=", telegramIdentityRef)
-    .executeTakeFirst();
-  if (link) return link.telegram_user_id;
+  const link = await findPlatformLink(tx, {
+    telegramIdentityRef,
+    botIdentity: bot,
+    accountRef,
+  });
+  if (link) return link.telegramUserId;
   if (!allowHistorical) return undefined;
 
-  const transferred = await tx
-    .selectFrom("platform_links")
-    .select("account_ref")
-    .where("bot_identity", "=", bot)
-    .where("telegram_identity_ref", "=", telegramIdentityRef)
-    .executeTakeFirst();
+  const transferred = await findPlatformLink(tx, {
+    telegramIdentityRef,
+    botIdentity: bot,
+  });
   if (transferred) return undefined;
   const historical = await tx
     .selectFrom("community_bindings")

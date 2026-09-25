@@ -1,3 +1,4 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
 import {
   createCipheriv,
   createHash,
@@ -256,14 +257,15 @@ export class NotificationProvider {
       }
       // Platform authorizes linkRef/revision; the provider independently resolves only its verified Account/identity.
       await lockIdentityLinkAccount(tx, c.binding.accountRef);
-      const link = await tx
-        .selectFrom("platform_links")
-        .selectAll()
-        .where("account_ref", "=", c.binding.accountRef)
-        .where("bot_identity", "=", this.bot)
-        .where("telegram_identity_ref", "=", c.binding.telegramIdentityRef)
-        .forUpdate()
-        .executeTakeFirst();
+      const link = await findPlatformLink(
+        tx,
+        {
+          telegramIdentityRef: c.binding.telegramIdentityRef,
+          botIdentity: this.bot,
+          accountRef: c.binding.accountRef,
+        },
+        "update",
+      );
       if (!link) {
         await this.record(tx, current, {
           state: "suppressed",
@@ -275,7 +277,7 @@ export class NotificationProvider {
         .selectFrom("bot_contacts")
         .selectAll()
         .where("bot_identity", "=", this.bot)
-        .where("telegram_user_id", "=", link.telegram_user_id)
+        .where("telegram_user_id", "=", link.telegramUserId)
         .forUpdate()
         .executeTakeFirst();
       if (!contact || contact.contactability !== "reachable") {

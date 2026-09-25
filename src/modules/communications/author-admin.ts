@@ -1,3 +1,5 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import {
   AuthorSequenceComposer,
   type SequenceResult,
@@ -171,18 +173,19 @@ export class AuthorAdmin {
         )
         .executeTakeFirst();
       if (earlier) throw new Error("Earlier author update is still pending");
-      const link = await tx
-        .selectFrom("platform_links")
-        .selectAll()
-        .where("bot_identity", "=", input.botIdentity)
-        .where("telegram_user_id", "=", input.telegramUserId)
-        .forShare()
-        .executeTakeFirst();
+      const link = await findPlatformLink(
+        tx,
+        {
+          botIdentity: input.botIdentity,
+          telegramUserId: input.telegramUserId,
+        },
+        "share",
+      );
       const allowed = link
         ? await authorizeAuthor(this.authorization, {
             kind: "telegram",
-            accountRef: link.account_ref,
-            telegramIdentityRef: link.telegram_identity_ref,
+            accountRef: link.accountRef,
+            telegramIdentityRef: link.telegramIdentityRef,
             botIdentity: input.botIdentity,
           })
         : "denied";
@@ -191,7 +194,7 @@ export class AuthorAdmin {
       if (
         allowed !== "allowed" ||
         !link ||
-        (!open && session && session.account_ref !== link.account_ref)
+        (!open && session && session.account_ref !== link.accountRef)
       ) {
         await tx
           .deleteFrom("communication_author_sessions")
@@ -199,33 +202,21 @@ export class AuthorAdmin {
           .where("telegram_user_id", "=", input.telegramUserId)
           .execute();
         // Use the ordinary reply queue for a denial without exposing any author data.
-        const now = new Date();
-        await tx
-          .insertInto("start_response_deliveries")
-          .values({
-            attempt_count: 0,
-            available_at: now,
-            bot_identity: input.botIdentity,
-            created_at: now,
-            delivered_at: null,
-            diagnostic_code: null,
-            locked_at: null,
-            message_text:
-              "Нет доступа к админке. Свяжите Telegram с аккаунтом, которому разрешено управление рассылками.",
-            private_chat_id: input.telegramUserId,
-            source_key: `author-denied:${input.botIdentity}:${input.updateId}`,
-            state: "pending",
-            telegram_user_id: input.telegramUserId,
-            trigger_update_id: null,
-            updated_at: now,
-          })
-          .execute();
+        await enqueueReply(tx, {
+          botIdentity: input.botIdentity,
+          telegramUserId: input.telegramUserId,
+          privateChatId: input.privateChatId,
+          messageText:
+            "Нет доступа к админке. Свяжите Telegram с аккаунтом, которому разрешено управление рассылками.",
+          sourceKey: `author-denied:${input.botIdentity}:${input.updateId}`,
+          now: new Date(),
+        });
       } else {
         const context: Context = {
           tx,
           input,
-          accountRef: link.account_ref,
-          identityRef: link.telegram_identity_ref,
+          accountRef: link.accountRef,
+          identityRef: link.telegramIdentityRef,
           state: open ? empty() : ((session?.state as State) ?? empty()),
         };
         if (close && context.state.batch) {
@@ -312,12 +303,12 @@ export class AuthorAdmin {
           .values({
             bot_identity: input.botIdentity,
             telegram_user_id: input.telegramUserId,
-            account_ref: link.account_ref,
+            account_ref: link.accountRef,
             state: JSON.stringify(context.state),
           })
           .onConflict((c) =>
             c.columns(["bot_identity", "telegram_user_id"]).doUpdateSet({
-              account_ref: link.account_ref,
+              account_ref: link.accountRef,
               state: JSON.stringify(context.state),
             }),
           )

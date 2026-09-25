@@ -5,6 +5,11 @@ import { dirname } from "node:path";
 import { sql } from "kysely";
 
 import type { Database } from "../database/database.js";
+import { linkedEvidenceRevisions } from "../modules/identity-linking/platform-links.js";
+import {
+  replyAttemptOutcomeCounts,
+  replyStateCounts,
+} from "../modules/outbound/start-response-delivery-queue.js";
 import { normalizeChatMember } from "../modules/membership-evidence/membership-normalization.js";
 import { TELEGRAM_WEBHOOK_ALLOWED_UPDATES } from "../modules/webhook/telegram-webhook.js";
 
@@ -553,8 +558,8 @@ export async function redactedDatabaseSnapshot(
   ] = await Promise.all([
     groupedCounts(database, "telegram_updates", "state"),
     groupedCounts(database, "bot_contacts", "contactability"),
-    groupedCounts(database, "start_response_deliveries", "state"),
-    groupedCounts(database, "start_response_delivery_attempts", "outcome"),
+    replyStateCounts(database),
+    replyAttemptOutcomeCounts(database),
     groupedCounts(database, "link_transactions", "state"),
     groupedCounts(database, "identity_link_events", "event_type"),
     groupedCounts(database, "membership_checks", "state"),
@@ -682,7 +687,7 @@ async function redactedMembershipTransitions(
       on outbox.result_ref = results.result_ref
     left join membership_event_audit as audit
       on audit.result_ref = results.result_ref
-    inner join platform_links as links
+    inner join (${linkedEvidenceRevisions(database)}) as links
       on links.telegram_identity_ref = results.telegram_identity_ref
     order by results.observed_at, results.id
   `.execute(database);

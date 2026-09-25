@@ -1,3 +1,4 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
 import { randomUUID } from "node:crypto";
 import type { Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
@@ -10,32 +11,35 @@ export async function enqueueBroadcastAuthorMenu(
   broadcastId: string,
   contactId: string,
 ) {
-  const owner = await tx
+  const recipient = await tx
     .selectFrom("communication_broadcasts as b")
-    .innerJoin("platform_links as l", (j) =>
-      j
-        .onRef("l.bot_identity", "=", "b.bot_identity")
-        .onRef("l.account_ref", "=", "b.owner_account_ref"),
+    .innerJoin(
+      "communication_contacts as c",
+      "c.bot_identity",
+      "b.bot_identity",
     )
-    .innerJoin("communication_contacts as c", (j) =>
-      j
-        .onRef("c.bot_identity", "=", "l.bot_identity")
-        .onRef("c.telegram_user_id", "=", "l.telegram_user_id"),
-    )
-    .select(["l.account_ref", "l.telegram_user_id", "l.telegram_identity_ref"])
+    .select(["b.owner_account_ref", "c.telegram_user_id"])
     .where("b.bot_identity", "=", bot)
     .where("b.broadcast_id", "=", broadcastId)
     .where("c.contact_id", "=", contactId)
     .executeTakeFirst();
+  // The recipient gets the menu only when it is the owning author's own linked chat.
+  const owner =
+    recipient &&
+    (await findPlatformLink(tx, {
+      botIdentity: bot,
+      telegramUserId: recipient.telegram_user_id,
+      accountRef: recipient.owner_account_ref,
+    }));
   if (!owner) return;
   await enqueueAuthorMessage(tx, {
     deliveryId: randomUUID(),
     botIdentity: bot,
-    accountRef: owner.account_ref,
-    telegramUserId: owner.telegram_user_id,
-    telegramIdentityRef: owner.telegram_identity_ref,
+    accountRef: owner.accountRef,
+    telegramUserId: owner.telegramUserId,
+    telegramIdentityRef: owner.telegramIdentityRef,
     message: {
-      chatId: owner.telegram_user_id,
+      chatId: owner.telegramUserId,
       authorMenu: true,
       editMenu: false,
       content: {
