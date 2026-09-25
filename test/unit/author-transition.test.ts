@@ -344,7 +344,7 @@ describe("broadcast", () => {
       "Запустить",
       "Отменить рассылку",
       "Посмотреть сообщения",
-      "Сообщения",
+      "Изменить сообщения",
       "Все рассылки",
     ]);
     expect(dialog.menu!.text).toContain("2. Через 1 ч · 📝 Текст · Второе");
@@ -427,7 +427,7 @@ describe("broadcast", () => {
       "Отменить добавление",
       "Отменить рассылку",
       "Посмотреть сообщения",
-      "Сообщения",
+      "Изменить сообщения",
       "Все рассылки",
     ]);
   });
@@ -1097,16 +1097,16 @@ describe("funnel settings", () => {
   });
 });
 
-describe("saved posts", () => {
-  function post(n: number, buttons: TemplateContent["buttons"] = []) {
-    return {
-      templateId: uuid(700 + n),
-      revision: 1,
-      botIdentity: "inside",
-      content: { ...text(`Пост ${n}`), buttons },
-    };
-  }
+function post(n: number, buttons: TemplateContent["buttons"] = []) {
+  return {
+    templateId: uuid(700 + n),
+    revision: 1,
+    botIdentity: "inside",
+    content: { ...text(`Пост ${n}`), buttons },
+  };
+}
 
+describe("saved posts", () => {
   function postsList() {
     const dialog = new Dialog().send({ kind: "open" }).click("Рассылки");
     dialog.send({
@@ -1301,11 +1301,11 @@ describe("broadcast messages", () => {
       "Запустить",
       "Отменить рассылку",
       "Посмотреть сообщения",
-      "Сообщения",
+      "Изменить сообщения",
       "Все рассылки",
     ]);
 
-    dialog.click("Сообщения");
+    dialog.click("Изменить сообщения");
     expect(dialog.labels()).toEqual([
       "1. Сразу · 📝 Текст · Первое",
       "2. Через 1 ч · 📝 Текст · Второе",
@@ -1323,11 +1323,15 @@ describe("broadcast messages", () => {
     const running = card(
       broadcast({ state: "running", audienceSnapshotId: uuid(990) }),
     );
-    expect(running.labels()).not.toContain("Сообщения");
+    expect(running.labels()).not.toContain("Изменить сообщения");
+
+    // A broadcast paused before launch took its audience still accepts new messages.
+    const paused = card(broadcast({ state: "paused" }));
+    expect(paused.labels()).toContain("Изменить сообщения");
   });
 
   it("moves a message up while the send times stay in place", () => {
-    const dialog = card().click("Сообщения");
+    const dialog = card().click("Изменить сообщения");
     dialog.click("2. Через 1 ч · 📝 Текст · Второе");
     expect(dialog.kinds()).toEqual(["message", "menu"]);
     expect(dialog.labels()).toEqual([
@@ -1347,13 +1351,15 @@ describe("broadcast messages", () => {
   });
 
   it("removes a message", () => {
-    const dialog = card().click("Сообщения");
+    const dialog = card().click("Изменить сообщения");
     dialog.click("1. Сразу · 📝 Текст · Первое").click("Удалить сообщение");
     expect(saved(dialog)).toEqual([timed.parts[1]]);
   });
 
   it("creates a message with a button and sends it with the last message", () => {
-    const dialog = card().click("Сообщения").click("Создать сообщение");
+    const dialog = card()
+      .click("Изменить сообщения")
+      .click("Создать сообщение");
     expect(dialog.state.composing!.destination).toEqual({
       kind: "broadcast",
       id: uuid(900),
@@ -1381,13 +1387,10 @@ describe("broadcast messages", () => {
   });
 
   it("adds a saved post as a new message", () => {
-    const post = {
-      templateId: uuid(700),
-      revision: 1,
-      botIdentity: "inside",
-      content: text("Сохранённый"),
-    };
-    const dialog = card().click("Сообщения").click("Добавить сохранённый пост");
+    const savedPost = post(1);
+    const dialog = card()
+      .click("Изменить сообщения")
+      .click("Добавить сохранённый пост");
     expect(dialog.query("list-posts")).toEqual({
       kind: "list-posts",
       purpose: "library",
@@ -1395,23 +1398,25 @@ describe("broadcast messages", () => {
     dialog.send({
       kind: "posts-listed",
       purpose: "library",
-      templates: [post],
+      templates: [savedPost],
       nextCursor: null,
     });
-    dialog.click("📝 Текст · Сохранённый");
-    dialog.send({ kind: "post-read", purpose: "library", template: post });
+    dialog.click("📝 Текст · Пост 1");
+    dialog.send({ kind: "post-read", purpose: "library", template: savedPost });
     dialog.click("Добавить в рассылку");
     expect(
       saved(dialog).map((p) => [p.content.text, p.sendAfterSeconds]),
     ).toEqual([
       ["Первое", 0],
       ["Второе", 3600],
-      ["Сохранённый", 3600],
+      ["Пост 1", 3600],
     ]);
   });
 
   it("takes several messages in a row with the last send time", () => {
-    const dialog = card().click("Сообщения").click("Добавить сообщения");
+    const dialog = card()
+      .click("Изменить сообщения")
+      .click("Добавить сообщения");
     expect(dialog.labels()).toEqual(["Готово", "Назад"]);
 
     dialog.write("Третье");
@@ -1433,7 +1438,7 @@ describe("broadcast messages", () => {
       partId: uuid(910 + n),
       content: text(`Сообщение ${n + 1}`),
     }));
-    const dialog = card(broadcast({ parts })).click("Сообщения");
+    const dialog = card(broadcast({ parts })).click("Изменить сообщения");
     expect(dialog.labels()).not.toContain("Создать сообщение");
     expect(dialog.labels()).not.toContain("Добавить сообщения");
     expect(dialog.labels()).toContain("К рассылке");

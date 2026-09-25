@@ -63,6 +63,7 @@ import {
 } from "./communications-contract.js";
 import type { BroadcastPart, MessagePart } from "./funnel-types.js";
 
+const MAX_BROADCAST_PARTS = 20;
 const broadcastNames = {
   draft: "Черновик",
   scheduled: "Запланирована",
@@ -466,7 +467,7 @@ function performOnBroadcast(
                 ] as AuthorButton,
               ]
             : []),
-          ...(b.parts.length < 20
+          ...(b.parts.length < MAX_BROADCAST_PARTS
             ? ([
                 ["Создать сообщение", { kind: "compose:broadcast" }],
                 ["Добавить сохранённый пост", { kind: "pick-part" }],
@@ -742,7 +743,7 @@ function broadcastCard(t: Turn) {
           ]
         : []),
       ...(editable(b)
-        ? [["Сообщения", { kind: "parts" }] as AuthorButton]
+        ? [["Изменить сообщения", { kind: "parts" }] as AuthorButton]
         : []),
       ...(["running", "paused", "completed", "cancelled"].includes(b.state) &&
       b.revision
@@ -768,7 +769,7 @@ function beginSequence(t: Turn, kind: "broadcast" | "funnel"): void {
     const b = selectedBroadcast(t);
     if (b.state !== "draft" || b.audienceSnapshotId)
       throw new CommunicationsError("revision_conflict");
-    if (b.parts.length >= 20) return broadcastCard(t);
+    if (b.parts.length >= MAX_BROADCAST_PARTS) return broadcastCard(t);
     return beginSequenceComposer(
       t,
       { kind: "broadcast", id, expectedRevision: b.revision },
@@ -812,7 +813,7 @@ function sequenceResult(t: Turn, result: SequenceResult): void {
       if (
         b.revision !== destination.expectedRevision ||
         b.state !== "draft" ||
-        b.parts.length >= 20
+        b.parts.length >= MAX_BROADCAST_PARTS
       )
         throw new CommunicationsError("revision_conflict");
       if (!b.parts.length && !t.state.broadcastName)
@@ -959,7 +960,7 @@ function composeResult(t: Turn, result: ComposerResult): void {
           p.partId === d.partId ? { ...p, content: result.content } : p,
         );
       } else {
-        if (b.parts.length >= 20)
+        if (b.parts.length >= MAX_BROADCAST_PARTS)
           throw new CommunicationsError("unsupported_content");
         appendPart(t, b, result.content);
       }
@@ -1017,10 +1018,11 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
       return batchMenu(t);
     }
     const b = selectedBroadcast(t);
-    if (b.parts.length >= 20)
-      return t.reply("В одной рассылке не больше 20 сообщений.", [
-        ["Готово", { kind: "batch:done" }],
-      ]);
+    if (b.parts.length >= MAX_BROADCAST_PARTS)
+      return t.reply(
+        `В одной рассылке не больше ${MAX_BROADCAST_PARTS} сообщений.`,
+        [["Готово", { kind: "batch:done" }]],
+      );
     if (!b.parts.length && !s.broadcastName)
       s.broadcastName = content.text.slice(0, 80) || messageLabel(content);
     appendPart(t, b, structuredClone(content));

@@ -301,14 +301,13 @@ revoked, inactive or mismatched subjects are denied. Missing/malformed/unavailab
 authorize. HTTP 401/403 deny; transport/provider errors fail closed as unavailable. No Telegram raw
 ID, credentials or provider payload is returned by the management API.
 
-## Legacy author composer and shared saved posts (#37)
+## Author composer and shared saved posts (#37)
 
-The composer also restores persisted sessions. The current `/admin` flow is described in
+The composer prepares one message with HTTPS buttons (text/URL, automatic placement) or a saved
+post, and restores persisted sessions. The current `/admin` screens are described in
 [Simple Telegram authoring](#simple-telegram-authoring-43) and
 [Broadcast messages and saved posts in the bot](#broadcast-messages-and-saved-posts-in-the-bot-37-101).
-Every command and callback checks the current confirmed link
-and `communications:manage`. The menu replaces native posts, lists saved posts, configures
-HTTPS button text/URL with automatic placement, sends samples to the author, and assembles ordered broadcast parts.
+Every command and callback checks the current confirmed link and `communications:manage`.
 The all-contact audience, launch/pause/resume/cancel and statistics call the same
 `Communications`/`Funnels` operations as the authenticated API. A launch time is set only through
 that API; the bot shows it in Moscow time before launch. `/template` remains compatible.
@@ -445,13 +444,15 @@ samples are queued only for the confirmed author's private chat and use the exis
 Replacement keeps the post's buttons; every change saves through `templates.save` with the read
 revision. «Создать рассылку» copies the post into a new draft broadcast.
 
-A broadcast card offers «Сообщения» while `broadcasts.save` still accepts it: no audience snapshot
-and state draft, scheduled or paused. The list shows every message with its time and
+A broadcast card offers «Изменить сообщения» while `broadcasts.save` still accepts it: no audience
+snapshot and state draft, scheduled or paused. The list shows every message with its time and
 returns to the card. A message can be rewritten with its buttons in the composer, replaced by a
 saved post, moved up or removed. «Создать сообщение» opens the composer with buttons, «Добавить
 сохранённый пост» copies a saved post, and «Добавить сообщения» takes several native messages in a
-row; they are hidden at 20 messages. Send times never decrease: an added message takes the time of
-the last one, and moving a message moves its content between the existing times.
+row. These three additions are hidden once the broadcast holds its maximum of messages (see
+[Simple Telegram authoring](#simple-telegram-authoring-43)).
+Because send times cannot decrease, an added message takes the time of the last one, and moving a
+message moves its content between the existing times.
 
 The bot and the authenticated API/MCP are equal entry points to saved posts and broadcasts: the bot
 writes through the same `templates.save`, `templates.testSend` and `broadcasts.save` operations
@@ -490,7 +491,7 @@ stale callback or revision conflict does not lose the candidate or attach it twi
 The next message captures a fresh expectedRevision. Concurrent agent edits require reread/reconciliation.
 
 Saved posts, replacement, reordering and buttons live under «Сохранённые посты» and the broadcast's
-«Сообщения» (see [Broadcast messages and saved posts in the bot](#broadcast-messages-and-saved-posts-in-the-bot-37-101))
+«Изменить сообщения» (see [Broadcast messages and saved posts in the bot](#broadcast-messages-and-saved-posts-in-the-bot-37-101))
 and under the funnel's «Сообщения» and «Настройки» (see
 [Funnel settings in the bot](#funnel-settings-in-the-bot-38-100)). Authenticated API/MCP operations
 and persisted composer recovery remain available.
