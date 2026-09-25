@@ -13,9 +13,15 @@ const IDLE_GRACE_MS = 120_000;
  */
 export type SenderAdmission = "admitted" | "notify" | "silent";
 
+/** One update of a sender, stamped with its webhook arrival. */
+interface SenderUpdate {
+  readonly updateId: string;
+  readonly at: number;
+}
+
 interface SenderWindow {
-  admitted: { readonly updateId: string; readonly at: number }[];
-  notice?: { readonly updateId: string; readonly at: number };
+  admitted: SenderUpdate[];
+  notice?: SenderUpdate;
 }
 
 /** Counts each sender's requests in process memory; a restart starts every window afresh. */
