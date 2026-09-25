@@ -59,8 +59,9 @@ import {
 import {
   CommunicationsError,
   validateContent,
+  type TemplateContent,
 } from "./communications-contract.js";
-import type { BroadcastPart } from "./funnel-types.js";
+import type { BroadcastPart, MessagePart } from "./funnel-types.js";
 
 const broadcastNames = {
   draft: "Черновик",
@@ -181,7 +182,7 @@ function step(t: Turn, event: AuthorEvent): void {
             : []),
           ["Найти пост", { kind: "post-search" }],
           ["Все посты", { kind: "posts-all" }],
-          ["В меню", { kind: "home" }],
+          ["Все рассылки", { kind: "broadcasts" }],
         ],
       );
     case "post-read":
@@ -205,6 +206,7 @@ function step(t: Turn, event: AuthorEvent): void {
     case "broadcasts-listed":
       return t.reply("Рассылки", [
         ["Создать рассылку", { kind: "new-broadcast" }],
+        ["Сохранённые посты", { kind: "posts-all" }],
         ...event.items.map(({ broadcast, name }): AuthorButton => [
           `${name.slice(0, 35)} · ${broadcastNames[broadcast.state]}`,
           { kind: "read-broadcast", id: broadcast.broadcastId },
@@ -437,6 +439,7 @@ function performOnBroadcast(
       t.state.freshMenu = true;
       return broadcastCard(t);
     case "parts": {
+      t.state.replacePart = undefined;
       const offset = Number(a.value ?? 0);
       return t.reply(
         "Сообщения отправятся по порядку. Выберите сообщение, чтобы изменить его или порядок отправки.",
@@ -444,7 +447,7 @@ function performOnBroadcast(
           ...b.parts
             .slice(offset, offset + 5)
             .map((part, index): AuthorButton => [
-              `${offset + index + 1}. ${messageLabel(part.content, 32)}`,
+              `${offset + index + 1}. ${partTime(part)} · ${messageLabel(part.content, 32)}`,
               { kind: "show-part", id: part.partId },
             ]),
           ...(offset > 0
@@ -463,8 +466,14 @@ function performOnBroadcast(
                 ] as AuthorButton,
               ]
             : []),
-          ["Добавить сообщения", { kind: "batch:broadcast" }],
-          ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
+          ...(b.parts.length < 20
+            ? ([
+                ["Создать сообщение", { kind: "compose:broadcast" }],
+                ["Добавить сохранённый пост", { kind: "pick-part" }],
+                ["Добавить сообщения", { kind: "batch:broadcast" }],
+              ] as AuthorButton[])
+            : []),
+          ["К рассылке", { kind: "read-broadcast", id: b.broadcastId }],
         ],
       );
     }
@@ -514,9 +523,10 @@ function performOnBroadcast(
       const index = Number(a.value);
       const part = b.parts[index];
       const before = b.parts[index - 1];
+      // Send times must not decrease, so they stay in place and the messages move between them.
       if (part && before) {
-        b.parts[index] = before;
-        b.parts[index - 1] = part;
+        b.parts[index] = withTime(before, part.sendAfterSeconds);
+        b.parts[index - 1] = withTime(part, before.sendAfterSeconds);
       }
       return saveBroadcast(t, { kind: "card" });
     }
@@ -597,6 +607,35 @@ function newBroadcast(
   };
 }
 
+/** `broadcasts.save` accepts a broadcast's messages only until launch takes its audience. */
+function editable(b: AuthorBroadcast): boolean {
+  return (
+    !b.audienceSnapshotId && ["draft", "scheduled", "paused"].includes(b.state)
+  );
+}
+
+function partTime(part: BroadcastPart): string {
+  return part.sendAfterSeconds
+    ? `Через ${formatFunnelDelay(part.sendAfterSeconds)}`
+    : "Сразу";
+}
+
+/** Adds a message at the end, sent together with the last one so send times never decrease. */
+function appendPart(t: Turn, b: AuthorBroadcast, content: TemplateContent) {
+  b.parts.push(
+    withTime({ partId: t.newId(), content }, b.parts.at(-1)?.sendAfterSeconds),
+  );
+}
+
+function withTime(
+  { partId, content }: MessagePart,
+  sendAfterSeconds: number | undefined,
+): BroadcastPart {
+  return sendAfterSeconds === undefined
+    ? { partId, content }
+    : { partId, content, sendAfterSeconds };
+}
+
 function showPost(t: Turn) {
   const template = t.state.template;
   if (!template) throw new CommunicationsError("not_found");
@@ -607,11 +646,13 @@ function showPost(t: Turn) {
       ["Образец себе", { kind: "sample" }],
       ["Заменить сообщение", { kind: "replace" }],
       ["Добавить кнопку", { kind: "button" }],
+      ["Создать рассылку", { kind: "create-broadcast" }],
+      // Removing a button is rarer than the actions above, so a long menu pages it away.
       ...template.content.buttons.map((b, i): AuthorButton => [
         `Удалить: ${b.text}`,
         { kind: "remove-button", value: String(i) },
       ]),
-      ["Создать рассылку", { kind: "create-broadcast" }],
+      ["К постам", { kind: "posts" }],
     ],
   );
 }
@@ -644,11 +685,7 @@ function beginBatch(t: Turn, kind: "broadcast" | "funnel") {
       pending,
     );
   if (kind === "broadcast") {
-    const b = selectedBroadcast(t);
-    if (
-      b.audienceSnapshotId ||
-      !["draft", "scheduled", "paused"].includes(b.state)
-    )
+    if (!editable(selectedBroadcast(t)))
       throw new CommunicationsError("revision_conflict");
   } else if (selectedFunnel(t).lifecycle === "archived")
     throw new CommunicationsError("revision_conflict");
@@ -669,8 +706,7 @@ function broadcastCard(t: Turn) {
     `${t.state.broadcastName ?? "Рассылка"}\n${broadcastNames[b.state]} · сообщений: ${b.parts.length}\n${b.parts
       .slice(0, 5)
       .map(
-        (p, i) =>
-          `${i + 1}. ${p.sendAfterSeconds ? "Через " + formatFunnelDelay(p.sendAfterSeconds) : "Сразу"} · ${messageLabel(p.content, 35)}`,
+        (p, i) => `${i + 1}. ${partTime(p)} · ${messageLabel(p.content, 35)}`,
       )
       .join(
         "\n",
@@ -704,6 +740,9 @@ function broadcastCard(t: Turn) {
               { kind: "broadcast-sample" },
             ] as AuthorButton,
           ]
+        : []),
+      ...(editable(b)
+        ? [["Сообщения", { kind: "parts" }] as AuthorButton]
         : []),
       ...(["running", "paused", "completed", "cancelled"].includes(b.state) &&
       b.revision
@@ -911,11 +950,7 @@ function composeResult(t: Turn, result: ComposerResult): void {
     if (!b || b.broadcastId !== d.id)
       throw new CommunicationsError("revision_conflict");
     if (result.kind === "accepted") {
-      if (
-        b.revision !== d.expectedRevision ||
-        b.audienceSnapshotId ||
-        !["draft", "scheduled", "paused"].includes(b.state)
-      )
+      if (b.revision !== d.expectedRevision || !editable(b))
         throw new CommunicationsError("revision_conflict");
       if (d.partId) {
         if (!b.parts.some((p) => p.partId === d.partId))
@@ -926,7 +961,7 @@ function composeResult(t: Turn, result: ComposerResult): void {
       } else {
         if (b.parts.length >= 20)
           throw new CommunicationsError("unsupported_content");
-        b.parts.push({ partId: t.newId(), content: result.content });
+        appendPart(t, b, result.content);
       }
       t.state.composing = undefined;
       return saveBroadcast(t, { kind: "card" });
@@ -988,7 +1023,7 @@ function answer(t: Turn, input: { text: string; content: unknown }): void {
       ]);
     if (!b.parts.length && !s.broadcastName)
       s.broadcastName = content.text.slice(0, 80) || messageLabel(content);
-    b.parts.push({ partId: t.newId(), content: structuredClone(content) });
+    appendPart(t, b, structuredClone(content));
     return saveBroadcast(t, { kind: "batch" });
   }
   if (s.composing) return answerComposer(t, input);
