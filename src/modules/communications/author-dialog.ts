@@ -264,6 +264,8 @@ const CHOICE_KINDS = new Set<AuthorActionKind>([
   "f:read",
   "f:part",
   "f:message",
+  "f:step",
+  "f:source",
 ]);
 const PAGE_SIZE = 4;
 
