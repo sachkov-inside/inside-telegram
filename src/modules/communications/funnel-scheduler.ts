@@ -16,7 +16,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import {
   admitTelegramSlot,
   chatLaneBusy,
@@ -39,7 +39,7 @@ import type {
   BroadcastPart,
   DeliveryPart,
 } from "./funnel-types.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 const REPLY_KINDS = ["intro", "entry", "fallback"] as const;
 const BACKLOG_KINDS = ["step", "broadcast"] as const;
 type Queue = typeof REPLY_KINDS | typeof BACKLOG_KINDS;

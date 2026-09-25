@@ -2,7 +2,7 @@ import { reserveTelegramSlot } from "../../src/modules/outbound/telegram-transpo
 import { createServer } from "node:http";
 import { NotificationWorker } from "../../src/operations/notification-worker.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
-import { systemClock } from "../../src/modules/identity-linking/clock.js";
+import { systemClock } from "../../src/shared/clock.js";
 import { seedNotificationRecipient } from "../support/notification-recipient.js";
 import { randomUUID } from "node:crypto";
 import { connect, type ChannelModel, type ConfirmChannel } from "amqplib";

@@ -1,4 +1,4 @@
-import { reportFailure } from "./failure-diagnostics.js";
+import { reportFailure } from "../shared/failure-diagnostics.js";
 
 export interface WorkerPacing {
   /** Delay before the next cycle after a cycle that found work. */

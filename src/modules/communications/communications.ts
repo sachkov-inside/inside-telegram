@@ -12,7 +12,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import type { TemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
+import type { TemplateIntake } from "./author-input.js";
 import {
   AUTHOR_AUTHORIZATION,
   authorizeAuthor,

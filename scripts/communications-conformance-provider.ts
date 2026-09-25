@@ -15,7 +15,7 @@ import {
   type TelegramMessages,
 } from "../src/modules/outbound/telegram-messages.js";
 import { StartResponseDeliveryProcessor } from "../src/modules/outbound/start-response-delivery-processor.js";
-import { CLOCK } from "../src/modules/identity-linking/clock.js";
+import { CLOCK } from "../src/shared/clock.js";
 import {
   COMMUNICATION_TRANSPORT,
   type CommunicationMessage,

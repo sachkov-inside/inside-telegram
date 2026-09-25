@@ -5,7 +5,7 @@ import {
   type DispatchAuthorizationResponse,
 } from "../../modules/community/community-contract.js";
 import type { CommunityDispatchAuthorization } from "../../modules/community/community-ports.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 /**
  * Checks both the HTTP status and the body. A mismatch is an invalid provider

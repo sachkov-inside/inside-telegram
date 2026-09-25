@@ -38,7 +38,7 @@ import {
   type DurableQueue,
 } from "../../database/durable-queue.js";
 import { transactionWithExternalReads } from "../../database/external-reads.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 export const AUTHOR_TRANSPORT = Symbol("AUTHOR_TRANSPORT");
 

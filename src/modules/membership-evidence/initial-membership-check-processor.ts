@@ -5,7 +5,7 @@ import {
   MembershipEvidenceProvider,
 } from "./membership-evidence-provider.js";
 import { InitialMembershipCheckQueue } from "./initial-membership-check-queue.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 @Injectable()
 export class InitialMembershipCheckProcessor {

@@ -4,7 +4,7 @@ import type {
   TelegramChatMemberResult,
   TelegramMembership,
 } from "../../modules/membership-evidence/telegram-membership.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 export class GrammyMembershipAdapter implements TelegramMembership {
   private readonly api: TelegramApi;

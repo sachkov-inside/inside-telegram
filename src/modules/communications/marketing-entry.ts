@@ -7,8 +7,8 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
-import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
+import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
 import { contactLock, planDelivery } from "./communication-state.js";
 import type { FunnelDraft, IntroSnapshot } from "./funnel-types.js";
 

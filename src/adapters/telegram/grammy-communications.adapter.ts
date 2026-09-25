@@ -6,7 +6,7 @@ import type {
   CommunicationMessage,
 } from "../../modules/communications/communication-delivery.js";
 import type { TelegramDeliveryResult } from "../../modules/outbound/telegram-messages.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 export class GrammyCommunicationsAdapter implements CommunicationTransport {
   constructor(
     private readonly api: Pick<

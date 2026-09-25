@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Selectable, type Transaction } from "kysely";
 
 import type { DatabaseSchema } from "../../database/database.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import {
   COMMUNITY_V2,
   accessAllows,

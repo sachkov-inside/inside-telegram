@@ -4,7 +4,7 @@ import {
   type DispatchResponse,
 } from "../../modules/notifications/notification-contract.js";
 import type { NotificationAuthorization } from "../../modules/notifications/notification-ports.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 export class HttpNotificationAuthorization implements NotificationAuthorization {
   constructor(
     private readonly endpoint: string,

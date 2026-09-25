@@ -4,10 +4,10 @@ import {
   randomBytes,
   randomUUID,
 } from "node:crypto";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 import { sql, type Selectable, type Transaction } from "kysely";
 import type { Database, DatabaseSchema } from "../../database/database.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import { lockIdentityLinkAccount } from "../identity-linking/identity-link-account-lock.js";
 import {
   deferTelegramSlot,

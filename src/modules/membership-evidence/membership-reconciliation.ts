@@ -11,12 +11,12 @@ import {
   type DurableQueue,
   type Lease,
 } from "../../database/durable-queue.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import type {
   EvidenceOutcome,
   LinkMembershipCheck,
 } from "./membership-evidence-provider.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const reconciliations: DurableQueue<"membership_reconciliations"> = {
   table: "membership_reconciliations",

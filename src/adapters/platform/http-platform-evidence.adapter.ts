@@ -3,7 +3,7 @@ import type {
   PlatformEvidenceDeliveryRequest,
   PlatformEvidenceDeliveryResult,
 } from "../../modules/membership-evidence/platform-evidence-delivery.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const DELIVERY_TIMEOUT_MILLISECONDS = 5_000;
 

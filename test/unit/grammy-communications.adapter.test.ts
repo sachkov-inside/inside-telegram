@@ -159,30 +159,43 @@ it("accepts only explicit private human stop/resume commands and leaves auth nam
     );
     expect(value.kind).toBe("marketing_preference");
   }
-  for (const message of [
-    {
-      text: "/stop",
-      from: { id: 42, is_bot: false },
-      chat: { id: 42, type: "group" },
-    },
-    {
-      text: "/resume",
-      from: { id: 42, is_bot: true },
-      chat: { id: 42, type: "private" },
-    },
-    {
-      text: "/stop extra",
-      from: { id: 42, is_bot: false },
-      chat: { id: 42, type: "private" },
-    },
-    {
-      text: 123,
-      from: { id: 42, is_bot: false },
-      chat: { id: 42, type: "private" },
-    },
-  ])
-    expect(adapter.translate("inside", "1", { message }, new Date()).kind).toBe(
+  for (const [message, kind] of [
+    [
+      {
+        text: "/stop",
+        from: { id: 42, is_bot: false },
+        chat: { id: 42, type: "group" },
+      },
       "ignored",
+    ],
+    [
+      {
+        text: "/resume",
+        from: { id: 42, is_bot: true },
+        chat: { id: 42, type: "private" },
+      },
+      "ignored",
+    ],
+    // Other private human messages go to the author dialog, never to preferences.
+    [
+      {
+        text: "/stop extra",
+        from: { id: 42, is_bot: false },
+        chat: { id: 42, type: "private" },
+      },
+      "author-input",
+    ],
+    [
+      {
+        text: 123,
+        from: { id: 42, is_bot: false },
+        chat: { id: 42, type: "private" },
+      },
+      "author-input",
+    ],
+  ] as const)
+    expect(adapter.translate("inside", "1", { message }, new Date()).kind).toBe(
+      kind,
     );
 });
 

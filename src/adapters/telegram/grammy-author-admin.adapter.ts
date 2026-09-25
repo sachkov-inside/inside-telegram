@@ -1,13 +1,6 @@
+import type { AuthorInput } from "../../modules/communications/author-input.js";
 import { snapshot } from "./grammy-template-intake.adapter.js";
-export interface AuthorInput {
-  botIdentity: string;
-  updateId: string;
-  telegramUserId: string;
-  text: string;
-  content: unknown;
-  callbackData?: string;
-  callbackQueryId?: string;
-}
+
 export function translateAuthorInput(
   botIdentity: string,
   updateId: string,
@@ -42,6 +35,7 @@ export function translateAuthorInput(
     botIdentity,
     updateId,
     telegramUserId: String(from.id),
+    privateChatId: String(message.chat.id),
     text:
       typeof message.text === "string" && !callback ? message.text.trim() : "",
     content: callback ? null : snapshot(message),

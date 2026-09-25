@@ -1,3 +1,0 @@
-import { createDatabase } from "../../../src/database/create-database.js";
-
-export const transportOwnsPersistence = createDatabase;

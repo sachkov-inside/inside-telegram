@@ -15,7 +15,7 @@ import {
   type MembershipProviderState,
   type NormalizedMembershipState,
 } from "../../database/database.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import {
   MEMBERSHIP_EVIDENCE_CONTRACT_VERSION,
   type MembershipEvidence,
@@ -40,7 +40,7 @@ import {
   type TelegramChatMemberResult,
   type TelegramMembership,
 } from "./telegram-membership.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const EVIDENCE_VALIDITY_MILLISECONDS = 5 * 60 * 1000;
 const TELEGRAM_READ_TIMEOUT_MILLISECONDS = 5_000;

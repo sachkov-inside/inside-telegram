@@ -126,13 +126,23 @@ describe("GrammyUpdateAdapter", () => {
     ["group start", privateStartUpdate(1, 42, { chatType: "group" })],
     ["bot sender", privateStartUpdate(2, 42, { isBot: true })],
     ["missing sender", privateStartUpdate(3, 42, { omitSender: true })],
-    ["tokenized start", privateStartUpdate(4, 42, { text: "/start token" })],
     ["malformed message", { update_id: 5, message: {} }],
     ["old configured update variant", { update_id: 6, poll_answer: {} }],
   ])("ignores %s", (_name, update) => {
     expect(adapter.translate("inside", "1", update, observedAt)).toEqual({
       kind: "ignored",
     });
+  });
+
+  it("leaves a tokenized start to the author dialog instead of treating it as /start", () => {
+    expect(
+      adapter.translate(
+        "inside",
+        "4",
+        privateStartUpdate(4, 42, { text: "/start token" }),
+        observedAt,
+      ).kind,
+    ).toBe("author-input");
   });
 
   it("translates private block observations without creating a contact", () => {

@@ -5,7 +5,7 @@ import { sql } from "kysely";
 
 import type { Database } from "../../database/database.js";
 import { canonicalJson, digest } from "../../security/payload-digest.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import {
   accessAllows,
   accessValidUntil,
@@ -57,7 +57,7 @@ import {
   RESTORABLE_REMOVAL_ORIGINS,
   type CommunityMutation,
 } from "./community-storage.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const ATTEMPT_BUDGET = 5;
 const PERMIT_WINDOW_MILLISECONDS = 5000;

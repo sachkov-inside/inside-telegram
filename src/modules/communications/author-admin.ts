@@ -43,7 +43,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import type { AuthorInput } from "../../adapters/telegram/grammy-author-admin.adapter.js";
+import type { AuthorInput } from "./author-input.js";
 import {
   AUTHOR_AUTHORIZATION,
   authorizeAuthor,

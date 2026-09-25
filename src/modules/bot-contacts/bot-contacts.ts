@@ -7,27 +7,11 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import {
-  DATABASE,
-  type Contactability,
-  type Database,
-} from "../../database/database.js";
-
-export interface VerifiedPrivateStart {
-  readonly botIdentity: string;
-  readonly observedAt: Date;
-  readonly privateChatId: string;
-  readonly telegramUserId: string;
-  readonly updateId: string;
-}
-
-export interface VerifiedPrivateContactability {
-  readonly botIdentity: string;
-  readonly contactability: Contactability;
-  readonly observedAt: Date;
-  readonly telegramUserId: string;
-  readonly updateId: string;
-}
+import { DATABASE, type Database } from "../../database/database.js";
+import type {
+  VerifiedPrivateContactability,
+  VerifiedPrivateStart,
+} from "../../shared/telegram-contact.js";
 
 export interface ContactOutcome {
   readonly contact: "created" | "reactivated" | "refreshed";

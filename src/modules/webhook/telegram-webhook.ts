@@ -9,10 +9,16 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { prepareTelegramUpdateForInbox } from "../../adapters/telegram/grammy-update.adapter.js";
-import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
+import {
+  RUNTIME_COUNTERS,
+  type RuntimeCounters,
+} from "../../shared/runtime-counters.js";
 import { credentialsMatch } from "../../security/credentials.js";
 import { TelegramUpdateInbox } from "../update-inbox/telegram-update-inbox.js";
+import {
+  TELEGRAM_UPDATE_TRANSLATOR,
+  type TelegramUpdateTranslator,
+} from "../update-inbox/telegram-update-command.js";
 
 /** The application path Telegram delivers updates to; registration refers to the same value. */
 export const TELEGRAM_WEBHOOK_PATH = "webhooks/telegram";
@@ -31,7 +37,9 @@ export class TelegramWebhook {
     @Inject(APPLICATION_CONFIG)
     private readonly config: ApplicationConfig,
     @Inject(TelegramUpdateInbox) private readonly inbox: TelegramUpdateInbox,
-    @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
+    @Inject(RUNTIME_COUNTERS) private readonly metrics: RuntimeCounters,
+    @Inject(TELEGRAM_UPDATE_TRANSLATOR)
+    private readonly translator: TelegramUpdateTranslator,
   ) {}
 
   async accept(secret: string | undefined, payload: unknown): Promise<void> {
@@ -47,7 +55,7 @@ export class TelegramWebhook {
     const result = await this.inbox.accept(
       this.config.botIdentity,
       updateId,
-      prepareTelegramUpdateForInbox(payload),
+      this.translator.prepareForInbox(payload),
       new Date(),
     );
     this.metrics.increment(

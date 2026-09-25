@@ -9,8 +9,8 @@ import {
 } from "../../config/application-config.js";
 import { DATABASE, type Database } from "../../database/database.js";
 import { credentialsMatch } from "../../security/credentials.js";
-import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 
 import { queueSignInResult } from "./queue-sign-in-result.js";
 

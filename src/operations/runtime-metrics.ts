@@ -2,22 +2,12 @@ import { Injectable } from "@nestjs/common";
 
 import type { CommunitySnapshot } from "../modules/community/community-provider.js";
 import type { ReconciliationBatchOutcome } from "../modules/membership-evidence/membership-reconciliation.js";
+import type {
+  RuntimeCounter,
+  RuntimeCounters,
+} from "../shared/runtime-counters.js";
 
-type Counter =
-  | "delivery_api_rejected"
-  | "delivery_api_retryable"
-  | "delivery_delivered"
-  | "delivery_transport_unknown"
-  | "reconciliation_degraded"
-  | "reconciliation_failure"
-  | "reconciliation_success"
-  | "update_failed"
-  | "update_ignored"
-  | "update_processed"
-  | "webhook_accepted"
-  | "webhook_duplicate";
-
-const counterNames: readonly Counter[] = [
+const counterNames: readonly RuntimeCounter[] = [
   "webhook_accepted",
   "webhook_duplicate",
   "update_processed",
@@ -58,11 +48,11 @@ const gaugeNames: readonly Gauge[] = [
 ];
 
 @Injectable()
-export class RuntimeMetrics {
-  private readonly counters = new Map<Counter, number>();
+export class RuntimeMetrics implements RuntimeCounters {
+  private readonly counters = new Map<RuntimeCounter, number>();
   private readonly gauges = new Map<Gauge, number>();
 
-  increment(counter: Counter, amount = 1): void {
+  increment(counter: RuntimeCounter, amount = 1): void {
     this.counters.set(counter, (this.counters.get(counter) ?? 0) + amount);
   }
 

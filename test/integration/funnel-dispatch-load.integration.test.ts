@@ -30,7 +30,7 @@ import { Funnels } from "../../src/modules/communications/funnels.js";
 import { MarketingEntry } from "../../src/modules/communications/marketing-entry.js";
 import { communicationLock } from "../../src/modules/communications/communication-state.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
-import { CLOCK } from "../../src/modules/identity-linking/clock.js";
+import { CLOCK } from "../../src/shared/clock.js";
 import { TELEGRAM_MESSAGES } from "../../src/modules/outbound/telegram-messages.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { TelegramWebhook } from "../../src/modules/webhook/telegram-webhook.js";

@@ -10,7 +10,7 @@ import type {
   Category,
   NotificationResult,
 } from "../../modules/notifications/notification-contract.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 // Runtime never declares topology: its principal has no configure permissions.
 export class NotificationBroker {

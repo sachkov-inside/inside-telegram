@@ -10,7 +10,7 @@ import {
 import {
   reportCondition,
   reportFailure,
-} from "../../operations/failure-diagnostics.js";
+} from "../../shared/failure-diagnostics.js";
 const validResponse = contractValidator("authorizationResponse");
 export class HttpAuthorAuthorizationAdapter implements AuthorAuthorization {
   constructor(

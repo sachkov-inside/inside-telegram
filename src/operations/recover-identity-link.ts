@@ -3,7 +3,7 @@ import "dotenv/config";
 import { readFileSync } from "node:fs";
 
 import { createDatabase } from "../database/create-database.js";
-import { systemClock } from "../modules/identity-linking/clock.js";
+import { systemClock } from "../shared/clock.js";
 import { IdentityLinkRecovery } from "../modules/identity-linking/identity-link-recovery.js";
 import {
   parseRecoveryArguments,

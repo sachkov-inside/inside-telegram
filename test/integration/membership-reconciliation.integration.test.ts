@@ -5,7 +5,7 @@ import type { ApplicationConfig } from "../../src/config/application-config.js";
 import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
 import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
-import type { Clock } from "../../src/modules/identity-linking/clock.js";
+import type { Clock } from "../../src/shared/clock.js";
 import { MembershipEvidenceProvider } from "../../src/modules/membership-evidence/membership-evidence-provider.js";
 import type {
   TelegramChatMemberResult,

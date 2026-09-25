@@ -6,56 +6,17 @@ import type { Update } from "grammy/types";
 import type {
   VerifiedPrivateContactability,
   VerifiedPrivateStart,
-} from "../../modules/bot-contacts/bot-contacts.js";
+} from "../../shared/telegram-contact.js";
 import type { CommunityJoinRequest } from "../../modules/community/community-provider.js";
 import type { DurableMembershipEnvelope } from "../../modules/membership-evidence/membership-evidence-provider.js";
 import type { VerifiedSignInDecision } from "../../modules/bot-sign-in/bot-sign-in.js";
+import type {
+  TelegramUpdateCommand,
+  TelegramUpdateTranslator,
+} from "../../modules/update-inbox/telegram-update-command.js";
+import { translateAuthorInput } from "./grammy-author-admin.adapter.js";
+import { translateTemplateIntake } from "./grammy-template-intake.adapter.js";
 import { toTelegramChatMember } from "./grammy-membership.adapter.js";
-
-export type TelegramUpdateCommand =
-  | {
-      readonly kind: "access-action";
-      readonly value: VerifiedPrivateStart;
-      readonly action: AccessAction;
-      readonly callbackQueryId?: string;
-    }
-  | {
-      readonly kind: "sign-in-decision";
-      readonly value: VerifiedSignInDecision;
-      readonly callbackQueryId: string;
-    }
-  | {
-      readonly kind: "marketing_preference";
-      readonly value: {
-        readonly contact: VerifiedPrivateStart;
-        readonly enabled: boolean;
-      };
-    }
-  | {
-      readonly kind: "contactability";
-      readonly value: VerifiedPrivateContactability;
-    }
-  | { readonly kind: "ignored" }
-  | { readonly kind: "membership"; readonly value: DurableMembershipEnvelope }
-  | { readonly kind: "join-request"; readonly value: CommunityJoinRequest }
-  | {
-      readonly kind: "community-request";
-      readonly value: VerifiedPrivateStart;
-    }
-  | {
-      readonly kind: "start";
-      readonly value: {
-        readonly contact: VerifiedPrivateStart;
-        readonly signInToken?:
-          | { readonly digest: string; readonly kind: "digest" }
-          | { readonly kind: "malformed" };
-        readonly marketingSource?: string;
-        readonly activationCode?: string | null;
-        readonly linkToken?:
-          | { readonly digest: string; readonly kind: "digest" }
-          | { readonly kind: "malformed" };
-      };
-    };
 
 const LINK_TOKEN_FIELD = "_inside_link_token";
 const SIGN_IN_TOKEN_FIELD = "_inside_sign_in_token";
@@ -130,8 +91,34 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
   };
 }
 
-export class GrammyUpdateAdapter {
+export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
+  prepareForInbox(payload: unknown): unknown {
+    return prepareTelegramUpdateForInbox(payload);
+  }
+
   translate(
+    botIdentity: string,
+    updateId: string,
+    payload: unknown,
+    observedAt: Date,
+  ): TelegramUpdateCommand {
+    const command = this.translateRouted(
+      botIdentity,
+      updateId,
+      payload,
+      observedAt,
+    );
+    if (command.kind !== "ignored") return command;
+    // A private message no route claims belongs to the author dialog or the template intake.
+    const author = translateAuthorInput(botIdentity, updateId, payload);
+    const intake = translateTemplateIntake(botIdentity, updateId, payload);
+    if (author)
+      return { kind: "author-input", value: author, ...(intake && { intake }) };
+    if (intake) return { kind: "template-intake", value: intake };
+    return command;
+  }
+
+  private translateRouted(
     botIdentity: string,
     updateId: string,
     payload: unknown,

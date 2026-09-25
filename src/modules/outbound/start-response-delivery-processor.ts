@@ -1,7 +1,10 @@
 import { Inject, Injectable } from "@nestjs/common";
 
-import { reportCondition } from "../../operations/failure-diagnostics.js";
-import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
+import { reportCondition } from "../../shared/failure-diagnostics.js";
+import {
+  RUNTIME_COUNTERS,
+  type RuntimeCounters,
+} from "../../shared/runtime-counters.js";
 import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
@@ -19,7 +22,7 @@ export class StartResponseDeliveryProcessor {
     private readonly queue: StartResponseDeliveryQueue,
     @Inject(TELEGRAM_MESSAGES)
     private readonly messages: TelegramMessages,
-    @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
+    @Inject(RUNTIME_COUNTERS) private readonly metrics: RuntimeCounters,
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
   ) {}
 
