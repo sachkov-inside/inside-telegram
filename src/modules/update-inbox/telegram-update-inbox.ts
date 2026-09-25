@@ -11,10 +11,12 @@ import {
 
 const MAX_PROCESS_ATTEMPTS = 5;
 
+/** Updates run in lanes (ADR 0002): one per user conversation and one per group. */
 const updates: DurableQueue<"telegram_updates"> = {
   table: "telegram_updates",
   key: ["bot_identity", "update_id"],
   order: ["update_id"],
+  lane: ["bot_identity", "lane_key"],
   ready: ["pending"],
   leased: "processing",
   due: "available_at",
@@ -58,6 +60,7 @@ export class TelegramUpdateInbox {
         bot_identity: botIdentity,
         failure_code: null,
         locked_at: null,
+        lane_key: laneOf(payload),
         payload,
         process_attempt_count: 0,
         processed_at: null,
@@ -145,4 +148,39 @@ export class TelegramUpdateInbox {
     if (!settled) return "lease_lost";
     return exhausted ? "failed" : "retry_scheduled";
   }
+}
+
+/**
+ * A group's membership changes and join requests run in that chat's lane, so they keep their
+ * relative order and only one of them at a time waits on the provider lock (ADR 0003). Every
+ * other update runs in the lane of the user who sent it; one without a sender runs in no lane.
+ */
+function laneOf(payload: unknown): string | null {
+  const update = record(payload);
+  const chat = record(
+    record(
+      update?.chat_member ??
+        update?.my_chat_member ??
+        update?.chat_join_request,
+    )?.chat,
+  );
+  const id =
+    chat?.id != null && chat.type !== "private"
+      ? chat.id
+      : [
+          "message",
+          "edited_message",
+          "callback_query",
+          "chat_join_request",
+          "my_chat_member",
+        ]
+          .map((kind) => record(record(update?.[kind])?.from)?.id)
+          .find((value) => value != null);
+  return typeof id === "number" || typeof id === "string" ? String(id) : null;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }

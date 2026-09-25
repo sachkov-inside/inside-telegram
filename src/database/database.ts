@@ -50,6 +50,8 @@ export interface TelegramUpdatesTable {
   bot_identity: string;
   failure_code: string | null;
   locked_at: Timestamp | null;
+  /** The lane whose updates run one at a time, in order; null runs in no lane. */
+  lane_key: string | null;
   payload: unknown | null;
   process_attempt_count: number;
   processed_at: Timestamp | null;

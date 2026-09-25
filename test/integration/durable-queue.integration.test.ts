@@ -28,6 +28,11 @@ const queue: DurableQueue<"telegram_updates"> = {
   leaseMs: 60_000,
   retry: { initialMs: 1000, maxMs: 16_000 },
 };
+/** The same queue with one lane per sender: a sender's rows run one at a time, in order. */
+const lanes: DurableQueue<"telegram_updates"> = {
+  ...queue,
+  lane: ["bot_identity", "lane_key"],
+};
 const expired = {
   failure_code: "worker_lease_expired",
   locked_at: null,
@@ -129,6 +134,46 @@ describe("durable queue", () => {
     });
   });
 
+  it("keeps one sender's rows in order while other senders proceed", async () => {
+    await insert("1", start, "42");
+    await insert("2", start, "42");
+    await insert("3", start, "43");
+
+    const first = await claimLane(start);
+    const other = await claimLane(start);
+
+    expect(first?.row.update_id).toBe("1");
+    expect(other?.row.update_id).toBe("3");
+    expect(await claimLane(start)).toBeUndefined();
+
+    await settle(database, lanes, first!, {
+      state: "processed",
+      locked_at: null,
+    });
+    expect((await claimLane(start))?.row.update_id).toBe("2");
+  });
+
+  it("does not let a later row overtake an earlier one waiting to retry", async () => {
+    await insert("1", new Date(start.getTime() + 5000), "42");
+    await insert("2", start, "42");
+    await insert("3", start);
+
+    expect((await claimLane(start))?.row.update_id).toBe("3");
+    expect(await claimLane(start)).toBeUndefined();
+    const later = new Date(start.getTime() + 5000);
+    expect((await claimLane(later))?.row.update_id).toBe("1");
+  });
+
+  it("gives concurrent workers at most one row of a sender", async () => {
+    for (const id of ["1", "2", "3", "4"]) await insert(id, start, "42");
+
+    const claims = await Promise.all(
+      Array.from({ length: 4 }, () => claimLane(start)),
+    );
+
+    expect(claims.filter(Boolean).map((c) => c!.row.update_id)).toEqual(["1"]);
+  });
+
   it("backs off exponentially up to the queue maximum", () => {
     expect(
       [1, 2, 3, 4, 5, 6].map((attempt) => retryDelay(queue, attempt)),
@@ -142,7 +187,17 @@ function claim(now: Date) {
   });
 }
 
-async function insert(updateId: string, availableAt: Date): Promise<void> {
+function claimLane(now: Date) {
+  return claimNext(database, lanes, now, expired, {
+    select: ["update_id"],
+  });
+}
+
+async function insert(
+  updateId: string,
+  availableAt: Date,
+  laneKey: string | null = null,
+): Promise<void> {
   await database
     .insertInto("telegram_updates")
     .values({
@@ -150,6 +205,7 @@ async function insert(updateId: string, availableAt: Date): Promise<void> {
       bot_identity: "inside",
       failure_code: null,
       locked_at: null,
+      lane_key: laneKey,
       payload: JSON.stringify({ update_id: Number(updateId) }),
       process_attempt_count: 0,
       processed_at: null,

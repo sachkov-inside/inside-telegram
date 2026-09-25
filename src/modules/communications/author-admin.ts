@@ -130,17 +130,6 @@ export class AuthorAdmin {
         (!session || (!close && /^\//.test(input.text)))
       )
         return false;
-      const earlier = await tx
-        .selectFrom("telegram_updates")
-        .select("update_id")
-        .where("bot_identity", "=", input.botIdentity)
-        .where("update_id", "<", input.updateId)
-        .where("state", "in", ["pending", "processing"])
-        .where(
-          sql<boolean>`coalesce(payload->'callback_query'->'from'->>'id', payload->'message'->'from'->>'id') = ${input.telegramUserId}`,
-        )
-        .executeTakeFirst();
-      if (earlier) throw new Error("Earlier author update is still pending");
       const link = await findPlatformLink(
         tx,
         {

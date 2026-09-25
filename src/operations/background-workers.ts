@@ -26,8 +26,15 @@ import { TelegramUpdateProcessor } from "../modules/update-inbox/telegram-update
 import { RuntimeMetrics } from "./runtime-metrics.js";
 import { WorkerLoop, type WorkerPacing } from "./worker-loop.js";
 
-/** Every accepted webhook wakes the update cycle; idle polls only catch retries and leases. */
+/** Every accepted webhook wakes the update cycles; idle polls only catch retries and leases. */
 const UPDATES: WorkerPacing = { busyMs: 250, idleMs: 5000 };
+/**
+ * More update cycles for other lanes while one waits on Platform or Telegram; the inbox gives
+ * each lane to one cycle at a time. They poll rarely and webhooks wake them, so a retry that
+ * falls due while the first cycle waits runs at the next webhook or when that cycle returns.
+ */
+const EXTRA_UPDATE_CYCLES = 3;
+const EXTRA_UPDATES: WorkerPacing = { busyMs: 250, idleMs: 60_000 };
 /** Replies a user waits on; processed updates wake this cycle directly. */
 const DELIVERY: WorkerPacing = { busyMs: 250, idleMs: 2000 };
 const BACKGROUND: WorkerPacing = { busyMs: 500, idleMs: 5000 };
@@ -112,7 +119,7 @@ export class BackgroundWorkers
           })
         : undefined;
 
-    const updates = add("updates", UPDATES, async (signal) => {
+    const updateCycle = async (signal: AbortSignal) => {
       const processed = await this.updates.processAvailable(
         50,
         undefined,
@@ -121,8 +128,16 @@ export class BackgroundWorkers
       // Processing an update usually plans a reply; send it without waiting for a poll.
       if (processed > 0) deliveries?.wake();
       return processed > 0;
+    };
+    const updates = [
+      add("updates", UPDATES, updateCycle),
+      ...Array.from({ length: EXTRA_UPDATE_CYCLES }, (_, index) =>
+        add(`updates.${index + 2}`, EXTRA_UPDATES, updateCycle),
+      ),
+    ];
+    this.inbox.onAccepted(() => {
+      for (const loop of updates) loop.wake();
     });
-    this.inbox.onAccepted(() => updates.wake());
 
     if (this.config.deliveryMode === "live" && this.config.marketingEnabled) {
       add(
