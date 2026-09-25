@@ -1186,25 +1186,38 @@ describe("funnel settings in the bot", () => {
     await authorClick(id + 0.2, "Добавить в блок");
   }
 
-  it("saves the name, the main funnel and a source", async () => {
+  it("saves the name, the main funnel and sources", async () => {
     const funnelId = await savedFunnel();
     await authorClick(110, "Настройки");
     await authorClick(111, "Название");
     await authorMessage(112, "Весна");
-    await authorClick(113, "Сделать основной");
-    await authorClick(114, "Настройки");
-    await authorClick(115, "Источники");
-    await authorClick(116, "Добавить источник");
-    await authorMessage(117, "Канал");
-    await authorMessage(118, "m_channel");
-    await authorClick(119, "К воронке");
-    await authorClick(120, "Сохранить черновик");
+    await authorClick(113, "Настройки");
+    await authorClick(114, "Сделать основной");
+    await authorClick(115, "Настройки");
+    await authorClick(116, "Источники");
+    for (const [id, name, code] of [
+      [117, "Канал", "m_channel"],
+      [120, "Видео", "m_video"],
+    ] as const) {
+      await authorClick(id, "Добавить источник");
+      await authorMessage(id + 1, name);
+      await authorMessage(id + 2, code);
+    }
+    await authorClick(123, "Видео");
+    await authorClick(124, "Убрать источник");
+    await authorClick(125, "К воронке");
+    await authorClick(126, "Сохранить черновик");
 
     expect(await apiFunnel(funnelId)).toMatchObject({
       name: "Весна",
       isDefault: true,
       sources: [{ name: "Канал", code: "m_channel" }],
     });
+
+    await authorClick(127, "Настройки");
+    await authorClick(128, "Убрать из основных");
+    await authorClick(129, "Сохранить черновик");
+    expect((await apiFunnel(funnelId)).isDefault).toBe(false);
   });
 
   it("saves added, retimed, moved and removed steps", async () => {

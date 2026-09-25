@@ -184,11 +184,9 @@ export function showFunnel(t: Turn): void {
           ]
         : []),
       ...(f.lifecycle !== "archived"
-        ? ([
-            ["Сообщения", { kind: "f:messages" }],
-            ["Настройки", { kind: "f:settings" }],
-          ] as Buttons)
+        ? [["Сообщения", { kind: "f:messages" }] as AuthorButton]
         : []),
+      ["Настройки", { kind: "f:settings" }],
       ...(f.lifecycle === "draft" && !f.isDefault
         ? [["Сделать основной", { kind: "f:default" }] as AuthorButton]
         : []),
@@ -216,7 +214,10 @@ export function showFunnel(t: Turn): void {
   );
 }
 
-/** The funnel's configuration; saving, publication and lifecycle stay on its card. */
+/**
+ * The funnel's configuration. Saving, publication and the other lifecycle actions stay on its
+ * card; an archived funnel is restored here.
+ */
 function settings(t: Turn) {
   const s = funnelState(t),
     f = openFunnel(s);
@@ -233,7 +234,12 @@ function settings(t: Turn) {
             { kind: "f:default" },
           ],
         ] as Buttons)
-      : []),
+      : [
+          [
+            "Восстановить",
+            { kind: "f:life", value: "restore" },
+          ] as AuthorButton,
+        ]),
     ["Общий вводный блок", { kind: "f:intro" }],
     ...(s.dirty
       ? [["Отказаться от правок", { kind: "f:discard" }] as AuthorButton]
@@ -368,6 +374,7 @@ function partsMenu(t: Turn, offset = 0) {
       ...(s.target === "intro"
         ? ([
             ["Сохранить общий блок", { kind: "f:save-intro" }],
+            // One way out keeps the save button on the first page of a short intro.
             ["Все воронки", { kind: "f:list" }],
           ] as Buttons)
         : back),
@@ -567,18 +574,15 @@ function performEdit(
     case "f:add-step": {
       if (f.steps.length >= 100)
         return t.reply("В воронке может быть до 100 шагов.", back);
-      const last = f.steps.at(-1);
-      const step: FunnelStep = timedFromEntry(f.steps)
-        ? {
-            stepId: t.newId(),
-            delaySeconds: Math.min(
-              (last?.delaySeconds ?? 0) + 86400,
-              MAX_DELAY,
-            ),
-            delayAnchor: "entry",
-            parts: [],
-          }
-        : { stepId: t.newId(), delaySeconds: 86400, parts: [] };
+      const fromEntry = timedFromEntry(f.steps);
+      const step: FunnelStep = {
+        stepId: t.newId(),
+        delaySeconds: fromEntry
+          ? Math.min((f.steps.at(-1)?.delaySeconds ?? 0) + 86400, MAX_DELAY)
+          : 86400,
+        ...(fromEntry && { delayAnchor: "entry" as const }),
+        parts: [],
+      };
       s.funnel = { ...f, steps: [...f.steps, step] };
       s.dirty = true;
       return performFunnel(t, { kind: "f:step", id: step.stepId });

@@ -824,10 +824,23 @@ describe("funnel settings", () => {
     expect(dialog.labels()).toContain("Настройки");
   });
 
-  it("offers neither settings nor messages for an archived funnel", () => {
-    const labels = card(funnel({ lifecycle: "archived" })).labels();
-    expect(labels).not.toContain("Настройки");
-    expect(labels).not.toContain("Сообщения");
+  it("restores an archived funnel from its settings", () => {
+    const dialog = card(funnel({ lifecycle: "archived" }));
+    expect(dialog.labels()).toEqual(["Настройки", "Все воронки"]);
+
+    dialog.click("Настройки");
+    expect(dialog.labels()).toEqual([
+      "Восстановить",
+      "Общий вводный блок",
+      "К воронке",
+    ]);
+    dialog.click("Восстановить");
+    expect(dialog.query("change-funnel")).toEqual({
+      kind: "change-funnel",
+      funnelId: uuid(800),
+      revision: 2,
+      action: "restore",
+    });
   });
 
   const timed = () =>

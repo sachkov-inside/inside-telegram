@@ -398,7 +398,8 @@ and «Настройки», and both return to the card. «Настройки» 
 задержки» (add, move, remove, delay in seconds/minutes/hours/days), «Источники» (`?start=m_...`),
 the main-funnel choice and the shared «Общий вводный блок». «Сообщения» lists every message with its
 time; «Когда отправить» moves a message to entry or to its own delayed step. Saving, publication
-and lifecycle stay on the card. Contents are native messages or saved posts from
+and pause/resume/archive stay on the card; an archived funnel shows only «Настройки», where
+«Восстановить» restores it. Contents are native messages or saved posts from
 `templates.list/read`; choosing copies the saved version, explicit replacement retains the part ID,
 and additions allocate new IDs. Changing a saved post does not modify a chosen draft or publication.
 
@@ -416,8 +417,7 @@ and publish require the same saved revision; publication rechecks the exact snap
 existing definition lock. Menu callbacks and business writes share one transaction and update
 receipt. A savepoint rolls back a rejected funnel action before the menu reports a conflict,
 including conflicts discovered after a draft write. Duplicate updates cannot publish or sample twice.
-Pause, resume and archive on the card use the existing `funnels.lifecycle` operation; restoring an
-archived funnel is available through that operation in the API. Detailed delivery history,
+Pause, resume, archive and restore use the existing `funnels.lifecycle` operation. Detailed delivery history,
 retry/skip and rollback remain available in the web editor and delegated operations.
 
 `PLATFORM_AUTHOR_CONTENT_VALIDATION_URL` configures Platform's service-only
