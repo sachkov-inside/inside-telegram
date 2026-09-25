@@ -390,14 +390,25 @@ No real author permission endpoint, Platform editor, credentialed Telegram messa
 release or production enablement is proven here. Platform #307 supplies authorization, #308 the
 editor, and #310 the cross-application acceptance. Every merge and release still requires owner GO.
 
-## Legacy funnel author menu (#38)
+## Funnel settings in the bot (#38, #100)
 
 `/admin` → «Воронки» uses the same persisted author session, fresh confirmed-link authorization,
-update receipts and author-only outbox as posts and broadcasts. It creates and edits the entry
-response, delayed multipart steps, order, delay (seconds/minutes/hours/days), default selection and
-sources. The common intro is edited separately. Contents come from `templates.list/read`; choosing
-copies the saved version, explicit replacement retains the part ID, and additions allocate new IDs.
-Changing a saved post does not modify a chosen draft or publication.
+update receipts and author-only outbox as posts and broadcasts. The funnel card offers «Сообщения»
+and «Настройки», and both return to the card. «Настройки» edits the name, «Первый ответ», «Шаги и
+задержки» (add, move, remove, delay in seconds/minutes/hours/days), «Источники» (`?start=m_...`),
+the main-funnel choice and the shared «Общий вводный блок». «Сообщения» lists every message with its
+time; «Когда отправить» moves a message to entry or to its own delayed step. Saving, publication
+and lifecycle stay on the card. Contents are native messages or saved posts from
+`templates.list/read`; choosing copies the saved version, explicit replacement retains the part ID,
+and additions allocate new IDs. Changing a saved post does not modify a chosen draft or publication.
+
+The bot and the authenticated API/MCP are equal entry points to the same funnel settings. The bot
+writes through the same `funnels.save` and `intro.save` operations with expectedRevision and
+operationId; there is no second write path, and either side continues the other's draft after a
+reread. Steps timed from entry (`delayAnchor: "entry"`, the bot's default since #43) show their time
+from entry and stay in time order: new steps and retimed messages count from entry, a changed delay
+re-sorts the steps, and moving a step moves its messages between the existing times. A chain of
+steps without `delayAnchor` keeps delays after the preceding step and the author's order.
 
 Composition remains a private scratch snapshot until «Сохранить черновик» (durable recovery is
 described under #43 below). Preview
@@ -405,7 +416,8 @@ and publish require the same saved revision; publication rechecks the exact snap
 existing definition lock. Menu callbacks and business writes share one transaction and update
 receipt. A savepoint rolls back a rejected funnel action before the menu reports a conflict,
 including conflicts discovered after a draft write. Duplicate updates cannot publish or sample twice.
-Archive, pause, resume and restore use the existing lifecycle operations. Detailed delivery history,
+Pause, resume and archive on the card use the existing `funnels.lifecycle` operation; restoring an
+archived funnel is available through that operation in the API. Detailed delivery history,
 retry/skip and rollback remain available in the web editor and delegated operations.
 
 `PLATFORM_AUTHOR_CONTENT_VALIDATION_URL` configures Platform's service-only
@@ -454,8 +466,10 @@ stale callback or revision conflict does not lose the candidate or attach it twi
 сообщение» discards just the pending message. «Готово» cannot bypass an unanswered time prompt.
 The next message captures a fresh expectedRevision. Concurrent agent edits require reread/reconciliation.
 
-The ordinary menu omits saved-post browsing, replacement, reordering, button rows and agent handoff.
-Advanced authenticated API/MCP operations and legacy persisted composer recovery remain available.
+The ordinary broadcast menu omits saved-post browsing, replacement, reordering, button rows and
+agent handoff; funnels offer them under «Сообщения» and «Настройки» (see
+[Funnel settings in the bot](#funnel-settings-in-the-bot-38-100)). Authenticated API/MCP operations
+and legacy persisted composer recovery remain available.
 The owner works with an agent in the terminal: list/read the canonical draft as the same Account with
 `communications:manage`, preserve native content and stable IDs, then save using expectedRevision and
 operationId. Replays reuse operationId. Bot token possession does not grant author access. Launch and

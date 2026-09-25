@@ -5,7 +5,10 @@ import {
   AUTHOR_CONTENT_VALIDATION,
   type AuthorContentValidationResult,
 } from "../../src/modules/communications/author-content-validation.js";
-import type { MessagePart } from "../../src/modules/communications/funnel-types.js";
+import type {
+  FunnelSnapshot,
+  MessagePart,
+} from "../../src/modules/communications/funnel-types.js";
 import { AuthorAdmin } from "../../src/modules/communications/author-admin.js";
 import { parseAuthorState } from "../../src/modules/communications/author-dialog.js";
 import { AuthorDelivery } from "../../src/modules/communications/author-delivery.js";
@@ -1153,3 +1156,131 @@ it.each(["/cancel", "discard"])(
     );
   },
 );
+
+describe("funnel settings in the bot", () => {
+  /** A saved bot funnel: «Вход» at entry, «Урок» one hour and «Задание» two hours after entry. */
+  async function savedFunnel() {
+    await beginSequence("Воронки");
+    await acceptPost(103, "Вход", "сразу");
+    await acceptPost(104, "Урок", "1 час");
+    await acceptPost(105, "Задание", "2 часа");
+    await authorClick(106, "Готово");
+    return (await sessionState()).funnelAuthor!.funnel!.funnelId;
+  }
+  /** The funnel as the API and MCP read it. */
+  async function apiFunnel(funnelId: string) {
+    const response = await http({
+      ...request(),
+      operation: "funnels.read",
+      payload: { funnelId },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().funnel as FunnelSnapshot;
+  }
+  const texts = (parts: readonly MessagePart[]) =>
+    parts.map((p) => p.content.text);
+  /** Writes one message in the composer and adds it to the open block. */
+  async function composeMessage(id: number, value: string) {
+    await authorClick(id, "Создать сообщение");
+    await authorMessage(id + 0.1, value);
+    await authorClick(id + 0.2, "Добавить в блок");
+  }
+
+  it("saves the name, the main funnel and a source", async () => {
+    const funnelId = await savedFunnel();
+    await authorClick(110, "Настройки");
+    await authorClick(111, "Название");
+    await authorMessage(112, "Весна");
+    await authorClick(113, "Сделать основной");
+    await authorClick(114, "Настройки");
+    await authorClick(115, "Источники");
+    await authorClick(116, "Добавить источник");
+    await authorMessage(117, "Канал");
+    await authorMessage(118, "m_channel");
+    await authorClick(119, "К воронке");
+    await authorClick(120, "Сохранить черновик");
+
+    expect(await apiFunnel(funnelId)).toMatchObject({
+      name: "Весна",
+      isDefault: true,
+      sources: [{ name: "Канал", code: "m_channel" }],
+    });
+  });
+
+  it("saves added, retimed, moved and removed steps", async () => {
+    const funnelId = await savedFunnel();
+    await authorClick(110, "Настройки");
+    await authorClick(111, "Шаги и задержки");
+    await authorClick(112, "Добавить шаг");
+    await authorClick(113, "Сообщения шага");
+    await composeMessage(114, "Бонус");
+    await authorClick(115, "К воронке");
+    await authorClick(116, "Настройки");
+    await authorClick(117, "Шаги и задержки");
+    await authorClick(118, "Шаг 3 · 26 ч от входа");
+    await authorClick(119, "Задержка");
+    await authorMessage(120, "30 мин");
+    await authorClick(121, "Все шаги");
+    await authorClick(122, "Шаг 3 · 2 ч от входа");
+    await authorClick(123, "Поднять шаг");
+    await authorClick(124, "Шаг 3 · 2 ч от входа");
+    await authorClick(125, "Убрать шаг");
+    await authorClick(126, "К воронке");
+    await authorClick(127, "Сохранить черновик");
+
+    const f = await apiFunnel(funnelId);
+    expect(
+      f.steps.map((s) => [texts(s.parts), s.delaySeconds, s.delayAnchor]),
+    ).toEqual([
+      [["Бонус"], 1800, "entry"],
+      [["Задание"], 3600, "entry"],
+    ]);
+  });
+
+  it("saves the first response", async () => {
+    const funnelId = await savedFunnel();
+    await authorClick(110, "Настройки");
+    await authorClick(111, "Первый ответ");
+    await composeMessage(112, "Приветствие");
+    await authorClick(113, "К воронке");
+    await authorClick(114, "Сохранить черновик");
+
+    expect(texts((await apiFunnel(funnelId)).entryResponse.parts)).toEqual([
+      "Вход",
+      "Приветствие",
+    ]);
+  });
+
+  it("saves the time of a message", async () => {
+    const funnelId = await savedFunnel();
+    await authorClick(110, "Сообщения");
+    await authorClick(111, "2. Через 1 ч · 📝 Текст · Урок");
+    await authorClick(112, "Когда отправить");
+    await authorMessage(113, "3 часа");
+    await authorClick(114, "К воронке");
+    await authorClick(115, "Сохранить черновик");
+
+    const f = await apiFunnel(funnelId);
+    expect(f.steps.map((s) => [texts(s.parts), s.delaySeconds])).toEqual([
+      [["Задание"], 7200],
+      [["Урок"], 10800],
+    ]);
+  });
+
+  it("saves the shared intro", async () => {
+    await savedFunnel();
+    await authorClick(110, "Настройки");
+    await authorClick(111, "Общий вводный блок");
+    await composeMessage(112, "Добро пожаловать");
+    await authorClick(113, "Сохранить общий блок");
+    expect(await lastAuthorText()).toContain("Общий вводный блок сохранён");
+
+    const response = await http({
+      ...request(),
+      operation: "intro.read",
+      payload: {},
+    });
+    expect(response.statusCode).toBe(200);
+    expect(texts(response.json().intro.parts)).toEqual(["Добро пожаловать"]);
+  });
+});
