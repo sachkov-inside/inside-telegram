@@ -31,6 +31,7 @@ import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-res
 import {
   TELEGRAM_MESSAGES,
   type TelegramDeliveryResult,
+  type TelegramTextMessage,
 } from "../../src/modules/outbound/telegram-messages.js";
 
 const databaseUrl = process.env.DATABASE_URL;
@@ -88,11 +89,23 @@ beforeAll(async () => {
   await migrateToLatest(database);
 });
 
+// Earlier test files may leave due work behind; these tests own every queue the workers read.
 beforeEach(async () => {
   await sql`
     truncate table
+      activation_attempts,
+      communication_author_outbox,
+      membership_checks,
+      membership_evidence_outbox,
+      membership_reconciliations,
+      notification_commands,
+      notification_result_outbox,
+      platform_links,
+      link_transactions,
       start_response_delivery_attempts,
       start_response_deliveries,
+      telegram_transport_fairness,
+      telegram_transport_slots,
       telegram_updates
     restart identity cascade
   `.execute(database);
@@ -106,25 +119,34 @@ describe("background worker lifecycle", () => {
   it("settles an in-flight send before the database pool closes", async () => {
     let release!: (result: TelegramDeliveryResult) => void;
     const sendText = vi.fn(
-      () =>
+      (message: TelegramTextMessage) =>
         new Promise<TelegramDeliveryResult>((resolve) => {
-          release = resolve;
+          if (message.chatId !== "4242")
+            resolve({ kind: "delivered", providerMessageId: "1" });
+          else release = resolve;
         }),
     );
-    const app = await start({ sendText, editText: sendText });
+    const app = await start({
+      sendText,
+      editText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+    });
     let closed = false;
     try {
       await app.get(StartResponseDeliveryQueue).enqueue({
         botIdentity: "inside",
-        telegramUserId: "42",
-        privateChatId: "42",
+        telegramUserId: "4242",
+        privateChatId: "4242",
         messageText: "Synthetic reply",
         sourceKey: "lifecycle:1",
         now: new Date(),
       });
-      await vi.waitFor(() => expect(sendText).toHaveBeenCalledTimes(1), {
-        timeout: 5000,
-      });
+      await vi.waitFor(
+        () =>
+          expect(sendText).toHaveBeenCalledWith(
+            expect.objectContaining({ chatId: "4242" }),
+          ),
+        { timeout: 5000 },
+      );
 
       const closing = app.close().then(() => {
         closed = true;
@@ -141,9 +163,9 @@ describe("background worker lifecycle", () => {
     const delivery = await database
       .selectFrom("start_response_deliveries")
       .select(["attempt_count", "state"])
+      .where("source_key", "=", "lifecycle:1")
       .executeTakeFirstOrThrow();
     expect(delivery).toEqual({ attempt_count: 1, state: "delivered" });
-    expect(sendText).toHaveBeenCalledTimes(1);
   });
 
   it("queries an idle database rarely", async () => {
@@ -174,7 +196,7 @@ describe("background worker lifecycle", () => {
 
 async function start(
   messages: {
-    sendText: () => Promise<TelegramDeliveryResult>;
+    sendText: (message: TelegramTextMessage) => Promise<TelegramDeliveryResult>;
     editText: () => Promise<TelegramDeliveryResult>;
   },
   onStatement?: () => void,
