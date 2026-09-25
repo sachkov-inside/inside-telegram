@@ -26,6 +26,18 @@ export interface CommunityTexts {
   readonly readmission: string;
 }
 
+/** How many private-chat requests one user may make within a sliding window. */
+export interface SenderRate {
+  readonly requests: number;
+  readonly windowMs: number;
+}
+
+/** The owner's limit from #87; only tests of other behaviour set `senderRate` to raise it. */
+export const DEFAULT_SENDER_RATE: SenderRate = Object.freeze({
+  requests: 10,
+  windowMs: 10_000,
+});
+
 export interface ApplicationConfig {
   readonly activation?: ActivationConfig;
   readonly notifications?: NotificationConfig;
@@ -66,6 +78,8 @@ export interface ApplicationConfig {
   readonly platformTrackingRedirectUrl?: string;
   readonly platformTrackingTargetPrefixes?: readonly string[];
   readonly port: number;
+  /** Absent means `DEFAULT_SENDER_RATE`. */
+  readonly senderRate?: SenderRate;
   readonly signInEnabled?: boolean;
   readonly signInIntegrationSecret?: string;
   readonly webhookSecret: string;

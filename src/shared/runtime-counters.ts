@@ -4,6 +4,7 @@ export const RUNTIME_COUNTER_NAMES = [
   "webhook_duplicate",
   "update_processed",
   "update_ignored",
+  "update_rate_limited",
   "update_failed",
   "delivery_delivered",
   "delivery_api_rejected",
