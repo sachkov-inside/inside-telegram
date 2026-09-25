@@ -1,19 +1,15 @@
 import { sql, type Kysely } from "kysely";
 import type { Migration } from "kysely/migration";
 
-/**
- * Updates run in lanes: one per user conversation and one per chat whose membership changes.
- * A lane's updates run one at a time in `update_id` order; lanes run in parallel. Rows already
- * waiting get their lane from the stored payload by the rule in `telegram-update-inbox.ts`.
- */
+/** Updates run in lanes; rows already waiting get their lane by `laneOf` in the inbox. */
 export const updateLanesMigration: Migration = {
   async up(db: Kysely<unknown>) {
     await sql`
       alter table telegram_updates add column lane_key text;
       update telegram_updates set lane_key = case
-        when coalesce(payload->'chat_member', payload->'my_chat_member')
-          ->'chat'->>'type' <> 'private'
-        then coalesce(payload->'chat_member', payload->'my_chat_member')->'chat'->>'id'
+        when group_chat->>'id' is not null
+          and coalesce(group_chat->>'type', '') <> 'private'
+        then group_chat->>'id'
         else coalesce(
           payload->'message'->'from'->>'id',
           payload->'edited_message'->'from'->>'id',
@@ -22,7 +18,17 @@ export const updateLanesMigration: Migration = {
           payload->'my_chat_member'->'from'->>'id'
         )
       end
-      where state in ('pending', 'processing');
+      from (
+        select bot_identity as bot, update_id as id, coalesce(
+          payload->'chat_member',
+          payload->'my_chat_member',
+          payload->'chat_join_request'
+        )->'chat' as group_chat
+        from telegram_updates
+      ) as source
+      where source.bot = telegram_updates.bot_identity
+        and source.id = telegram_updates.update_id
+        and state in ('pending', 'processing');
       create index telegram_updates_lane on telegram_updates
         (bot_identity, lane_key, update_id)
         where state in ('pending', 'processing');

@@ -25,6 +25,7 @@ import {
   describe,
   expect,
   it,
+  vi,
 } from "vitest";
 import { AppModule } from "../../src/app.module.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
@@ -225,13 +226,6 @@ function slowPlatform() {
   let answer!: () => void;
   authorization.slow = new Promise((resolve) => (answer = resolve));
   return { answer };
-}
-async function until(done: () => Promise<boolean>): Promise<void> {
-  const deadline = Date.now() + 5000;
-  while (!(await done())) {
-    if (Date.now() > deadline) throw new Error("Condition was not reached");
-    await new Promise((resolve) => setTimeout(resolve, 20));
-  }
 }
 async function updateState(updateId: string) {
   const row = await database
@@ -518,7 +512,7 @@ describe("durable author intake", () => {
     );
 
     const first = processor.processAvailable();
-    await until(async () => authorization.subjects.length === 1);
+    await vi.waitFor(() => expect(authorization.subjects).toHaveLength(1));
     await processor.processAvailable();
     expect(await updateState("2")).toBe("pending");
 
@@ -540,7 +534,7 @@ describe("durable author intake", () => {
       new Date(),
     );
     const slow = processor.processAvailable();
-    await until(async () => authorization.subjects.length === 1);
+    await vi.waitFor(() => expect(authorization.subjects).toHaveLength(1));
 
     await inbox.accept(
       "inside",

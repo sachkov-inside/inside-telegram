@@ -15,7 +15,15 @@ import { signInReservationMigration } from "../../src/database/migrations/009-si
 import { communicationsTemplatesMigration } from "../../src/database/migrations/010-communications-templates.js";
 import { signInMessageResultMigration } from "../../src/database/migrations/010-sign-in-message-result.js";
 import { CommunityRestrictions } from "../../src/modules/community/community-restrictions.js";
+import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
 import { digest } from "../../src/security/payload-digest.js";
+import {
+  canonicalJoinRequestUpdate,
+  canonicalMembershipUpdate,
+  canonicalProviderMembershipUpdate,
+  privateContactabilityUpdate,
+  privateStartUpdate,
+} from "../support/synthetic-telegram-updates.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl)
@@ -186,3 +194,61 @@ it.each([
     }
   },
 );
+
+it("gives waiting updates the same lane during upgrade as the inbox gives new ones", async () => {
+  const payloads: ({ update_id: number } & Record<string, unknown>)[] = [
+    canonicalMembershipUpdate(1, -100, 42, "member"),
+    canonicalProviderMembershipUpdate(2, -100, 999, "administrator"),
+    canonicalJoinRequestUpdate(3, -100, 43),
+    privateContactabilityUpdate(4, 44, "kicked"),
+    privateStartUpdate(5, 45),
+    {
+      update_id: 6,
+      callback_query: {
+        id: "6",
+        from: { id: 46, is_bot: false },
+        message: { chat: { id: 46, type: "private" }, message_id: 1 },
+        data: "synthetic",
+      },
+    },
+    { update_id: 7 },
+  ];
+  const lanes = () =>
+    database
+      .selectFrom("telegram_updates")
+      .select(["update_id", "lane_key"])
+      .orderBy("update_id")
+      .execute();
+  const receivedAt = new Date("2026-09-25T10:00:00.000Z");
+
+  await migrateTo(database, "024-membership-check-retention");
+  await sql`truncate telegram_updates`.execute(database);
+  for (const payload of payloads)
+    await sql`insert into telegram_updates
+      (bot_identity, update_id, payload, state, received_at, available_at)
+      values ('inside', ${payload.update_id}, ${JSON.stringify(payload)}::jsonb,
+        'pending', ${receivedAt}, ${receivedAt})`.execute(database);
+  await migrateToLatest(database);
+  const upgraded = await lanes();
+
+  await sql`truncate telegram_updates`.execute(database);
+  const inbox = new TelegramUpdateInbox(database);
+  for (const payload of payloads)
+    await inbox.accept(
+      "inside",
+      String(payload.update_id),
+      payload,
+      receivedAt,
+    );
+
+  expect(upgraded).toEqual(await lanes());
+  expect(upgraded.map((row) => row.lane_key)).toEqual([
+    "-100",
+    "-100",
+    "-100",
+    "44",
+    "45",
+    "46",
+    null,
+  ]);
+});

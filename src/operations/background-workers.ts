@@ -29,8 +29,9 @@ import { WorkerLoop, type WorkerPacing } from "./worker-loop.js";
 /** Every accepted webhook wakes the update cycles; idle polls only catch retries and leases. */
 const UPDATES: WorkerPacing = { busyMs: 250, idleMs: 5000 };
 /**
- * More update cycles for other senders while one waits on Platform or Telegram: the inbox gives
- * each lane to one cycle at a time. They poll rarely; webhooks wake them.
+ * More update cycles for other lanes while one waits on Platform or Telegram; the inbox gives
+ * each lane to one cycle at a time. They poll rarely and webhooks wake them, so a retry that
+ * falls due while the first cycle waits runs at the next webhook or when that cycle returns.
  */
 const EXTRA_UPDATE_CYCLES = 3;
 const EXTRA_UPDATES: WorkerPacing = { busyMs: 250, idleMs: 60_000 };

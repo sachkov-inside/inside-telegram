@@ -38,10 +38,8 @@ exist only in synthetic tests.
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
   acknowledged only after the unique `(bot_identity, update_id)` inbox record commits.
-- Updates run in lanes: one per user conversation and one per group whose membership changes. A
-  lane's updates run one at a time in `update_id` order, including while an earlier one waits for
-  a retry; several update cycles serve different lanes at once, so a slow Platform or Telegram
-  answer for one user does not delay another
+- Updates run in per-user and per-group lanes, in order within a lane and in parallel across
+  lanes, so a slow answer for one user does not delay another
   ([ADR 0002](docs/adr/0002-durable-queue-boundary.md)).
 - The update worker accepts only private non-bot `/start` commands. Group/channel updates,
   missing or bot senders do not create contacts. Tokenized starts create/reactivate the same

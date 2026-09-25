@@ -11,10 +11,7 @@ import {
 
 const MAX_PROCESS_ATTEMPTS = 5;
 
-/**
- * One lane per user conversation and one per chat whose membership changes: each lane's updates
- * run in order, other lanes run in parallel.
- */
+/** Updates run in lanes (ADR 0002): one per user conversation and one per group. */
 const updates: DurableQueue<"telegram_updates"> = {
   table: "telegram_updates",
   key: ["bot_identity", "update_id"],
@@ -154,17 +151,21 @@ export class TelegramUpdateInbox {
 }
 
 /**
- * Membership changes of a group run in that chat's lane, as they did when every update ran in
- * one order: provider and member events of the canonical chat keep their relative order, and
- * only one of them at a time waits on the provider lock (ADR 0003). Everything else runs in the
- * lane of the user who sent it; an update without a sender runs in no lane.
+ * A group's membership changes and join requests run in that chat's lane, so they keep their
+ * relative order and only one of them at a time waits on the provider lock (ADR 0003). Every
+ * other update runs in the lane of the user who sent it; one without a sender runs in no lane.
  */
 function laneOf(payload: unknown): string | null {
   const update = record(payload);
-  const membership = record(update?.chat_member ?? update?.my_chat_member);
-  const chat = record(membership?.chat);
+  const chat = record(
+    record(
+      update?.chat_member ??
+        update?.my_chat_member ??
+        update?.chat_join_request,
+    )?.chat,
+  );
   const id =
-    chat && chat.type !== "private"
+    chat?.id != null && chat.type !== "private"
       ? chat.id
       : [
           "message",
@@ -174,7 +175,7 @@ function laneOf(payload: unknown): string | null {
           "my_chat_member",
         ]
           .map((kind) => record(record(update?.[kind])?.from)?.id)
-          .find((value) => value !== undefined);
+          .find((value) => value != null);
   return typeof id === "number" || typeof id === "string" ? String(id) : null;
 }
 
