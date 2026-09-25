@@ -1,4 +1,5 @@
-import type { Context, Action } from "./author-admin.js";
+import type { Context } from "./author-admin.js";
+import type { AuthorButton, SequenceAction } from "./author-dialog.js";
 import type { MessageDestination } from "./author-composer.js";
 import { parseFunnelDelay, formatFunnelDelay } from "./author-funnels.js";
 import {
@@ -6,7 +7,7 @@ import {
   type TemplateContent,
 } from "./communications-contract.js";
 
-type Reply = (text: string, buttons?: [string, Action][]) => Promise<void>;
+type Reply = (text: string, buttons?: AuthorButton[]) => Promise<void>;
 export type SequenceResult =
   | { kind: "handled" }
   | { kind: "finished" }
@@ -57,7 +58,7 @@ export class AuthorSequenceComposer {
             (n) =>
               n >= sequence.lastOffset && (!sequence.firstEntry || n === 0),
           )
-          .map((n): [string, Action] => [
+          .map((n): AuthorButton => [
             n ? `Через ${formatFunnelDelay(n)}` : "Сразу",
             { kind: "sequence:time", value: String(n) },
           ]),
@@ -89,7 +90,11 @@ export class AuthorSequenceComposer {
     await this.show(c, reply);
     return handled;
   }
-  async act(c: Context, a: Action, reply: Reply): Promise<SequenceResult> {
+  async act(
+    c: Context,
+    a: SequenceAction,
+    reply: Reply,
+  ): Promise<SequenceResult> {
     if (a.kind === "sequence:time") return this.time(c, Number(a.value), reply);
     const s = c.state.composing!;
     if (a.kind === "sequence:discard") {

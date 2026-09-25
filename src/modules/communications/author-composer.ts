@@ -3,7 +3,8 @@ import {
   appendAuthorButton,
   nextAuthorButtonRow,
 } from "./author-button.js";
-import type { Action, Context } from "./author-admin.js";
+import type { Context } from "./author-admin.js";
+import type { AuthorButton, ComposeAction } from "./author-dialog.js";
 import { authorRequest } from "./author-request.js";
 import type { Communications } from "./communications.js";
 import {
@@ -27,7 +28,7 @@ export interface ComposerState {
   query?: string;
   libraryCursor?: string;
 }
-type Reply = (text: string, buttons?: [string, Action][]) => Promise<void>;
+type Reply = (text: string, buttons?: AuthorButton[]) => Promise<void>;
 export type ComposerResult =
   | { kind: "handled" }
   | { kind: "cancelled"; destination: MessageDestination }
@@ -37,7 +38,7 @@ export type ComposerResult =
       content: TemplateContent;
     };
 const handled = { kind: "handled" } as const;
-const cancel: [string, Action][] = [["Отмена", { kind: "compose:cancel" }]];
+const cancel: AuthorButton[] = [["Отмена", { kind: "compose:cancel" }]];
 
 /** A pending message never mutates a saved post or its destination before explicit acceptance. */
 export class AuthorComposer {
@@ -93,7 +94,7 @@ export class AuthorComposer {
         ],
         ["Посмотреть сообщение", { kind: "compose:preview" }],
         ["Добавить кнопку", { kind: "compose:button" }],
-        ...s.content.buttons.map((b, i): [string, Action] => [
+        ...s.content.buttons.map((b, i): AuthorButton => [
           `Убрать кнопку: ${b.text}`,
           { kind: "compose:remove-button", value: String(i) },
         ]),
@@ -116,7 +117,7 @@ export class AuthorComposer {
         ? `Поиск: ${s.query}\nВыберите пост для просмотра.`
         : "Сохранённые посты. Выберите сообщение, чтобы посмотреть его перед добавлением.",
       [
-        ...list.templates.map((p): [string, Action] => [
+        ...list.templates.map((p): AuthorButton => [
           messageLabel(p.content),
           { kind: "compose:choose", id: p.templateId },
         ]),
@@ -125,19 +126,23 @@ export class AuthorComposer {
               [
                 "Следующие посты",
                 { kind: "compose:library", id: list.nextCursor },
-              ] as [string, Action],
+              ] as AuthorButton,
             ]
           : []),
         ["Найти пост", { kind: "compose:search" }],
         ...(s.query || cursor
-          ? [["Все посты", { kind: "compose:all" }] as [string, Action]]
+          ? [["Все посты", { kind: "compose:all" }] as AuthorButton]
           : []),
         ["Создать сообщение", { kind: "compose:replace" }],
         ...cancel,
       ],
     );
   }
-  async act(c: Context, a: Action, reply: Reply): Promise<ComposerResult> {
+  async act(
+    c: Context,
+    a: ComposeAction,
+    reply: Reply,
+  ): Promise<ComposerResult> {
     const s = c.state.composing;
     if (!s) throw new CommunicationsError("not_found");
     if (a.kind === "compose:cancel") {
