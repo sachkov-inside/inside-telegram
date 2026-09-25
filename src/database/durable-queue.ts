@@ -27,11 +27,16 @@ export type QueueValues<T extends Table> = {
 /**
  * One kind of durable work in PostgreSQL: which rows are due, how a worker leases one,
  * when an abandoned lease expires and how retries back off. Every row has a `state`.
+ *
+ * With `lane`, rows that share the lane columns run one at a time and in queue order: a row
+ * waits while its lane has a leased row or an earlier ready row, even one not yet due for a
+ * retry. A null lane column puts a row in no lane.
  */
 export interface DurableQueue<T extends Table> {
   readonly table: T;
   readonly key: readonly Column<T>[];
   readonly order: readonly Column<T>[];
+  readonly lane?: readonly Column<T>[];
   readonly ready: readonly State<T>[];
   readonly leased: State<T>;
   readonly due: Column<T>;
@@ -144,6 +149,7 @@ export async function claim<T extends Table, C extends Column<T>>(
     where ${sql.ref("state")} in (${sql.join(queue.ready)})
       and ${sql.ref(queue.due)} <= ${now}
       and ${filter}
+      and ${laneFree(queue)}
     order by ${columns(queue.order)}
     limit 1
     for update skip locked
@@ -208,6 +214,30 @@ export function held<T extends Table>(
     and ${sql.ref("state")} = ${queue.leased}
     and ${sql.ref(queue.attempts)} = ${lease.attempt}
     and ${sql.ref(queue.leasedAt)} = ${lease.leasedAt}`;
+}
+
+/** No other row of the candidate's lane is leased or ready ahead of it. */
+function laneFree<T extends Table>(
+  queue: DurableQueue<T>,
+): RawBuilder<SqlBool> {
+  if (!queue.lane?.length) return sql<SqlBool>`true`;
+  const own = (column: string) => sql.ref(`${queue.table}.${column}`);
+  const other = (column: string) => sql.ref(`other.${column}`);
+  return sql<SqlBool>`not exists (
+    select 1 from ${sql.table(queue.table)} as other
+    where ${sql.join(
+      queue.lane.map((column) => sql`${other(column)} = ${own(column)}`),
+      sql` and `,
+    )}
+      and (${sql.join(queue.key.map(other))}) <> (${sql.join(queue.key.map(own))})
+      and (
+        ${other("state")} = ${queue.leased}
+        or (
+          ${other("state")} in (${sql.join(queue.ready)})
+          and (${sql.join(queue.order.map(other))}) < (${sql.join(queue.order.map(own))})
+        )
+      )
+  )`;
 }
 
 function keyOf<T extends Table>(

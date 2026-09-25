@@ -418,10 +418,10 @@ describe("bot sign-in provider", () => {
     try {
       const challenge = await register();
       await start(challenge, 42);
-      for (const payload of [
-        decisionUpdate(challenge, 42),
-        privateStartUpdate(++updateId, 43),
-      ]) {
+      // One sender: its second update is claimed only after the first one is answered.
+      const decision = decisionUpdate(challenge, 42);
+      const followUp = privateStartUpdate(++updateId, 42);
+      for (const payload of [decision, followUp]) {
         expect(
           (
             await fastify.inject({
@@ -459,7 +459,13 @@ describe("bot sign-in provider", () => {
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);
-      expect(claim.mock.calls[1]?.[0]).toEqual(later);
+      const claimed = await Promise.all(
+        claim.mock.results.map((result) => result.value),
+      );
+      const followUpClaim = claimed.findIndex(
+        (update) => update?.updateId === String(followUp.update_id),
+      );
+      expect(claim.mock.calls[followUpClaim]?.[0]).toEqual(later);
       const last = await database
         .selectFrom("telegram_updates")
         .select(["state", "processed_at"])

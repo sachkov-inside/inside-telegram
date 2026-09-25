@@ -11,10 +11,12 @@ import {
 
 const MAX_PROCESS_ATTEMPTS = 5;
 
+/** One lane per sender: a sender's updates run in order, other senders run in parallel. */
 const updates: DurableQueue<"telegram_updates"> = {
   table: "telegram_updates",
   key: ["bot_identity", "update_id"],
   order: ["update_id"],
+  lane: ["bot_identity", "ordering_key"],
   ready: ["pending"],
   leased: "processing",
   due: "available_at",
@@ -58,6 +60,7 @@ export class TelegramUpdateInbox {
         bot_identity: botIdentity,
         failure_code: null,
         locked_at: null,
+        ordering_key: senderOf(payload),
         payload,
         process_attempt_count: 0,
         processed_at: null,
@@ -145,4 +148,31 @@ export class TelegramUpdateInbox {
     if (!settled) return "lease_lost";
     return exhausted ? "failed" : "retry_scheduled";
   }
+}
+
+/**
+ * The Telegram user an update concerns: the member whose status changed, otherwise the user who
+ * acted, otherwise the chat. An update without one runs in no lane.
+ */
+function senderOf(payload: unknown): string | null {
+  const update = record(payload);
+  const id =
+    record(record(record(update?.chat_member)?.new_chat_member)?.user)?.id ??
+    [
+      "callback_query",
+      "chat_join_request",
+      "my_chat_member",
+      "message",
+      "edited_message",
+    ]
+      .map((kind) => record(record(update?.[kind])?.from)?.id)
+      .find((value) => value !== undefined) ??
+    record(record(update?.message ?? update?.edited_message)?.chat)?.id;
+  return typeof id === "number" || typeof id === "string" ? String(id) : null;
+}
+
+function record(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }

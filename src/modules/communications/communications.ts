@@ -208,18 +208,6 @@ export class Communications {
         .where("update_id", "=", input.updateId)
         .executeTakeFirst();
       if (prior) return;
-      // A second worker must not overtake an earlier command/media update for this sender.
-      const earlier = await tx
-        .selectFrom("telegram_updates")
-        .select("update_id")
-        .where("bot_identity", "=", input.botIdentity)
-        .where("update_id", "<", input.updateId)
-        .where("state", "in", ["pending", "processing"])
-        .where(
-          sql<boolean>`payload->'message'->'from'->>'id' = ${input.telegramUserId}`,
-        )
-        .executeTakeFirst();
-      if (earlier) throw new Error("Earlier author update is still pending");
       const mode = await tx
         .selectFrom("communication_author_modes")
         .selectAll()

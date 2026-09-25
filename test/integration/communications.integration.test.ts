@@ -68,9 +68,12 @@ class FakeAuthorization implements AuthorAuthorization {
   result: "allowed" | "denied" | "unavailable" = "allowed";
   subjects: AuthorSubject[] = [];
   openTransactions: number[] = [];
+  /** While set, every answer waits for it: a slow Platform. */
+  slow?: Promise<void>;
   async authorize(subject: AuthorSubject) {
     this.subjects.push(subject);
     this.openTransactions.push(await openTransactions());
+    await this.slow;
     return this.result;
   }
 }
@@ -128,6 +131,7 @@ beforeEach(async () => {
   contentValidation.snapshots = [];
   authorization.result = "allowed";
   authorization.subjects = [];
+  authorization.slow = undefined;
   sent.length = 0;
 });
 afterAll(async () => {
@@ -216,6 +220,26 @@ async function intake(id: number, body: Record<string, unknown>) {
   await communications.intake(
     translateTemplateIntake("inside", String(id), update(id, body))!,
   );
+}
+function slowPlatform() {
+  let answer!: () => void;
+  authorization.slow = new Promise((resolve) => (answer = resolve));
+  return { answer };
+}
+async function until(done: () => Promise<boolean>): Promise<void> {
+  const deadline = Date.now() + 5000;
+  while (!(await done())) {
+    if (Date.now() > deadline) throw new Error("Condition was not reached");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+  }
+}
+async function updateState(updateId: string) {
+  const row = await database
+    .selectFrom("telegram_updates")
+    .select("state")
+    .where("update_id", "=", updateId)
+    .executeTakeFirst();
+  return row?.state;
 }
 async function rows() {
   return database.selectFrom("communication_templates").selectAll().execute();
@@ -475,8 +499,9 @@ describe("durable author intake", () => {
       inbox.every((r) => r.payload === null && r.state === "processed"),
     ).toBe(true);
   });
-  it("does not overtake a pending mode command on another worker", async () => {
+  it("keeps one sender's updates in order across parallel workers", async () => {
     await seedLink();
+    const platform = slowPlatform();
     const inbox = app.get(TelegramUpdateInbox);
     await inbox.accept(
       "inside",
@@ -484,12 +509,56 @@ describe("durable author intake", () => {
       update(1, { text: "/template" }),
       new Date(),
     );
-    await expect(
-      intake(2, { text: "Synthetic delayed capture" }),
-    ).rejects.toThrow("Earlier author update");
-    await app.get(TelegramUpdateProcessor).processAvailable();
-    await intake(2, { text: "Synthetic delayed capture" });
+    await inbox.accept(
+      "inside",
+      "2",
+      update(2, { text: "Synthetic ordered capture" }),
+      new Date(),
+    );
+
+    const processing = app.get(TelegramUpdateProcessor).processAvailable();
+    await until(async () => authorization.subjects.length === 1);
+    expect(await updateState("2")).toBe("pending");
+
+    platform.answer();
+    await processing;
+    expect(await updateState("1")).toBe("processed");
+    expect(await updateState("2")).toBe("processed");
     expect(await rows()).toHaveLength(1);
+  });
+  it("does not let a slow Platform answer for one sender delay another sender's /start", async () => {
+    await seedLink();
+    const platform = slowPlatform();
+    const inbox = app.get(TelegramUpdateInbox);
+    await inbox.accept(
+      "inside",
+      "1",
+      update(1, { text: "/template" }),
+      new Date(),
+    );
+    await inbox.accept(
+      "inside",
+      "2",
+      {
+        update_id: 2,
+        message: {
+          message_id: 2,
+          date: 1788696000,
+          chat: { id: 43, type: "private" },
+          from: { id: 43, is_bot: false },
+          text: "/start",
+        },
+      },
+      new Date(),
+    );
+
+    const processing = app.get(TelegramUpdateProcessor).processAvailable();
+    await until(async () => (await updateState("2")) === "processed");
+    expect(await updateState("1")).toBe("processing");
+
+    platform.answer();
+    await processing;
+    expect(await updateState("1")).toBe("processed");
   });
   it("rejects unsupported content explicitly, permits correction, and closes mode after one capture", async () => {
     await seedLink();

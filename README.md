@@ -38,6 +38,11 @@ exist only in synthetic tests.
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
   acknowledged only after the unique `(bot_identity, update_id)` inbox record commits.
+- Four update workers run in parallel, one sender each: a sender's updates run one at a time in
+  `update_id` order, including while an earlier one waits for a retry, so a slow Platform or
+  Telegram answer for one sender does not delay another. The sender is the member whose status
+  changed, otherwise the user who acted
+  ([ADR 0002](docs/adr/0002-durable-queue-boundary.md)).
 - The update worker accepts only private non-bot `/start` commands. Group/channel updates,
   missing or bot senders do not create contacts. Tokenized starts create/reactivate the same
   independent contact even when their token is malformed, unknown, expired, or replayed.

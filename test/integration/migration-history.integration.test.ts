@@ -114,7 +114,7 @@ it.each(["communications-first", "sign-in-first"] as const)(
     const ledger = await sql<{
       count: string;
     }>`select count(*) from kysely_migration`.execute(database);
-    expect(ledger.rows[0]?.count).toBe("25");
+    expect(ledger.rows[0]?.count).toBe("26");
   },
 );
 
