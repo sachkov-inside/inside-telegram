@@ -17,11 +17,13 @@ import {
   type TelegramMessages,
 } from "../modules/outbound/telegram-messages.js";
 import { CLOCK, type Clock } from "../modules/identity-linking/clock.js";
-import { reportFailure } from "./failure-diagnostics.js";
-import { WorkerLoop } from "./worker-loop.js";
+import { reportCondition } from "./failure-diagnostics.js";
+import { WorkerLoop, type WorkerPacing } from "./worker-loop.js";
 
 const RECONNECT_MILLISECONDS = 5000;
 const RETENTION_MILLISECONDS = 60_000;
+/** Broker deliveries and dispatches wake these cycles; idle polls only catch retries. */
+const NOTIFICATIONS: WorkerPacing = { busyMs: 40, idleMs: 5000 };
 
 @Injectable()
 export class NotificationWorker
@@ -56,7 +58,7 @@ export class NotificationWorker
       async () =>
         broker.connected &&
         (await provider.publishResults((result) => broker.publish(result))) > 0,
-      { busyMs: 40, idleMs: 5000 },
+      NOTIFICATIONS,
     );
     // Durable work continues through broker outages; disabled external delivery never starts an attempt.
     const categories =
@@ -73,7 +75,7 @@ export class NotificationWorker
                   if (dispatched > 0) results.wake();
                   return dispatched > 0;
                 },
-                { busyMs: 40, idleMs: 5000 },
+                NOTIFICATIONS,
               ),
           )
         : [];
@@ -88,11 +90,8 @@ export class NotificationWorker
         },
       },
       notifications.prefetch,
-      () =>
-        reportFailure(
-          "notification.broker",
-          new Error("Notification broker unavailable; durable work retained"),
-        ),
+      // Durable work is retained while the broker is unavailable.
+      () => reportCondition("notification.broker", "broker_unavailable"),
     );
     this.broker = broker;
     let retentionAt = 0;

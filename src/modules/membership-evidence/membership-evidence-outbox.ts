@@ -12,6 +12,7 @@ import {
 } from "./membership-evidence.js";
 import {
   claimNext,
+  held,
   retryDelay,
   settle,
   type DurableQueue,
@@ -125,14 +126,13 @@ export class MembershipEvidenceOutbox {
       this.database,
       owner.bot_identity,
       async (connection) => {
+        // Only the current lease holder delivers; a worker whose lease expired stays silent.
         const stored = await connection
           .selectFrom("membership_evidence_outbox")
-          .select("state")
-          .where("id", "=", delivery.idempotencyKey)
+          .select("id")
+          .where(held(evidenceOutbox, delivery.lease))
           .executeTakeFirst();
-        return stored?.state === "delivering"
-          ? operation()
-          : Promise.resolve(undefined);
+        return stored ? operation() : Promise.resolve(undefined);
       },
     );
   }

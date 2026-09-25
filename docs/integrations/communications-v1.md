@@ -334,8 +334,8 @@ The next supported message saves a snapshot and returns its UUID for pasting int
 editor. `/cancel` exits. Successful capture exits; unsupported content leaves the mode open for a
 correction. Media outside author mode is ignored. Authorization is checked again at capture, and
 revocation clears the mode. An unavailable author check retries through the existing bounded inbox
-policy; exhausted updates retain only their redacted failure class for 30 days and the author must
-retry explicitly.
+policy; exhausted updates retain only their redacted failure class until retention
+(`src/database/retention.ts`) removes them, and the author must retry explicitly.
 
 The adapter accepts text, photo (largest provided size), video, video_note, voice and document.
 Text/caption, supported entities, explicitly supplied URL buttons and bot-scoped `file_id` are

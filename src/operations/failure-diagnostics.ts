@@ -38,13 +38,31 @@ export function failureCode(error: unknown): string {
 }
 
 /**
+ * Opaque identifiers a failure line may carry. None is a Telegram user or chat ID, a token or
+ * payload; extend the list only with identifiers of the same kind.
+ */
+export type FailureReferences = Readonly<
+  Partial<
+    Record<
+      | "attempt"
+      | "attempt_id"
+      | "check_id"
+      | "delivery_id"
+      | "operation_id"
+      | "update_id",
+      string | number
+    >
+  >
+>;
+
+/**
  * Writes one structured line for a failure that the caller absorbs. References must be
  * opaque identifiers (update ID, delivery ID); message text and payloads never belong here.
  */
 export function reportFailure(
   scope: string,
   error: unknown,
-  references: Readonly<Record<string, string | number>> = {},
+  references: FailureReferences = {},
 ): string {
   const failure = failureCode(error);
   reportCondition(scope, failure, references);
@@ -55,7 +73,7 @@ export function reportFailure(
 export function reportCondition(
   scope: string,
   condition: string,
-  references: Readonly<Record<string, string | number>> = {},
+  references: FailureReferences = {},
 ): void {
   process.stderr.write(
     `${JSON.stringify({ level: "error", scope, failure: condition, ...references })}\n`,

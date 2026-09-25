@@ -19,6 +19,7 @@ import { InitialMembershipCheckProcessor } from "../modules/membership-evidence/
 import { MembershipEvidenceDeliveryProcessor } from "../modules/membership-evidence/membership-evidence-delivery-processor.js";
 import { MembershipEvidenceProvider } from "../modules/membership-evidence/membership-evidence-provider.js";
 import { CLOCK, type Clock } from "../modules/identity-linking/clock.js";
+import { telegramTurnPending } from "../modules/outbound/telegram-transport-slots.js";
 import { StartResponseDeliveryProcessor } from "../modules/outbound/start-response-delivery-processor.js";
 import { TelegramUpdateInbox } from "../modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "../modules/update-inbox/telegram-update-processor.js";
@@ -30,7 +31,11 @@ const UPDATES: WorkerPacing = { busyMs: 250, idleMs: 5000 };
 /** Replies a user waits on; processed updates wake this cycle directly. */
 const DELIVERY: WorkerPacing = { busyMs: 250, idleMs: 2000 };
 const BACKGROUND: WorkerPacing = { busyMs: 500, idleMs: 5000 };
-const PROVIDER_PROBE: WorkerPacing = { busyMs: 60_000, idleMs: 60_000 };
+/**
+ * Probes start 3 s apart and slow to once a minute: a deployment waiting on `/ready` sees a
+ * fresh result soon after start, and a degraded provider is not re-recorded every few seconds.
+ */
+const PROVIDER_PROBE: WorkerPacing = { busyMs: 3000, idleMs: 60_000 };
 const RETENTION: WorkerPacing = { busyMs: 1000, idleMs: 3_600_000 };
 
 /**
@@ -96,13 +101,9 @@ export class BackgroundWorkers
     const deliveries =
       this.config.deliveryMode === "live"
         ? add("delivery", DELIVERY, async (signal) => {
-            const replies = await this.deliveries.processAvailable(
-              50,
-              undefined,
-              signal,
-            );
+            const replies = await this.deliveries.processDue(signal);
             const posts = await this.authorDelivery.processAvailable();
-            return replies + posts > 0;
+            return replies || posts > 0;
           })
         : undefined;
 
@@ -122,7 +123,14 @@ export class BackgroundWorkers
       add(
         "marketing",
         BACKGROUND,
-        async () => (await this.funnels.processAvailable()) > 0,
+        async () =>
+          (await this.funnels.processAvailable()) > 0 ||
+          (await telegramTurnPending(
+            this.database,
+            this.config.botIdentity,
+            "general",
+            this.clock.now(),
+          )),
       );
     }
 

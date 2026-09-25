@@ -1,4 +1,4 @@
-import { sql, type Transaction } from "kysely";
+import { sql, type Kysely, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 
 type Purpose = "general" | "subscription" | "material";
@@ -145,4 +145,22 @@ export async function deferTelegramSlot(
       }),
     )
     .execute();
+}
+/**
+ * Whether a sender of this purpose was refused a turn and still waits for it. Its worker must
+ * keep asking at its busy pace: the fairness cursor holds the turn for a waiting purpose, so a
+ * sleeping sender would stall every other sender until it wakes.
+ */
+export async function telegramTurnPending(
+  database: Kysely<DatabaseSchema>,
+  bot: string,
+  purpose: Purpose,
+  now: Date,
+): Promise<boolean> {
+  const fairness = await database
+    .selectFrom("telegram_transport_fairness")
+    .select(`${purpose}_waiting_until` as const)
+    .where("bot_identity", "=", bot)
+    .executeTakeFirst();
+  return fairness !== undefined && fairness[`${purpose}_waiting_until`] > now;
 }

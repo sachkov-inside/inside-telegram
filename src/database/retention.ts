@@ -36,16 +36,20 @@ export async function purgeExpiredRecords(
         and available_at < ${operational} and processed_at < ${operational}
       limit ${BATCH})`,
     // A receipt only stops a replay of an update that is still stored.
-    sql`delete from communication_author_receipts where (bot_identity, update_id) in (
-      select r.bot_identity, r.update_id from communication_author_receipts r
+    ...(
+      [
+        "communication_author_receipts",
+        "communication_intake_receipts",
+      ] as const
+    ).map(
+      (
+        receipts,
+      ) => sql`delete from ${sql.table(receipts)} where (bot_identity, update_id) in (
+      select r.bot_identity, r.update_id from ${sql.table(receipts)} r
       where not exists (select 1 from telegram_updates u
         where u.bot_identity = r.bot_identity and u.update_id = r.update_id)
       limit ${BATCH})`,
-    sql`delete from communication_intake_receipts where (bot_identity, update_id) in (
-      select r.bot_identity, r.update_id from communication_intake_receipts r
-      where not exists (select 1 from telegram_updates u
-        where u.bot_identity = r.bot_identity and u.update_id = r.update_id)
-      limit ${BATCH})`,
+    ),
     // Delivered or rejected replies; their attempts follow by cascade. Unknown outcomes stay.
     sql`delete from start_response_deliveries where id in (
       select id from start_response_deliveries

@@ -111,125 +111,148 @@ export class StartResponseDeliveryQueue {
     now: Date,
     signInEnabled = false,
   ): Promise<ClaimedStartResponseDelivery | undefined> {
-    return this.database.transaction().execute(async (transaction) => {
-      const abandoned = await expireLeases(transaction, replies, now, {
-        available_at: now,
-        diagnostic_code: "worker_lease_expired",
-        locked_at: null,
-        state: sql`case when attempt_count >= ${MAX_DELIVERY_ATTEMPTS}
-          then 'unknown_exhausted' else 'retry_scheduled' end`,
-        updated_at: now,
-      });
-      for (const lease of abandoned) {
-        await transaction
-          .insertInto("start_response_delivery_attempts")
-          .values({
-            attempt_number: lease.attempt,
-            attempted_at: now,
-            diagnostic_code: "worker_lease_expired",
-            outcome: "transport_unknown",
-            provider_error_code: null,
-            provider_message_id: null,
-            start_response_delivery_id: lease.key.id as string,
-          })
-          .onConflict((conflict) => conflict.doNothing())
-          .execute();
-      }
+    const claimed = await this.claimOrWait(now, signInEnabled);
+    return claimed === "waiting" ? undefined : claimed;
+  }
 
-      const delivery = await claim(transaction, replies, now, {
-        select: [
-          "buttons",
-          "id",
-          "message_text",
-          "private_chat_id",
-          "bot_identity",
-          "sign_in_request_ref",
-          "edit_message_id",
-        ],
-        where: (eb) =>
-          eb.or([
-            eb("sign_in_request_ref", "is", null),
-            ...(signInEnabled
-              ? [
-                  eb.exists(
-                    eb
-                      .selectFrom("sign_in_requests")
-                      .select("request_ref")
-                      .whereRef(
-                        "request_ref",
-                        "=",
-                        "start_response_deliveries.sign_in_request_ref",
-                      )
-                      .where((requestEb) =>
-                        requestEb.or([
-                          requestEb.and([
-                            requestEb(
-                              "start_response_deliveries.edit_message_id",
-                              "is",
-                              null,
-                            ),
-                            requestEb("state", "=", "awaiting_approval"),
-                            requestEb("expires_at", ">", now),
-                          ]),
-                          requestEb.and([
-                            requestEb(
-                              "start_response_deliveries.edit_message_id",
-                              "is not",
-                              null,
-                            ),
-                            requestEb.or([
-                              requestEb("state", "=", "denied"),
-                              requestEb.and([
-                                requestEb("state", "=", "consumed"),
-                                requestEb.exists(
-                                  requestEb
-                                    .selectFrom("link_transactions")
-                                    .select("link_transaction_ref")
-                                    .where(
-                                      "link_transaction_ref",
-                                      "=",
-                                      sql<string>`sign_in_requests.request_ref::text`,
-                                    )
-                                    .where("state", "=", "linked"),
-                                ),
+  /**
+   * Like {@link claimNext}, but says when a due reply waits for its Telegram turn: its worker
+   * must keep asking, because the fairness cursor holds that turn for it.
+   */
+  async claimOrWait(
+    now: Date,
+    signInEnabled = false,
+  ): Promise<ClaimedStartResponseDelivery | "waiting" | undefined> {
+    let waiting = false;
+    const claimed = await this.database
+      .transaction()
+      .execute(async (transaction) => {
+        const abandoned = await expireLeases(transaction, replies, now, {
+          available_at: now,
+          diagnostic_code: "worker_lease_expired",
+          locked_at: null,
+          state: sql`case when attempt_count >= ${MAX_DELIVERY_ATTEMPTS}
+          then 'unknown_exhausted' else 'retry_scheduled' end`,
+          updated_at: now,
+        });
+        for (const lease of abandoned) {
+          await transaction
+            .insertInto("start_response_delivery_attempts")
+            .values({
+              attempt_number: lease.attempt,
+              attempted_at: now,
+              diagnostic_code: "worker_lease_expired",
+              outcome: "transport_unknown",
+              provider_error_code: null,
+              provider_message_id: null,
+              start_response_delivery_id: lease.key.id as string,
+            })
+            .onConflict((conflict) => conflict.doNothing())
+            .execute();
+        }
+
+        const delivery = await claim(transaction, replies, now, {
+          select: [
+            "buttons",
+            "id",
+            "message_text",
+            "private_chat_id",
+            "bot_identity",
+            "sign_in_request_ref",
+            "edit_message_id",
+          ],
+          where: (eb) =>
+            eb.or([
+              eb("sign_in_request_ref", "is", null),
+              ...(signInEnabled
+                ? [
+                    eb.exists(
+                      eb
+                        .selectFrom("sign_in_requests")
+                        .select("request_ref")
+                        .whereRef(
+                          "request_ref",
+                          "=",
+                          "start_response_deliveries.sign_in_request_ref",
+                        )
+                        .where((requestEb) =>
+                          requestEb.or([
+                            requestEb.and([
+                              requestEb(
+                                "start_response_deliveries.edit_message_id",
+                                "is",
+                                null,
+                              ),
+                              requestEb("state", "=", "awaiting_approval"),
+                              requestEb("expires_at", ">", now),
+                            ]),
+                            requestEb.and([
+                              requestEb(
+                                "start_response_deliveries.edit_message_id",
+                                "is not",
+                                null,
+                              ),
+                              requestEb.or([
+                                requestEb("state", "=", "denied"),
+                                requestEb.and([
+                                  requestEb("state", "=", "consumed"),
+                                  requestEb.exists(
+                                    requestEb
+                                      .selectFrom("link_transactions")
+                                      .select("link_transaction_ref")
+                                      .where(
+                                        "link_transaction_ref",
+                                        "=",
+                                        sql<string>`sign_in_requests.request_ref::text`,
+                                      )
+                                      .where("state", "=", "linked"),
+                                  ),
+                                ]),
                               ]),
                             ]),
                           ]),
-                        ]),
-                      ),
-                  ),
-                ]
-              : []),
-          ]),
-        prepare: async (tx, row) =>
-          (this.config?.marketingEnabled ||
-            this.config?.deliveryMode === "live") &&
-          !(await reserveTelegramSlot(
-            tx,
-            row.bot_identity,
-            row.private_chat_id,
-            now,
-          ))
-            ? undefined
-            : { diagnostic_code: null, updated_at: now },
+                        ),
+                    ),
+                  ]
+                : []),
+            ]),
+          prepare: async (tx, row) => {
+            if (
+              (this.config?.marketingEnabled ||
+                this.config?.deliveryMode === "live") &&
+              !(await reserveTelegramSlot(
+                tx,
+                row.bot_identity,
+                row.private_chat_id,
+                now,
+              ))
+            ) {
+              waiting = true;
+              return undefined;
+            }
+            return { diagnostic_code: null, updated_at: now };
+          },
+        });
+        if (!delivery) {
+          return undefined;
+        }
+        const row = delivery.row;
+        return {
+          ...(row.buttons ? { buttons: row.buttons } : {}),
+          attemptNumber: delivery.attempt,
+          id: row.id,
+          lease: delivery,
+          messageText: row.message_text,
+          privateChatId: row.private_chat_id,
+          ...(row.edit_message_id
+            ? { editMessageId: row.edit_message_id }
+            : {}),
+          ...(row.sign_in_request_ref
+            ? { signInRequestRef: row.sign_in_request_ref }
+            : {}),
+        };
       });
-      if (!delivery) {
-        return undefined;
-      }
-      const row = delivery.row;
-      return {
-        ...(row.buttons ? { buttons: row.buttons } : {}),
-        attemptNumber: delivery.attempt,
-        id: row.id,
-        lease: delivery,
-        messageText: row.message_text,
-        privateChatId: row.private_chat_id,
-        ...(row.edit_message_id ? { editMessageId: row.edit_message_id } : {}),
-        ...(row.sign_in_request_ref
-          ? { signInRequestRef: row.sign_in_request_ref }
-          : {}),
-      };
-    });
+    return claimed ?? (waiting ? "waiting" : undefined);
   }
 
   async recordResult(

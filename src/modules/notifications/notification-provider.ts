@@ -155,7 +155,10 @@ export class NotificationProvider {
     });
   }
 
-  /** Returns how many due commands were handled before the category had to wait. */
+  /**
+   * Returns how many due commands were handled. A command waiting for its Telegram turn counts
+   * too: the fairness cursor holds that turn, so the worker must keep asking at its busy pace.
+   */
   async processCategory(category: Category, limit = 10): Promise<number> {
     const due = await this.db
       .selectFrom("notification_commands")
@@ -169,8 +172,8 @@ export class NotificationProvider {
       .execute();
     let handled = 0;
     for (const row of due) {
-      if (await this.dispatch(row)) break;
       handled += 1;
+      if (await this.dispatch(row)) break;
     }
     return handled;
   }

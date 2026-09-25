@@ -23,18 +23,34 @@ export class StartResponseDeliveryProcessor {
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
   ) {}
 
-  async processAvailable(
-    limit = 50,
+  async processAvailable(limit = 50, now?: Date): Promise<number> {
+    return (await this.process(limit, now)).processed;
+  }
+
+  /**
+   * One worker cycle. Returns whether it found work, including a reply that waits for its
+   * Telegram turn: the worker keeps asking because the fairness cursor holds that turn.
+   */
+  async processDue(signal: AbortSignal, limit = 50): Promise<boolean> {
+    const { processed, waiting } = await this.process(limit, undefined, signal);
+    return processed > 0 || waiting;
+  }
+
+  private async process(
+    limit: number,
     now?: Date,
     signal?: AbortSignal,
-  ): Promise<number> {
+  ): Promise<{ processed: number; waiting: boolean }> {
     let processed = 0;
     for (; processed < limit && !signal?.aborted; processed += 1) {
       const attemptedAt = now ?? new Date();
-      const delivery = await this.queue.claimNext(
+      const delivery = await this.queue.claimOrWait(
         attemptedAt,
         this.config.signInEnabled === true,
       );
+      if (delivery === "waiting") {
+        return { processed, waiting: true };
+      }
       if (!delivery) {
         break;
       }
@@ -70,6 +86,6 @@ export class StartResponseDeliveryProcessor {
         });
       this.metrics.increment(`delivery_${result.kind}`);
     }
-    return processed;
+    return { processed, waiting: false };
   }
 }
