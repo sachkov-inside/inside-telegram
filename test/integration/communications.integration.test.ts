@@ -610,6 +610,10 @@ async function authorMessage(
   ).toBe("processed");
 }
 let navigationId = 1000000;
+/**
+ * Clicks a button of the latest menu. A button that is not on screen is reached through «Ещё →» or
+ * «Настройки», so paging never fails a test: assert on-screen labels in the unit tests instead.
+ */
 async function authorClick(id: number, label: string, depth = 0) {
   id = Math.round(id * 10);
   const messages = await database
