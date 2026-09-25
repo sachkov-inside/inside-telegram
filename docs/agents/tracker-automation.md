@@ -83,6 +83,10 @@ the issue and is not a Project field.
 Before writing a task branch, obtain a successful `start` receipt from the central Workspace
 workflow. Assignee is the responsible person; the trusted issue comment holds the writing session.
 Use a unique stable session identifier for the life of that worktree and keep it in the handoff.
+Build it from the issue and a marker of your own session, such as the runtime's session id: two
+sessions that derive the same identifier from the task and date both believe they hold the task.
+Before the first write, check the issue for another session's receipt and the worktree for
+untracked files you did not create; if either exists, stop and ask the owner who writes.
 
 ```bash
 python3 .github/scripts/tracker_sessions.py start --issue platform#123 \
@@ -137,7 +141,9 @@ request, timestamp and reason. Credentials, local paths and private transcripts 
 The caller's existing `gh` authorization needs Actions write in Workspace to dispatch and Actions
 read to retrieve the receipt. The workflow PAT needs Issues write and Projects write; it does not
 need Actions write. The workflow checks its repository, main ref and trusted writer before writes.
-Existing assigned/PR work without session metadata is preserved for explicit owner adoption. An
+Existing assigned/PR work without session metadata is preserved for explicit owner adoption. When
+the owner adopts such an issue for an agent, the agent removes the assignee named by the owner and
+then starts; the owner remains responsible through the tracker and the merge gate. An
 expired timestamp does not release ownership. A handed-off task keeps its writing owner available
 for fixes; reviewers may inspect it read-only. Release records an explicit stop. A released task
 with an existing PR needs owner handoff before another writer takes over.
