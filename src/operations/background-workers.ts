@@ -171,7 +171,9 @@ export class BackgroundWorkers
       "retention",
       RETENTION,
       async () =>
-        (await purgeExpiredRecords(this.database, this.clock.now())) > 0,
+        (await purgeExpiredRecords(this.database, this.clock.now(), {
+          membershipCheckDays: this.config.membershipCheckRetentionDays,
+        })) > 0,
     );
 
     this.loops = loops;
