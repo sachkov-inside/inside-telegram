@@ -56,6 +56,10 @@ Do NOT include specific file paths or code snippets. They may end up being outda
 
 Exception: if a prototype produced a snippet that encodes a decision more precisely than prose can (state machine, reducer, schema, type shape), inline it within the relevant decision and note briefly that it came from a prototype. Trim to the decision-rich parts, not a working demo, just the important bits.
 
+## Documents and rules
+
+The durable facts this work changes, as `Documentation impact` in the repository-root `WORKFLOW.md` defines them, with the document that owns each fact; and every new or changed rule for agents or code with its source, as `Rule sources` defines it. Write `None — code/schema/tests are the authority` when the work changes no durable fact. Implementation reconciles its diff against this section.
+
 ## Testing Decisions
 
 A list of testing decisions that were made. Include:

@@ -15,11 +15,14 @@ in the repository-root `WORKFLOW.md` owns the rest of verification.
 ## Review closure
 
 For implementation, specification, or architecture changes, read and follow `Review closure`,
-`Pull request CI closure`, `Implementation report`, `Architecture fitness`, `Pruning`, and
-`Session cleanup` in the repository-root `WORKFLOW.md`. Those sections are the authority for
-finding dispositions, current-head CI ownership, learning promotion, and completion.
+`Rule sources`, `Documentation impact`, `Session learning`, `Pull request CI closure`,
+`Implementation report`, `Architecture fitness`, `Pruning`, and `Session cleanup` in the
+repository-root `WORKFLOW.md`. Those sections are the authority for finding dispositions, rule
+sources, documentation reconciliation, current-head CI ownership, learning promotion, and
+completion.
 
 Invoke `/code-review` from the original fixed point. When review changes code or durable documents,
 re-run the relevant verification and invoke `/code-review` from that same fixed point again. Commit
-and push as `Pull request CI closure` describes. Before finishing, execute its authoritative
-`Implementation report` section, then its `Session cleanup` section.
+and push as `Pull request CI closure` describes. Before finishing, reconcile
+`Documentation impact` and `Session learning`, execute the authoritative `Implementation report`
+section, then its `Session cleanup` section.
