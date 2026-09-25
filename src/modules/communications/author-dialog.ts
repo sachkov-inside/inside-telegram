@@ -364,7 +364,7 @@ function isBroadcast(
   );
 }
 
-// Lists are read at call time: author-composer and author-funnels import this module back.
+// Lists are read at call time: author-funnels loads author-drafts, which loads this module.
 function includes(list: readonly string[], value: unknown): boolean {
   return (list as readonly unknown[]).includes(value);
 }

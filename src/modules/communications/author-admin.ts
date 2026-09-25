@@ -96,39 +96,35 @@ type BroadcastAction = Extract<
       | "cancel";
   }
 >;
-/** Composer buttons the composer handles itself; the rest start or restore a composition. */
+/** Composer buttons that start or restore a composition; the composer handles the rest. */
+const COMPOSITION_ENTRIES = [
+  "compose:broadcast",
+  "compose:funnel",
+  "compose:edit-broadcast",
+  "compose:edit-funnel",
+  "compose:resume",
+  "compose:discard",
+] as const;
 type ComposerStep = Exclude<
   ComposeAction,
-  {
-    kind:
-      | "compose:broadcast"
-      | "compose:funnel"
-      | "compose:edit-broadcast"
-      | "compose:edit-funnel"
-      | "compose:resume"
-      | "compose:discard";
-  }
+  { kind: (typeof COMPOSITION_ENTRIES)[number] }
 >;
 function isComposerStep(action: AuthorAction): action is ComposerStep {
   return (
     isComposeAction(action) &&
-    ![
-      "compose:broadcast",
-      "compose:funnel",
-      "compose:edit-broadcast",
-      "compose:edit-funnel",
-      "compose:resume",
-      "compose:discard",
-    ].includes(action.kind)
+    !(COMPOSITION_ENTRIES as readonly string[]).includes(action.kind)
   );
 }
-/** Funnel buttons the funnel editor handles itself. */
-type FunnelStep = Exclude<FunnelAction, { kind: "f:new" | "f:posts" }>;
+/** Funnel buttons that the admin handles; the funnel editor handles the rest. */
+const FUNNEL_ENTRIES = ["f:new", "f:posts"] as const;
+type FunnelStep = Exclude<
+  FunnelAction,
+  { kind: (typeof FUNNEL_ENTRIES)[number] }
+>;
 function isFunnelStep(action: AuthorAction): action is FunnelStep {
   return (
     isFunnelAction(action) &&
-    action.kind !== "f:new" &&
-    action.kind !== "f:posts"
+    !(FUNNEL_ENTRIES as readonly string[]).includes(action.kind)
   );
 }
 type Tx = Transaction<DatabaseSchema>;
