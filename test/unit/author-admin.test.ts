@@ -2,7 +2,7 @@ import { parseFunnelDelay } from "../../src/modules/communications/author-funnel
 import { describe, expect, it } from "vitest";
 import { translateAuthorInput } from "../../src/adapters/telegram/grammy-author-admin.adapter.js";
 import { snapshot } from "../../src/adapters/telegram/grammy-template-intake.adapter.js";
-import { parseMoscowSchedule } from "../../src/modules/communications/author-admin.js";
+import { parseMoscowSchedule } from "../../src/modules/communications/author-transition.js";
 import { buttonRows } from "../../src/modules/communications/button-rows.js";
 import { validateContent } from "../../src/modules/communications/communications-contract.js";
 

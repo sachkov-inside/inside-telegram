@@ -1,121 +1,143 @@
-import { randomUUID } from "node:crypto";
-import { COMPOSER_PROMPTS, type ComposerState } from "./author-composer.js";
-import { FUNNEL_PROMPTS, type AuthorFunnelState } from "./author-funnels.js";
 import type { broadcastView } from "./broadcasts.js";
-import type { TemplateSnapshot } from "./communications-contract.js";
+import {
+  contractValidator,
+  type TemplateContent,
+  type TemplateSnapshot,
+} from "./communications-contract.js";
+import type { FunnelSnapshot, IntroSnapshot } from "./funnel-types.js";
+
+type Field = "required" | "optional";
+interface PayloadSpec {
+  readonly id?: Field;
+  readonly value?: Field | readonly string[];
+}
 
 /**
- * Every button of the author admin dialog. A menu stores the actions it showed, so a persisted
- * session may only contain kinds from this list.
+ * Every button of the author admin dialog with the data it carries: `id` names a selected
+ * object or a page cursor, `value` a position, an offset or a choice. A menu stores the actions
+ * it showed, so a persisted session may only contain actions that match this table.
  */
-const AUTHOR_ACTION_KINDS = [
-  "apply-schedule",
-  "batch:broadcast",
-  "batch:done",
-  "batch:funnel",
-  "broadcast-sample",
-  "broadcasts",
-  "button",
-  "cancel",
-  "confirm-cancel",
-  "confirm-launch",
-  "copy-broadcast",
-  "create-broadcast",
-  "home",
-  "launch",
-  "menu:page",
-  "move-part",
-  "new",
-  "new-broadcast",
-  "overview",
-  "parts",
-  "pause",
-  "pick-part",
-  "post-search",
-  "posts",
-  "posts-all",
-  "read-broadcast",
-  "read-post",
-  "remove-button",
-  "remove-part",
-  "rename-broadcast",
-  "replace",
-  "replace-part",
-  "resume",
-  "sample",
-  "schedule",
-  "send-now",
-  "send-options",
-  "show-part",
-  "statistics",
-  "compose:accept",
-  "compose:all",
-  "compose:broadcast",
-  "compose:button",
-  "compose:cancel",
-  "compose:choose",
-  "compose:discard",
-  "compose:edit-broadcast",
-  "compose:edit-funnel",
-  "compose:funnel",
-  "compose:library",
-  "compose:preview",
-  "compose:remove-button",
-  "compose:replace",
-  "compose:resume",
-  "compose:search",
-  "sequence:broadcast",
-  "sequence:discard",
-  "sequence:done",
-  "sequence:funnel",
-  "sequence:time",
-  "f:add-source",
-  "f:add-step",
-  "f:confirm-archive",
-  "f:default",
-  "f:delay",
-  "f:discard",
-  "f:intro",
-  "f:life",
-  "f:list",
-  "f:message",
-  "f:messages",
-  "f:move-part",
-  "f:move-step",
-  "f:name",
-  "f:new",
-  "f:part",
-  "f:parts",
-  "f:parts-page",
-  "f:posts",
-  "f:preview",
-  "f:publish",
-  "f:read",
-  "f:remove-part",
-  "f:remove-source",
-  "f:remove-step",
-  "f:sample",
-  "f:save",
-  "f:save-intro",
-  "f:settings",
-  "f:show",
-  "f:source",
-  "f:sources",
-  "f:step",
-  "f:steps",
-  "f:timing",
-  "f:timing-entry",
-] as const;
+const AUTHOR_ACTIONS = {
+  "apply-schedule": {},
+  "batch:broadcast": {},
+  "batch:done": {},
+  "batch:funnel": {},
+  "broadcast-sample": {},
+  broadcasts: { id: "optional" },
+  button: {},
+  cancel: {},
+  "confirm-cancel": {},
+  "confirm-launch": {},
+  "copy-broadcast": {},
+  "create-broadcast": {},
+  home: {},
+  launch: {},
+  "menu:page": { value: "required" },
+  "move-part": { value: "required" },
+  new: {},
+  "new-broadcast": {},
+  overview: {},
+  parts: { value: "optional" },
+  pause: {},
+  "pick-part": {},
+  "post-search": {},
+  posts: { id: "optional" },
+  "posts-all": {},
+  "read-broadcast": { id: "required" },
+  "read-post": { id: "required" },
+  "remove-button": { value: "required" },
+  "remove-part": { value: "required" },
+  "rename-broadcast": {},
+  replace: {},
+  "replace-part": { value: "required" },
+  resume: {},
+  sample: {},
+  schedule: {},
+  "send-now": {},
+  "send-options": {},
+  "show-part": { id: "required" },
+  statistics: {},
+  "compose:accept": {},
+  "compose:all": {},
+  "compose:broadcast": {},
+  "compose:button": {},
+  "compose:cancel": {},
+  "compose:choose": { id: "required" },
+  "compose:discard": { id: "required" },
+  "compose:edit-broadcast": { id: "required" },
+  "compose:edit-funnel": { id: "required" },
+  "compose:funnel": {},
+  "compose:library": { id: "optional" },
+  "compose:preview": {},
+  "compose:remove-button": { value: "required" },
+  "compose:replace": {},
+  "compose:resume": { id: "required" },
+  "compose:search": {},
+  "sequence:broadcast": {},
+  "sequence:discard": {},
+  "sequence:done": {},
+  "sequence:funnel": {},
+  "sequence:time": { value: "required" },
+  "f:add-source": {},
+  "f:add-step": {},
+  "f:confirm-archive": {},
+  "f:default": {},
+  "f:delay": {},
+  "f:discard": {},
+  "f:intro": {},
+  "f:life": { value: ["pause", "resume", "archive", "restore"] },
+  "f:list": { id: "optional" },
+  "f:message": { id: "required", value: "required" },
+  "f:messages": { value: "optional" },
+  "f:move-part": { id: "required", value: "required" },
+  "f:move-step": { id: "required", value: "required" },
+  "f:name": {},
+  "f:new": {},
+  "f:part": { id: "required" },
+  "f:parts": { id: "required" },
+  "f:parts-page": { value: "required" },
+  "f:posts": { value: "optional" },
+  "f:preview": {},
+  "f:publish": {},
+  "f:read": { id: "required" },
+  "f:remove-part": { id: "required" },
+  "f:remove-source": { id: "required" },
+  "f:remove-step": { id: "required" },
+  "f:sample": {},
+  "f:save": {},
+  "f:save-intro": {},
+  "f:settings": {},
+  "f:show": {},
+  "f:source": { id: "required" },
+  "f:sources": { value: "optional" },
+  "f:step": { id: "required" },
+  "f:steps": { value: "optional" },
+  "f:timing": { id: "required" },
+  "f:timing-entry": { id: "required" },
+} as const satisfies Record<string, PayloadSpec>;
 
-export type AuthorActionKind = (typeof AUTHOR_ACTION_KINDS)[number];
+type ActionSpecs = typeof AUTHOR_ACTIONS;
+export type AuthorActionKind = keyof ActionSpecs;
 
-/** One button's action: its kind names the handler, `id` and `value` carry the selection. */
+type IdPayload<Spec> = Spec extends { id: "required" }
+  ? { readonly id: string }
+  : Spec extends { id: "optional" }
+    ? { readonly id?: string }
+    : unknown;
+type ValuePayload<Spec> = Spec extends { value: "required" }
+  ? { readonly value: string }
+  : Spec extends { value: "optional" }
+    ? { readonly value?: string }
+    : Spec extends { value: readonly (infer Choice)[] }
+      ? { readonly value: Choice }
+      : unknown;
+
+/** One button's action: its kind names the handler and fixes which payload it carries. */
 export type AuthorAction = {
-  [Kind in AuthorActionKind]: {
-    readonly kind: Kind;
-    readonly id?: string;
-    readonly value?: string;
-  };
+  [Kind in AuthorActionKind]: { readonly kind: Kind } & IdPayload<
+    ActionSpecs[Kind]
+  > &
+    ValuePayload<ActionSpecs[Kind]>;
 }[AuthorActionKind];
 
 export type ComposeAction = Extract<
@@ -127,14 +149,6 @@ export type SequenceAction = Extract<
   { kind: `sequence:${string}` }
 >;
 export type FunnelAction = Extract<AuthorAction, { kind: `f:${string}` }>;
-
-export function isComposeAction(action: AuthorAction): action is ComposeAction {
-  return action.kind.startsWith("compose:");
-}
-
-export function isFunnelAction(action: AuthorAction): action is FunnelAction {
-  return action.kind.startsWith("f:");
-}
 
 export type AuthorButton = [label: string, action: AuthorAction];
 
@@ -157,6 +171,55 @@ export type AuthorPrompt =
   | { readonly kind: (typeof AUTHOR_PROMPT_KINDS)[number] }
   | { readonly kind: "button-url"; readonly buttonTitle: string };
 
+/** Where an accepted message goes: a broadcast or one block of a funnel. */
+export type MessageDestination = { expectedRevision: number } & (
+  | { kind: "broadcast"; id: string; partId?: string }
+  | { kind: "funnel"; id: string; target: string; partId?: string }
+);
+
+const COMPOSER_PROMPTS = [
+  "capture",
+  "search",
+  "button-title",
+  "button-url",
+  "button-row",
+] as const;
+
+/** A message being prepared; it changes its destination only after explicit acceptance. */
+export interface ComposerState {
+  destination: MessageDestination;
+  sequence?: { lastOffset: number; firstEntry: boolean };
+  content?: TemplateContent;
+  prompt?: (typeof COMPOSER_PROMPTS)[number];
+  buttonTitle?: string;
+  buttonUrl?: string;
+  query?: string;
+  libraryCursor?: string;
+}
+
+const FUNNEL_PROMPTS = [
+  "name",
+  "delay",
+  "source-name",
+  "source-code",
+  "part-delay",
+] as const;
+
+/** The funnel or shared intro being edited, with its unsaved changes. */
+export interface AuthorFunnelState {
+  funnel?: FunnelSnapshot;
+  intro?: IntroSnapshot;
+  dirty?: boolean;
+  /** `entry`, `intro` or the ID of the selected funnel step. */
+  target?: string;
+  replacePartId?: string;
+  prompt?: (typeof FUNNEL_PROMPTS)[number];
+  sourceName?: string;
+  timingPartId?: string;
+}
+
+export type AuthorBroadcast = ReturnType<typeof broadcastView>;
+
 /** Versions 0 and 1 differ only in the prompt; a session without a version is version 0. */
 export const AUTHOR_STATE_VERSION = 1;
 
@@ -175,13 +238,13 @@ export interface AuthorState {
   libraryQuery?: string;
   funnelAuthor?: AuthorFunnelState;
   template?: TemplateSnapshot;
-  broadcast?: ReturnType<typeof broadcastView>;
+  broadcast?: AuthorBroadcast;
   prompt?: AuthorPrompt;
   replacePart?: { broadcastId: string; partId: string };
 }
 
-export function emptyAuthorState(): AuthorState {
-  return { version: AUTHOR_STATE_VERSION, token: randomUUID(), actions: [] };
+export function emptyAuthorState(token: string): AuthorState {
+  return { version: AUTHOR_STATE_VERSION, token, actions: [] };
 }
 
 const BROADCAST_ID =
@@ -251,6 +314,20 @@ export function parseAuthorState(stored: unknown): AuthorState | undefined {
   return isAuthorState(state) ? state : undefined;
 }
 
+/** Reads a stored funnel or intro draft; undefined when its shape is not trusted. */
+export function parseFunnelDraft(
+  stored: unknown,
+): AuthorFunnelState | undefined {
+  return isFunnelState(stored) ? stored : undefined;
+}
+
+/** Reads a stored unsaved broadcast; undefined when its shape is not trusted. */
+export function parseBroadcastDraft(
+  stored: unknown,
+): AuthorBroadcast | undefined {
+  return isBroadcast(stored) ? stored : undefined;
+}
+
 function upgradeV0(stored: Record<string, unknown>): Record<string, unknown> {
   // Version 0 kept the awaited button title beside a string prompt.
   const { prompt, buttonTitle, ...rest } = stored;
@@ -267,14 +344,23 @@ function upgradeV0(stored: Record<string, unknown>): Record<string, unknown> {
   return upgraded;
 }
 
+// Leaf values come from validated input or Platform, so the contract schema describes them.
+// Containers are checked by shape: an unsaved draft may still lack required parts.
+const validContent = contractValidator("content");
+const validPart = contractValidator("part");
+const validBroadcastPart = contractValidator("broadcastPart");
+const validSource = contractValidator("source");
+const validAudience = contractValidator("audience");
+const validTemplate = contractValidator("template");
+
 function isAuthorState(value: unknown): value is AuthorState {
   return (
     isRecord(value) &&
     value.version === AUTHOR_STATE_VERSION &&
-    typeof value.token === "string" &&
+    isString(value.token) &&
     Array.isArray(value.actions) &&
     value.actions.every(isAuthorAction) &&
-    optional(value.freshMenu, (v) => typeof v === "boolean") &&
+    optional(value.freshMenu, isBoolean) &&
     optional(value.batch, (v) => v === "broadcast" || v === "funnel") &&
     optional(value.menu, isAuthorMenu) &&
     optional(value.composing, isComposerState) &&
@@ -282,7 +368,7 @@ function isAuthorState(value: unknown): value is AuthorState {
     optional(value.pendingSchedule, (v) => v === null || isString(v)) &&
     optional(value.libraryQuery, isString) &&
     optional(value.funnelAuthor, isFunnelState) &&
-    optional(value.template, isTemplate) &&
+    optional(value.template, (v) => validTemplate(v)) &&
     optional(value.broadcast, isBroadcast) &&
     optional(value.prompt, isAuthorPrompt) &&
     optional(
@@ -293,12 +379,27 @@ function isAuthorState(value: unknown): value is AuthorState {
 }
 
 function isAuthorAction(value: unknown): value is AuthorAction {
+  if (
+    !isRecord(value) ||
+    !isString(value.kind) ||
+    !Object.hasOwn(AUTHOR_ACTIONS, value.kind)
+  )
+    return false;
+  const spec: PayloadSpec = AUTHOR_ACTIONS[value.kind as AuthorActionKind];
   return (
-    isRecord(value) &&
-    includes(AUTHOR_ACTION_KINDS, value.kind) &&
-    optional(value.id, isString) &&
-    optional(value.value, isString)
+    matchesField(value.id, spec.id) &&
+    (isChoice(spec.value)
+      ? includes(spec.value, value.value)
+      : matchesField(value.value, spec.value))
   );
+}
+
+function isChoice(field: PayloadSpec["value"]): field is readonly string[] {
+  return Array.isArray(field);
+}
+
+function matchesField(value: unknown, field: Field | undefined): boolean {
+  return field === "required" ? isString(value) : optional(value, isString);
 }
 
 function isAuthorMenu(value: unknown): value is AuthorMenu {
@@ -323,48 +424,104 @@ function isAuthorPrompt(value: unknown): value is AuthorPrompt {
 }
 
 function isComposerState(value: unknown): value is ComposerState {
-  if (!isRecord(value) || !isRecord(value.destination)) return false;
-  const destination = value.destination;
   return (
-    (destination.kind === "broadcast" ||
-      (destination.kind === "funnel" && isString(destination.target))) &&
-    isString(destination.id) &&
-    typeof destination.expectedRevision === "number" &&
-    optional(value.prompt, (v) => includes(COMPOSER_PROMPTS, v))
+    isRecord(value) &&
+    isDestination(value.destination) &&
+    optional(
+      value.sequence,
+      (v) => isRecord(v) && isNumber(v.lastOffset) && isBoolean(v.firstEntry),
+    ) &&
+    optional(value.content, (v) => validContent(v)) &&
+    optional(value.prompt, (v) => includes(COMPOSER_PROMPTS, v)) &&
+    optional(value.buttonTitle, isString) &&
+    optional(value.buttonUrl, isString) &&
+    optional(value.query, isString) &&
+    optional(value.libraryCursor, isString)
+  );
+}
+
+function isDestination(value: unknown): value is MessageDestination {
+  return (
+    isRecord(value) &&
+    (value.kind === "broadcast" ||
+      (value.kind === "funnel" && isString(value.target))) &&
+    isString(value.id) &&
+    isNumber(value.expectedRevision) &&
+    optional(value.partId, isString)
   );
 }
 
 function isFunnelState(value: unknown): value is AuthorFunnelState {
   return (
     isRecord(value) &&
-    optional(value.funnel, (v) => isRecord(v) && isString(v.funnelId)) &&
-    optional(value.intro, (v) => isRecord(v) && isString(v.introId)) &&
-    optional(value.prompt, (v) => includes(FUNNEL_PROMPTS, v))
+    optional(value.funnel, isFunnel) &&
+    optional(value.intro, isIntro) &&
+    optional(value.dirty, isBoolean) &&
+    optional(value.target, isString) &&
+    optional(value.replacePartId, isString) &&
+    optional(value.prompt, (v) => includes(FUNNEL_PROMPTS, v)) &&
+    optional(value.sourceName, isString) &&
+    optional(value.timingPartId, isString)
   );
 }
 
-function isTemplate(value: unknown): value is TemplateSnapshot {
+function isFunnel(value: unknown): value is FunnelSnapshot {
   return (
     isRecord(value) &&
-    isString(value.templateId) &&
-    typeof value.revision === "number" &&
-    isRecord(value.content)
+    isString(value.funnelId) &&
+    isString(value.name) &&
+    isBoolean(value.isDefault) &&
+    Array.isArray(value.sources) &&
+    value.sources.every((source) => validSource(source)) &&
+    isRecord(value.entryResponse) &&
+    isString(value.entryResponse.stepId) &&
+    isParts(value.entryResponse.parts) &&
+    Array.isArray(value.steps) &&
+    value.steps.every(
+      (step) =>
+        isRecord(step) &&
+        isString(step.stepId) &&
+        isNumber(step.delaySeconds) &&
+        optional(step.delayAnchor, (v) => v === "entry") &&
+        isParts(step.parts),
+    ) &&
+    isNumber(value.revision) &&
+    (value.publishedRevision === null || isNumber(value.publishedRevision)) &&
+    includes(["draft", "published", "paused", "archived"], value.lifecycle)
   );
 }
 
-function isBroadcast(
-  value: unknown,
-): value is ReturnType<typeof broadcastView> {
+function isIntro(value: unknown): value is IntroSnapshot {
+  return (
+    isRecord(value) &&
+    isString(value.introId) &&
+    isNumber(value.revision) &&
+    isParts(value.parts)
+  );
+}
+
+function isParts(value: unknown): boolean {
+  return Array.isArray(value) && value.every((part) => validPart(part));
+}
+
+function isBroadcast(value: unknown): value is AuthorBroadcast {
   return (
     isRecord(value) &&
     isString(value.broadcastId) &&
-    typeof value.revision === "number" &&
-    isString(value.state) &&
-    Array.isArray(value.parts)
+    isNumber(value.revision) &&
+    includes(
+      ["draft", "scheduled", "running", "paused", "cancelled", "completed"],
+      value.state,
+    ) &&
+    Array.isArray(value.parts) &&
+    value.parts.every((part) => validBroadcastPart(part)) &&
+    validAudience(value.audience) &&
+    (value.scheduledAt === null || isString(value.scheduledAt)) &&
+    (value.audienceSnapshotId === null || isString(value.audienceSnapshotId)) &&
+    isNumber(value.snapshotSize)
   );
 }
 
-// Lists are read at call time: author-funnels loads author-drafts, which loads this module.
 function includes(list: readonly string[], value: unknown): boolean {
   return (list as readonly unknown[]).includes(value);
 }
@@ -375,6 +532,14 @@ function optional(value: unknown, check: (value: unknown) => boolean) {
 
 function isString(value: unknown): value is string {
   return typeof value === "string";
+}
+
+function isNumber(value: unknown): value is number {
+  return typeof value === "number";
+}
+
+function isBoolean(value: unknown): value is boolean {
+  return typeof value === "boolean";
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

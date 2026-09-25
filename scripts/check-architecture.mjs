@@ -39,6 +39,24 @@ const tableOwners = {
   start_response_delivery_attempts: "modules/outbound",
 };
 
+// The author dialog decides every transition from its arguments alone; author-admin.ts runs
+// the effects. Its files import no package and no module that reaches I/O; types are free.
+const pureDialogFiles = [
+  "author-button",
+  "author-composer",
+  "author-dialog",
+  "author-funnels",
+  "author-message-view",
+  "author-sequence-composer",
+  "author-transition",
+  "author-turn",
+].map((name) => `modules/communications/${name}.ts`);
+const pureDialogImports = [
+  ...pureDialogFiles,
+  "modules/communications/communications-contract.ts",
+  "shared/unhandled.ts",
+];
+
 const root = process.argv[2] ?? "src";
 const files = await sourceFiles(root);
 const violations = [];
@@ -70,6 +88,15 @@ for (const file of files) {
         violations.push(`${file}: shared kernel imports ${target}`);
     }
   }
+
+  if (pureDialogFiles.includes(file))
+    for (const specifier of valueImportSpecifiers(source)) {
+      const target = resolveImport(file, specifier);
+      if (!target || !pureDialogImports.includes(target))
+        violations.push(
+          `${file}: pure author dialog imports ${target ?? specifier}`,
+        );
+    }
 
   const code = withoutComments(source);
   if (layer === "modules" && networkCall.test(code))
@@ -107,6 +134,15 @@ function importSpecifiers(source) {
   return [
     ...source.matchAll(
       /(?:\bfrom\s+|\bimport\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm,
+    ),
+  ].map((match) => match[1]);
+}
+
+/** Imports that load code at runtime; `import type` is erased by the compiler. */
+function valueImportSpecifiers(source) {
+  return [
+    ...source.matchAll(
+      /^\s*import\s+(?!type\b)(?:[^"';]*?\bfrom\s+)?["']([^"']+)["']/gm,
     ),
   ].map((match) => match[1]);
 }

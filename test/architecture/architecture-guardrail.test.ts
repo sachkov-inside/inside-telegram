@@ -30,6 +30,10 @@ describe("architecture guardrail", () => {
     ],
     ["module-cycle", "module cycle: contacts -> marketing -> contacts"],
     [
+      "pure-dialog-imports-io",
+      "modules/communications/author-transition.ts: pure author dialog imports database/drafts.ts",
+    ],
+    [
       "foreign-table-access",
       "modules/marketing/marketing.ts: platform_links is owned by modules/identity-linking",
     ],

@@ -1,51 +1,22 @@
-import { randomUUID } from "node:crypto";
 import type { Context } from "./author-admin.js";
+import { parseBroadcastDraft, type AuthorBroadcast } from "./author-dialog.js";
 import { authorRequest } from "./author-request.js";
-import type { broadcastView } from "./broadcasts.js";
-import { drafts, saveAuthorDraft } from "./author-drafts.js";
+import { drafts } from "./author-drafts.js";
 import { CommunicationsError } from "./communications-contract.js";
 import type { Funnels } from "./funnels.js";
-export const broadcastNames = {
-  draft: "Черновик",
-  scheduled: "Запланирована",
-  running: "Отправляется",
-  paused: "Приостановлена",
-  cancelled: "Отменена",
-  completed: "Завершена",
-};
-export type AuthorBroadcast = ReturnType<typeof broadcastView>;
-export function newBroadcast(
-  parts: AuthorBroadcast["parts"] = [],
-): AuthorBroadcast {
-  return {
-    broadcastId: randomUUID(),
-    revision: 0,
-    state: "draft",
-    parts: parts.map((p) => ({ ...p, partId: randomUUID() })),
-    audience: { kind: "all" },
-    scheduledAt: null,
-    audienceSnapshotId: null,
-    snapshotSize: 0,
-  };
-}
-export async function retainBroadcast(c: Context) {
-  const b = c.state.broadcast;
-  if (!b) return;
-  await saveAuthorDraft(
-    c,
-    b.broadcastId,
-    "broadcast",
-    c.state.broadcastName ?? "Новая рассылка",
-    b.revision === 0 ? b : null,
-  );
-}
+
+/** Reads the author's broadcasts, including the unsaved ones that exist only as drafts. */
 export class AuthorBroadcastDrafts {
   constructor(private readonly funnels: Funnels) {}
-  async read(c: Context, id: string) {
+  async read(
+    c: Context,
+    id: string,
+  ): Promise<{ broadcast: AuthorBroadcast; name: string }> {
     const draft = await drafts(c)
       .where("draft_id", "=", id)
       .where("kind", "=", "broadcast")
       .executeTakeFirst();
+    let broadcast: AuthorBroadcast;
     try {
       const response = await this.funnels.execute(
         authorRequest(c.accountRef, "broadcasts.read", { broadcastId: id }),
@@ -53,22 +24,24 @@ export class AuthorBroadcastDrafts {
       );
       if (!("broadcast" in response))
         throw new CommunicationsError("malformed");
-      c.state.broadcast = response.broadcast;
+      broadcast = response.broadcast;
     } catch (error) {
+      const snapshot = parseBroadcastDraft(draft?.snapshot);
       if (
         !(error instanceof CommunicationsError) ||
         error.code !== "not_found" ||
-        !draft?.snapshot
+        snapshot?.revision !== 0
       )
         throw error;
-      const snapshot = draft.snapshot as AuthorBroadcast;
-      if (snapshot.revision !== 0) throw error;
-      c.state.broadcast = snapshot;
+      broadcast = snapshot;
     }
-    c.state.broadcastName =
-      draft?.name ??
-      c.state.broadcast.parts[0]?.content.text.slice(0, 128) ??
-      "Рассылка";
+    return {
+      broadcast,
+      name:
+        draft?.name ??
+        broadcast.parts[0]?.content.text.slice(0, 128) ??
+        "Рассылка",
+    };
   }
   async list(c: Context, cursor?: string) {
     let published = c.tx
@@ -88,14 +61,8 @@ export class AuthorBroadcastDrafts {
       empty = empty.where("draft_id", ">", cursor);
     }
     const ids = await published.union(empty).orderBy("id").limit(11).execute();
-    const result = [];
-    for (const { id } of ids.slice(0, 10)) {
-      await this.read(c, id);
-      result.push({
-        broadcast: c.state.broadcast!,
-        name: c.state.broadcastName!,
-      });
-    }
-    return { items: result, nextCursor: ids.length > 10 ? ids[9]!.id : null };
+    const items = [];
+    for (const { id } of ids.slice(0, 10)) items.push(await this.read(c, id));
+    return { items, nextCursor: ids.length > 10 ? ids[9]?.id : undefined };
   }
 }
