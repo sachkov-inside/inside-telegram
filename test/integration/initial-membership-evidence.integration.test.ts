@@ -69,6 +69,7 @@ const config: ApplicationConfig = {
     unavailable: "Synthetic community unavailable",
     readmission: "Synthetic community readmission",
   },
+  membershipCheckRetentionDays: 90,
   membershipMode: "disabled",
   membershipReconciliationCadenceMilliseconds: 240_000,
   platformIntegrationSecret: "synthetic_platform_secret",

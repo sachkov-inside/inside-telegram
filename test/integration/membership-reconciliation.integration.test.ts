@@ -42,6 +42,7 @@ const config: ApplicationConfig = {
     readmission: "Synthetic community readmission",
   },
   membershipMode: "disabled",
+  membershipCheckRetentionDays: 90,
   membershipReconciliationCadenceMilliseconds: cadenceMilliseconds,
   platformIntegrationSecret: "synthetic_platform_secret",
   port: 3002,

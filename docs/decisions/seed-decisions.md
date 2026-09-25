@@ -38,6 +38,10 @@ Marketing по умолчанию выключен.
 - Все BotContacts являются будущей messaging audience; отдельного consent/category state нет.
 - Пользователь останавливает delivery через Telegram block; `/stop` не входит.
 - Contact/link/history автоматически не удаляются; повторный `/start` реактивирует contactability.
+  Исключение по решению владельца от 2026-09-25 (inside-telegram#91): результаты проверок
+  membership и их outbox evidence хранятся 90 дней (`TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS`),
+  последняя проверка каждой связанной личности и недоставленное evidence сохраняются. События
+  контактов, события связывания, аудит membership и история коммуникаций хранятся бессрочно.
 
 ## Membership and authority
 

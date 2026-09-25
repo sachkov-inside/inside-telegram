@@ -37,7 +37,9 @@ _Avoid_: Subscription, entitlement, permanent member flag
 
 **MembershipEvidence**:
 A finite, normalized statement derived from a MembershipObservation and delivered to Platform.
-It contains opaque references rather than Telegram provider data.
+It contains opaque references rather than Telegram provider data. A delivered or rejected
+MembershipEvidence and its check result are kept for the configured period, 90 days by default;
+the latest one of each linked identity is kept. Membership event audit is kept without a deadline.
 _Avoid_: MembershipEntitlement, ChatMember, access token
 
 **Canonical Membership Chat**:

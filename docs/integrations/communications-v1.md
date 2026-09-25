@@ -264,7 +264,8 @@ claim complete human detection. Forwarded links identify a delivery, not the vis
 `analyticsLagSeconds` is the largest observed receive-minus-occur delay of ingested events in scope.
 It cannot observe events still queued in Platform. Platform #309 must expose its own durable pending
 queue/lag and preserve resolved navigation when ingestion fails. No click is treated as reading,
-Account linkage, conversion or payment. There is no retention deletion of delivery/source/hit history.
+Account linkage, conversion or payment. There is no retention deletion of delivery/source/hit
+history: the owner keeps communication history without a deadline (inside-telegram#91).
 
 Migration `013-broadcast-analytics` adds broadcasts and token/hit ledgers without rewriting earlier
 migrations. `broadcasts.integration.test.ts` proves PostgreSQL snapshot/stop races, fake-clock schedule,

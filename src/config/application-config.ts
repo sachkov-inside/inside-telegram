@@ -53,6 +53,8 @@ export interface ApplicationConfig {
   readonly linkedMemberText: string;
   readonly linkedNonMemberText: string;
   readonly linkedUnavailableText: string;
+  /** Days a superseded membership check result and its evidence delivery are kept. */
+  readonly membershipCheckRetentionDays: number;
   readonly membershipMode: MembershipMode;
   readonly membershipReconciliationCadenceMilliseconds: number;
   readonly platformEvidenceDeliverySecret?: string;
@@ -125,6 +127,15 @@ export function loadApplicationConfig(
     30_000,
     240_000,
     "TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS",
+  );
+  // The owner's period. The floor equals how long stored update keys stop a replay, so an
+  // event old enough to lose its result is deduplicated before it could need it.
+  const membershipCheckRetentionDays = parseBoundedInteger(
+    environment.TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS,
+    90,
+    30,
+    3650,
+    "TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS",
   );
 
   const evidenceDeliveryMode =
@@ -418,6 +429,7 @@ export function loadApplicationConfig(
       environment,
       "TELEGRAM_LINKED_UNAVAILABLE_TEXT",
     ),
+    membershipCheckRetentionDays,
     membershipMode,
     membershipReconciliationCadenceMilliseconds,
     ...(platformEvidenceDeliverySecret

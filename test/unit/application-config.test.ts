@@ -416,6 +416,26 @@ describe("application configuration", () => {
     }
   });
 
+  it("keeps membership check history for the owner's 90 days unless configured within bounds", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).membershipCheckRetentionDays,
+    ).toBe(90);
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS: "180",
+      }).membershipCheckRetentionDays,
+    ).toBe(180);
+    for (const bad of ["29", "3651", "90.5", "ninety"]) {
+      expect(() =>
+        loadApplicationConfig({
+          ...validEnvironment,
+          TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS: bad,
+        }),
+      ).toThrow("TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS");
+    }
+  });
+
   it("bounds the community reconciliation cadence to at most one minute", () => {
     expect(() =>
       loadApplicationConfig({
