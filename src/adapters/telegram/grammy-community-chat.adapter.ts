@@ -8,7 +8,7 @@ import type {
   TelegramCommunityChat,
 } from "../../modules/community/community-ports.js";
 import { normalizeChatMember } from "../../modules/membership-evidence/membership-normalization.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 interface CommunityChatMember {
   readonly status: string;

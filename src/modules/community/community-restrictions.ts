@@ -1,6 +1,6 @@
 import type { Database } from "../../database/database.js";
 import { digest } from "../../security/payload-digest.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import { desiredFor, lockAccount, setDesired } from "./community-ledger.js";
 import type { RestrictionAuditState } from "./community-storage.js";
 

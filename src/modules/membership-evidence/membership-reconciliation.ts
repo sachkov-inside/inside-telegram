@@ -1,3 +1,4 @@
+import { linkedIdentities } from "../identity-linking/platform-links.js";
 import { randomUUID } from "node:crypto";
 
 import { sql } from "kysely";
@@ -11,12 +12,12 @@ import {
   type DurableQueue,
   type Lease,
 } from "../../database/durable-queue.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import type {
   EvidenceOutcome,
   LinkMembershipCheck,
 } from "./membership-evidence-provider.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const reconciliations: DurableQueue<"membership_reconciliations"> = {
   table: "membership_reconciliations",
@@ -166,16 +167,16 @@ async function ensureSchedules(
       updated_at
     )
     select
-      platform_links.telegram_identity_ref,
+      links.telegram_identity_ref,
       'pending',
-      platform_links.linked_at + ${cadenceMilliseconds} * interval '1 millisecond',
+      links.linked_at + ${cadenceMilliseconds} * interval '1 millisecond',
       0,
       null,
       null,
       null,
       null,
       ${now}
-    from platform_links
+    from (${linkedIdentities(database)}) as links
     on conflict (telegram_identity_ref) do nothing
   `.execute(database);
 }

@@ -9,7 +9,7 @@ import {
   type Database,
   type DatabaseSchema,
 } from "../../database/database.js";
-import { CLOCK, type Clock } from "./clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import {
   lockIdentityLinkAccount,
   lockTelegramIdentity,

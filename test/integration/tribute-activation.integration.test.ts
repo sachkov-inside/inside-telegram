@@ -9,7 +9,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AppModule } from "../../src/app.module.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import { DATABASE, type Database } from "../../src/database/database.js";
-import { CLOCK } from "../../src/modules/identity-linking/clock.js";
+import { CLOCK } from "../../src/shared/clock.js";
 import { SourceGroupProof } from "../../src/modules/subscription-activation/source-group-proof.js";
 import { SubscriptionActivation } from "../../src/modules/subscription-activation/subscription-activation.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";

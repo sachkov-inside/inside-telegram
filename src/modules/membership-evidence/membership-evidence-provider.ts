@@ -1,3 +1,10 @@
+import {
+  findPlatformLink,
+  lockPlatformLink,
+  markMembershipObservation,
+  reviseMembershipEvidence,
+} from "../identity-linking/platform-links.js";
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import { randomUUID } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
@@ -15,7 +22,7 @@ import {
   type MembershipProviderState,
   type NormalizedMembershipState,
 } from "../../database/database.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import {
   MEMBERSHIP_EVIDENCE_CONTRACT_VERSION,
   type MembershipEvidence,
@@ -40,7 +47,7 @@ import {
   type TelegramChatMemberResult,
   type TelegramMembership,
 } from "./telegram-membership.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const EVIDENCE_VALIDITY_MILLISECONDS = 5 * 60 * 1000;
 const TELEGRAM_READ_TIMEOUT_MILLISECONDS = 5_000;
@@ -151,12 +158,10 @@ export class MembershipEvidenceProvider {
       return undefined;
     }
 
-    const link = await this.database
-      .selectFrom("platform_links")
-      .select(["account_ref", "telegram_identity_ref"])
-      .where("bot_identity", "=", envelope.botIdentity)
-      .where("telegram_user_id", "=", envelope.subjectTelegramUserId)
-      .executeTakeFirst();
+    const link = await findPlatformLink(this.database, {
+      botIdentity: envelope.botIdentity,
+      telegramUserId: envelope.subjectTelegramUserId,
+    });
     if (!link) {
       await recordMembershipEventAudit(this.database, envelope, {
         diagnosticCode: "unlinked_subject",
@@ -178,22 +183,14 @@ export class MembershipEvidenceProvider {
 
     return this.database.transaction().execute(async (transaction) => {
       await lockProviderStateChanges(transaction, envelope.botIdentity);
-      const lockedLink = await transaction
-        .selectFrom("platform_links")
-        .select([
-          "account_ref",
-          "bot_identity",
-          "evidence_version",
-          "last_membership_observation_at",
-          "last_membership_observation_update_id",
-        ])
-        .where("telegram_identity_ref", "=", link.telegram_identity_ref)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
+      const lockedLink = await lockPlatformLink(
+        transaction,
+        link.telegramIdentityRef,
+      );
       const storedProvider = await transaction
         .selectFrom("membership_provider_state")
         .select(["diagnostic_code", "state"])
-        .where("bot_identity", "=", lockedLink.bot_identity)
+        .where("bot_identity", "=", lockedLink.botIdentity)
         .forUpdate()
         .executeTakeFirst();
       let providerState: MembershipProviderState =
@@ -213,8 +210,8 @@ export class MembershipEvidenceProvider {
       if (
         !isNewerMembershipEvent(
           envelope,
-          lockedLink.last_membership_observation_at,
-          lockedLink.last_membership_observation_update_id,
+          lockedLink.lastMembershipObservationAt,
+          lockedLink.lastMembershipObservationUpdateId,
         )
       ) {
         await recordMembershipEventAudit(transaction, envelope, {
@@ -233,7 +230,7 @@ export class MembershipEvidenceProvider {
         const providerObservation = await recordProviderObservation(
           transaction,
           {
-            botIdentity: lockedLink.bot_identity,
+            botIdentity: lockedLink.botIdentity,
             canonicalChatId: envelope.canonicalChatId,
             diagnosticCode,
             observedAt: envelope.eventAt,
@@ -251,7 +248,7 @@ export class MembershipEvidenceProvider {
       }
 
       const evidence = await recordEvidence(transaction, {
-        accountRef: lockedLink.account_ref,
+        accountRef: lockedLink.accountRef,
         diagnosticCode,
         event: envelope,
         normalizedState,
@@ -259,7 +256,7 @@ export class MembershipEvidenceProvider {
         rawChatMember: envelope.chatMember,
         resultRef,
         source: "member_status_event",
-        telegramIdentityRef: link.telegram_identity_ref,
+        telegramIdentityRef: link.telegramIdentityRef,
       });
       await recordMembershipEventAudit(transaction, envelope, {
         diagnosticCode,
@@ -321,57 +318,35 @@ export class MembershipEvidenceProvider {
       return existing;
     }
 
-    const link = await this.database
-      .selectFrom("platform_links")
-      .innerJoin("bot_contacts", (join) =>
-        join
-          .onRef(
-            "bot_contacts.bot_identity",
-            "=",
-            "platform_links.bot_identity",
-          )
-          .onRef(
-            "bot_contacts.telegram_user_id",
-            "=",
-            "platform_links.telegram_user_id",
-          ),
-      )
-      .select([
-        "platform_links.account_ref",
-        "platform_links.bot_identity",
-        "bot_contacts.private_chat_id",
-        "platform_links.telegram_user_id",
-      ])
-      .where(
-        "platform_links.telegram_identity_ref",
-        "=",
-        check.telegramIdentityRef,
-      )
-      .executeTakeFirst();
-    if (!link) {
+    const linked = await findPlatformLink(this.database, {
+      telegramIdentityRef: check.telegramIdentityRef,
+    });
+    const contact =
+      linked &&
+      (await this.database
+        .selectFrom("bot_contacts")
+        .select("private_chat_id")
+        .where("bot_identity", "=", linked.botIdentity)
+        .where("telegram_user_id", "=", linked.telegramUserId)
+        .executeTakeFirst());
+    if (!linked || !contact) {
       throw new Error("Membership check has no linked Telegram identity");
     }
+    const link = { ...linked, privateChatId: contact.private_chat_id };
 
     const observed = await this.readMembership(
-      link.telegram_user_id,
+      link.telegramUserId,
       check.timeoutMilliseconds,
     );
     const observedAt = this.clock.now();
 
     return this.database.transaction().execute(async (transaction) => {
       await assertCurrentReconciliationLease(transaction, check, observedAt);
-      await lockProviderStateChanges(transaction, link.bot_identity);
-      const lockedLink = await transaction
-        .selectFrom("platform_links")
-        .select([
-          "account_ref",
-          "bot_identity",
-          "evidence_version",
-          "last_membership_observation_at",
-        ])
-        .where("telegram_identity_ref", "=", check.telegramIdentityRef)
-        .forUpdate()
-        .executeTakeFirstOrThrow();
+      await lockProviderStateChanges(transaction, link.botIdentity);
+      const lockedLink = await lockPlatformLink(
+        transaction,
+        check.telegramIdentityRef,
+      );
 
       const alreadyStored = await transaction
         .selectFrom("membership_evidence_outbox")
@@ -382,7 +357,7 @@ export class MembershipEvidenceProvider {
         const providerState = await transaction
           .selectFrom("membership_provider_state")
           .select("state")
-          .where("bot_identity", "=", lockedLink.bot_identity)
+          .where("bot_identity", "=", lockedLink.botIdentity)
           .executeTakeFirstOrThrow();
         return {
           evidence: readStoredMembershipEvidence(alreadyStored.envelope),
@@ -391,7 +366,7 @@ export class MembershipEvidenceProvider {
         };
       }
       const providerObservation = await recordProviderObservation(transaction, {
-        botIdentity: lockedLink.bot_identity,
+        botIdentity: lockedLink.botIdentity,
         canonicalChatId: this.config.canonicalChatId,
         diagnosticCode: observed.diagnosticCode,
         observedAt,
@@ -402,13 +377,13 @@ export class MembershipEvidenceProvider {
       });
       if (
         observed.normalizedState !== "unavailable" &&
-        lockedLink.last_membership_observation_at !== null &&
-        observedAt < lockedLink.last_membership_observation_at
+        lockedLink.lastMembershipObservationAt !== null &&
+        observedAt < lockedLink.lastMembershipObservationAt
       ) {
         return currentOutcome(
           transaction,
           check.telegramIdentityRef,
-          lockedLink.bot_identity,
+          lockedLink.botIdentity,
         );
       }
 
@@ -425,7 +400,7 @@ export class MembershipEvidenceProvider {
           : observed.diagnosticCode;
 
       const evidence = await recordEvidence(transaction, {
-        accountRef: lockedLink.account_ref,
+        accountRef: lockedLink.accountRef,
         diagnosticCode,
         normalizedState,
         observedAt,
@@ -434,34 +409,21 @@ export class MembershipEvidenceProvider {
         source: check.source,
         telegramIdentityRef: check.telegramIdentityRef,
       });
-      const response = check.planResponse
-        ? await transaction
-            .insertInto("start_response_deliveries")
-            .values({
-              attempt_count: 0,
-              available_at: observedAt,
-              bot_identity: link.bot_identity,
-              created_at: observedAt,
-              delivered_at: null,
-              diagnostic_code: null,
-              locked_at: null,
-              message_text: responseText(this.config, normalizedState),
-              private_chat_id: link.private_chat_id,
-              source_key: `membership-check:${check.checkRef}`,
-              state: "pending",
-              telegram_user_id: link.telegram_user_id,
-              trigger_update_id: null,
-              updated_at: observedAt,
-            })
-            .onConflict((conflict) => conflict.column("source_key").doNothing())
-            .returning("id")
-            .executeTakeFirst()
-        : undefined;
+      const responsePlanned =
+        check.planResponse &&
+        (await enqueueReply(transaction, {
+          botIdentity: link.botIdentity,
+          telegramUserId: link.telegramUserId,
+          privateChatId: link.privateChatId,
+          messageText: responseText(this.config, normalizedState),
+          sourceKey: `membership-check:${check.checkRef}`,
+          now: observedAt,
+        }));
 
       return {
         evidence,
         providerState: providerObservation.currentState,
-        responsePlanned: response !== undefined,
+        responsePlanned: Boolean(responsePlanned),
       };
     });
   }
@@ -497,26 +459,28 @@ export class MembershipEvidenceProvider {
         "membership_check_results.result_ref",
         "membership_evidence_outbox.result_ref",
       )
-      .innerJoin(
-        "platform_links",
-        "platform_links.telegram_identity_ref",
-        "membership_check_results.telegram_identity_ref",
-      )
-      .innerJoin(
-        "membership_provider_state",
-        "membership_provider_state.bot_identity",
-        "platform_links.bot_identity",
-      )
       .select([
         "membership_evidence_outbox.envelope",
-        "membership_provider_state.state",
+        "membership_check_results.telegram_identity_ref",
       ])
       .where("membership_evidence_outbox.result_ref", "=", checkRef)
       .executeTakeFirst();
-    return stored
+    const link =
+      stored &&
+      (await findPlatformLink(this.database, {
+        telegramIdentityRef: stored.telegram_identity_ref,
+      }));
+    const provider =
+      link &&
+      (await this.database
+        .selectFrom("membership_provider_state")
+        .select("state")
+        .where("bot_identity", "=", link.botIdentity)
+        .executeTakeFirst());
+    return stored && provider
       ? {
           evidence: readStoredMembershipEvidence(stored.envelope),
-          providerState: stored.state,
+          providerState: provider.state,
           responsePlanned: false,
         }
       : undefined;
@@ -697,41 +661,24 @@ async function recordEvidence(
   let evidenceVersion: number | undefined;
   let evidenceRef: string | undefined;
   if (record.normalizedState !== "unavailable") {
-    const revision = record.event
-      ? await transaction
-          .updateTable("platform_links")
-          .set({
-            evidence_version: sql`evidence_version + 1`,
-            last_membership_observation_at: record.event.eventAt,
-            last_membership_observation_update_id: record.event.updateId,
-          })
-          .where("telegram_identity_ref", "=", record.telegramIdentityRef)
-          .returning("evidence_version")
-          .executeTakeFirstOrThrow()
-      : await transaction
-          .updateTable("platform_links")
-          .set({
-            evidence_version: sql`evidence_version + 1`,
-            last_membership_observation_at: record.observedAt,
-            last_membership_observation_update_id: null,
-          })
-          .where("telegram_identity_ref", "=", record.telegramIdentityRef)
-          .returning("evidence_version")
-          .executeTakeFirstOrThrow();
-    evidenceVersion = Number(revision.evidence_version);
+    const revision = await reviseMembershipEvidence(
+      transaction,
+      record.telegramIdentityRef,
+      {
+        observedAt: record.event?.eventAt ?? record.observedAt,
+        updateId: record.event?.updateId ?? null,
+      },
+    );
+    evidenceVersion = Number(revision);
     if (!Number.isSafeInteger(evidenceVersion) || evidenceVersion < 1) {
       throw new Error("Membership Evidence revision is outside JSON range");
     }
     evidenceRef = randomUUID();
   } else if (record.event) {
-    await transaction
-      .updateTable("platform_links")
-      .set({
-        last_membership_observation_at: record.event.eventAt,
-        last_membership_observation_update_id: record.event.updateId,
-      })
-      .where("telegram_identity_ref", "=", record.telegramIdentityRef)
-      .execute();
+    await markMembershipObservation(transaction, record.telegramIdentityRef, {
+      observedAt: record.event.eventAt,
+      updateId: record.event.updateId,
+    });
   }
 
   const evidence = createEvidence(

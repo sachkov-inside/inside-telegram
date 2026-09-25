@@ -1,3 +1,5 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import { lockTelegramIdentity } from "../identity-linking/identity-link-account-lock.js";
 import { createHash, randomInt, randomUUID } from "node:crypto";
 
@@ -9,8 +11,8 @@ import {
 } from "../../config/application-config.js";
 import { DATABASE, type Database } from "../../database/database.js";
 import { credentialsMatch } from "../../security/credentials.js";
-import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 
 import { queueSignInResult } from "./queue-sign-in-result.js";
 
@@ -151,26 +153,17 @@ export class BotSignIn {
         .where("request_ref", "=", request.request_ref)
         .execute();
       // Commit the prompt with the identity receipt. Inbox retries cannot reassign it or enqueue another prompt.
-      await transaction
-        .insertInto("start_response_deliveries")
-        .values({
-          attempt_count: 0,
-          available_at: now,
-          bot_identity: contact.botIdentity,
-          created_at: now,
-          delivered_at: null,
-          diagnostic_code: null,
-          locked_at: null,
-          message_text: "Вы входите в Sachkov Inside?",
-          private_chat_id: contact.privateChatId,
-          source_key: `sign-in:${request.request_ref}`,
-          state: "pending",
-          telegram_user_id: contact.telegramUserId,
-          trigger_update_id: contact.updateId,
-          updated_at: now,
-          sign_in_request_ref: request.request_ref,
-        })
-        .execute();
+      const prompted = await enqueueReply(transaction, {
+        botIdentity: contact.botIdentity,
+        telegramUserId: contact.telegramUserId,
+        privateChatId: contact.privateChatId,
+        messageText: "Вы входите в Sachkov Inside?",
+        sourceKey: `sign-in:${request.request_ref}`,
+        triggerUpdateId: contact.updateId,
+        signInRequestRef: request.request_ref,
+        now,
+      });
+      if (!prompted) throw new SignInPromptQueuedError();
     });
   }
 
@@ -275,12 +268,10 @@ export class BotSignIn {
           .where("bot_identity", "=", request.bot_identity)
           .where("telegram_user_id", "=", request.telegram_user_id)
           .executeTakeFirstOrThrow();
-        const link = await transaction
-          .selectFrom("platform_links")
-          .select(["account_ref", "telegram_identity_ref"])
-          .where("bot_identity", "=", request.bot_identity)
-          .where("telegram_user_id", "=", request.telegram_user_id)
-          .executeTakeFirst();
+        const link = await findPlatformLink(transaction, {
+          botIdentity: request.bot_identity,
+          telegramUserId: request.telegram_user_id,
+        });
         if (!link) {
           // Approval of independent registration reserves this subject even if the browser loses
           // the consume response. A fresh bot sign-in can repair it; email linking cannot take it.
@@ -301,8 +292,8 @@ export class BotSignIn {
           approvedAt: request.approved_at.toISOString(),
           existingLink: link
             ? {
-                accountRef: link.account_ref,
-                telegramIdentityRef: link.telegram_identity_ref,
+                accountRef: link.accountRef,
+                telegramIdentityRef: link.telegramIdentityRef,
               }
             : null,
         };
@@ -325,4 +316,9 @@ function isDigest(value: string): boolean {
 
 export function digestSignInSecret(value: string): string {
   return createHash("sha256").update(value).digest("base64url");
+}
+
+/** A second prompt for one sign-in request; the whole acceptance rolls back. */
+class SignInPromptQueuedError extends Error {
+  override readonly name = "SignInPromptQueuedError";
 }

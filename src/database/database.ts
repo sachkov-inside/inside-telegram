@@ -6,7 +6,7 @@ import type { ColumnType, Generated, Kysely } from "kysely";
 
 import type { MembershipEvidenceSource } from "../modules/membership-evidence/membership-evidence.js";
 
-export type Contactability = "blocked" | "reachable";
+import type { Contactability } from "../shared/telegram-contact.js";
 export type UpdateState = "failed" | "pending" | "processed" | "processing";
 export type StartResponseDeliveryState =
   | "delivered"

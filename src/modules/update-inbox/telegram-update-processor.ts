@@ -1,18 +1,14 @@
+import { unhandled } from "../../shared/unhandled.js";
 import { SubscriptionActivation } from "../subscription-activation/subscription-activation.js";
 import { AuthorAdmin } from "../communications/author-admin.js";
-import { translateAuthorInput } from "../../adapters/telegram/grammy-author-admin.adapter.js";
 import { MarketingEntry } from "../communications/marketing-entry.js";
 import { Communications } from "../communications/communications.js";
-import { translateTemplateIntake } from "../../adapters/telegram/grammy-template-intake.adapter.js";
 import { Inject, Injectable } from "@nestjs/common";
 
-import { GrammyUpdateAdapter } from "../../adapters/telegram/grammy-update.adapter.js";
 import { CommunityProvider } from "../community/community-provider.js";
 import { StartResponseDeliveryQueue } from "../outbound/start-response-delivery-queue.js";
-import {
-  BotContacts,
-  type VerifiedPrivateStart,
-} from "../bot-contacts/bot-contacts.js";
+import { BotContacts } from "../bot-contacts/bot-contacts.js";
+import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
 import { BotSignIn } from "../bot-sign-in/bot-sign-in.js";
 import {
   TELEGRAM_CALLBACK_ANSWERS,
@@ -23,9 +19,17 @@ import { MembershipEvidenceProvider } from "../membership-evidence/membership-ev
 import {
   reportCondition,
   reportFailure,
-} from "../../operations/failure-diagnostics.js";
-import { RuntimeMetrics } from "../../operations/runtime-metrics.js";
+} from "../../shared/failure-diagnostics.js";
+import {
+  RUNTIME_COUNTERS,
+  type RuntimeCounters,
+} from "../../shared/runtime-counters.js";
 import { TelegramUpdateInbox } from "./telegram-update-inbox.js";
+import {
+  TELEGRAM_UPDATE_TRANSLATOR,
+  type TelegramUpdateCommand,
+  type TelegramUpdateTranslator,
+} from "./telegram-update-command.js";
 import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
@@ -33,8 +37,6 @@ import {
 
 @Injectable()
 export class TelegramUpdateProcessor {
-  private readonly adapter = new GrammyUpdateAdapter();
-
   constructor(
     @Inject(SubscriptionActivation)
     private readonly activation: Pick<
@@ -46,7 +48,7 @@ export class TelegramUpdateProcessor {
     @Inject(BotContacts) private readonly botContacts: BotContacts,
     @Inject(IdentityLinking)
     private readonly identityLinking: IdentityLinking,
-    @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
+    @Inject(RUNTIME_COUNTERS) private readonly metrics: RuntimeCounters,
     @Inject(MembershipEvidenceProvider)
     private readonly membershipEvidence: MembershipEvidenceProvider,
     @Inject(BotSignIn) private readonly signIn: BotSignIn,
@@ -61,6 +63,8 @@ export class TelegramUpdateProcessor {
     private readonly community: CommunityProvider,
     @Inject(StartResponseDeliveryQueue)
     private readonly replies: StartResponseDeliveryQueue,
+    @Inject(TELEGRAM_UPDATE_TRANSLATOR)
+    private readonly translator: TelegramUpdateTranslator,
   ) {}
 
   async processAvailable(
@@ -76,103 +80,13 @@ export class TelegramUpdateProcessor {
       }
 
       try {
-        const command = this.adapter.translate(
+        const command = this.translator.translate(
           update.botIdentity,
           update.updateId,
           update.payload,
           update.receivedAt,
         );
-
-        if (command.kind === "access-action") {
-          await this.botContacts.observeStart(command.value, "none");
-          await this.activation.action(command.value, command.action);
-          if (command.callbackQueryId)
-            await this.callbackAnswers.answer(command.callbackQueryId);
-        } else if (command.kind === "marketing_preference") {
-          await this.botContacts.observeStart(command.value.contact, "none");
-          await this.marketing.setPreference(
-            command.value.contact,
-            command.value.enabled,
-          );
-        } else if (command.kind === "start") {
-          await this.botContacts.observeStart(
-            command.value.contact,
-            command.value.activationCode !== undefined
-              ? "none"
-              : command.value.signInToken
-                ? "none"
-                : command.value.linkToken
-                  ? "link-receipt"
-                  : this.marketing.enabled()
-                    ? "none"
-                    : "welcome",
-          );
-          if (command.value.activationCode !== undefined)
-            await this.activation.start(
-              command.value.contact,
-              command.value.activationCode,
-            );
-          if (command.value.signInToken?.kind === "digest") {
-            await this.signIn.acceptStart(
-              command.value.contact,
-              command.value.signInToken.digest,
-            );
-          }
-          if (command.value.linkToken) {
-            await this.identityLinking.acceptStart({
-              botIdentity: command.value.contact.botIdentity,
-              linkToken: command.value.linkToken,
-              observedAt: command.value.contact.observedAt,
-              telegramUserId: command.value.contact.telegramUserId,
-            });
-          }
-          if (
-            command.value.activationCode === undefined &&
-            !command.value.linkToken &&
-            !command.value.signInToken &&
-            this.marketing.enabled()
-          ) {
-            await this.marketing.enter(
-              command.value.contact,
-              command.value.marketingSource,
-            );
-          }
-        } else if (command.kind === "sign-in-decision") {
-          await this.signIn.decide(command.value);
-          await this.callbackAnswers.answer(command.callbackQueryId);
-        } else if (command.kind === "contactability") {
-          await this.botContacts.observeContactability(command.value);
-        } else if (command.kind === "membership") {
-          await this.community.observeMembershipEvent(command.value);
-          await this.membershipEvidence.accept(command.value);
-        } else if (command.kind === "join-request") {
-          await this.community.acceptJoinRequest(command.value);
-        } else if (command.kind === "community-request") {
-          // The command exists only while community effects are enabled.
-          if (this.config.activation?.enabled)
-            await this.activation.action(command.value, "community");
-          else if (this.config.communityMode === "live")
-            await this.answerAdmission(command.value);
-        } else if (command.kind === "ignored") {
-          const authorInput = translateAuthorInput(
-            update.botIdentity,
-            update.updateId,
-            update.payload,
-          );
-          const handled = authorInput
-            ? await this.authorAdmin.handle(authorInput)
-            : false;
-          if (handled && authorInput?.callbackQueryId)
-            await this.callbackAnswers.answer(authorInput.callbackQueryId);
-          const intake =
-            !handled &&
-            translateTemplateIntake(
-              update.botIdentity,
-              update.updateId,
-              update.payload,
-            );
-          if (intake) await this.communications.intake(intake);
-        }
+        await this.handle(command);
 
         if (!(await this.inbox.markProcessed(update, now ?? new Date())))
           reportCondition("update-inbox.process", "lease_lost", {
@@ -197,6 +111,100 @@ export class TelegramUpdateProcessor {
       }
     }
     return processed;
+  }
+
+  private async handle(command: TelegramUpdateCommand): Promise<void> {
+    switch (command.kind) {
+      case "access-action":
+        await this.botContacts.observeStart(command.value, "none");
+        await this.activation.action(command.value, command.action);
+        if (command.callbackQueryId)
+          await this.callbackAnswers.answer(command.callbackQueryId);
+        return;
+      case "marketing_preference":
+        await this.botContacts.observeStart(command.value.contact, "none");
+        await this.marketing.setPreference(
+          command.value.contact,
+          command.value.enabled,
+        );
+        return;
+      case "start":
+        return this.start(command.value);
+      case "sign-in-decision":
+        await this.signIn.decide(command.value);
+        await this.callbackAnswers.answer(command.callbackQueryId);
+        return;
+      case "contactability":
+        await this.botContacts.observeContactability(command.value);
+        return;
+      case "membership":
+        await this.community.observeMembershipEvent(command.value);
+        await this.membershipEvidence.accept(command.value);
+        return;
+      case "join-request":
+        await this.community.acceptJoinRequest(command.value);
+        return;
+      case "community-request":
+        // The command exists only while community effects are enabled.
+        if (this.config.activation?.enabled)
+          await this.activation.action(command.value, "community");
+        else if (this.config.communityMode === "live")
+          await this.answerAdmission(command.value);
+        return;
+      case "author-input": {
+        const handled = await this.authorAdmin.handle(command.value);
+        if (handled && command.value.callbackQueryId)
+          await this.callbackAnswers.answer(command.value.callbackQueryId);
+        if (!handled && command.intake)
+          await this.communications.intake(command.intake);
+        return;
+      }
+      case "template-intake":
+        await this.communications.intake(command.value);
+        return;
+      case "ignored":
+        return;
+      default:
+        return unhandled(command, "Telegram update command");
+    }
+  }
+
+  private async start(
+    start: Extract<TelegramUpdateCommand, { kind: "start" }>["value"],
+  ): Promise<void> {
+    await this.botContacts.observeStart(
+      start.contact,
+      start.activationCode !== undefined
+        ? "none"
+        : start.signInToken
+          ? "none"
+          : start.linkToken
+            ? "link-receipt"
+            : this.marketing.enabled()
+              ? "none"
+              : "welcome",
+    );
+    if (start.activationCode !== undefined)
+      await this.activation.start(start.contact, start.activationCode);
+    if (start.signInToken?.kind === "digest") {
+      await this.signIn.acceptStart(start.contact, start.signInToken.digest);
+    }
+    if (start.linkToken) {
+      await this.identityLinking.acceptStart({
+        botIdentity: start.contact.botIdentity,
+        linkToken: start.linkToken,
+        observedAt: start.contact.observedAt,
+        telegramUserId: start.contact.telegramUserId,
+      });
+    }
+    if (
+      start.activationCode === undefined &&
+      !start.linkToken &&
+      !start.signInToken &&
+      this.marketing.enabled()
+    ) {
+      await this.marketing.enter(start.contact, start.marketingSource);
+    }
   }
 
   /** The contact's own request is the only path that hands out an invite link. */

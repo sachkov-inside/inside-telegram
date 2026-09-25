@@ -35,7 +35,7 @@ import type {
   FunnelDraft,
   MessagePart,
 } from "../../src/modules/communications/funnel-types.js";
-import { CLOCK } from "../../src/modules/identity-linking/clock.js";
+import { CLOCK } from "../../src/shared/clock.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
 
 import {

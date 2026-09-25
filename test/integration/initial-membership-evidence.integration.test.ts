@@ -9,7 +9,7 @@ import { createDatabase } from "../../src/database/create-database.js";
 import type { Database } from "../../src/database/database.js";
 import { migrateTo, migrateToLatest } from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
-import type { Clock } from "../../src/modules/identity-linking/clock.js";
+import type { Clock } from "../../src/shared/clock.js";
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
 import { InitialMembershipCheckProcessor } from "../../src/modules/membership-evidence/initial-membership-check-processor.js";
 import { InitialMembershipCheckQueue } from "../../src/modules/membership-evidence/initial-membership-check-queue.js";

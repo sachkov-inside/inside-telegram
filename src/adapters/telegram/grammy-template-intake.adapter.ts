@@ -1,12 +1,5 @@
 import type { TemplateContent } from "../../modules/communications/communications-contract.js";
-export interface TemplateIntake {
-  readonly botIdentity: string;
-  readonly updateId: string;
-  readonly telegramUserId: string;
-  readonly privateChatId: string;
-  readonly action: "open" | "close" | "capture";
-  readonly content: unknown;
-}
+import type { TemplateIntake } from "../../modules/communications/author-input.js";
 
 // Called only after the existing update router returns ignored. No callback, edit or /start handling.
 export function translateTemplateIntake(

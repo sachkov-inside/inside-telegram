@@ -13,7 +13,7 @@ import {
 } from "../../modules/subscription-activation/activation-contract.js";
 import type { ActivationPlatform } from "../../modules/subscription-activation/activation-ports.js";
 import type { ValidateFunction } from "ajv";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 /** Only the source-authority secret crosses this boundary; redirects are forbidden. */
 export class HttpActivationPlatform implements ActivationPlatform {

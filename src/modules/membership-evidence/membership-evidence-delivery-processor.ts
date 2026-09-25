@@ -6,7 +6,7 @@ import {
   type PlatformEvidenceDelivery,
   type PlatformEvidenceDeliveryResult,
 } from "./platform-evidence-delivery.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 @Injectable()
 export class MembershipEvidenceDeliveryProcessor {

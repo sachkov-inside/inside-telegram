@@ -6,7 +6,7 @@ import { CommunicationsError } from "../../src/modules/communications/communicat
 import {
   failureCode,
   reportFailure,
-} from "../../src/operations/failure-diagnostics.js";
+} from "../../src/shared/failure-diagnostics.js";
 
 describe("failure diagnostics", () => {
   afterEach(() => {

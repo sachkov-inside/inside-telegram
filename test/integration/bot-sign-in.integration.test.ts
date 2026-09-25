@@ -1,3 +1,4 @@
+import { GrammyUpdateAdapter } from "../../src/adapters/telegram/grammy-update.adapter.js";
 import { MarketingEntry } from "../../src/modules/communications/marketing-entry.js";
 import { Communications } from "../../src/modules/communications/communications.js";
 import { lockTelegramIdentity } from "../../src/modules/identity-linking/identity-link-account-lock.js";
@@ -454,6 +455,7 @@ describe("bot sign-in provider", () => {
         application.get(MarketingEntry),
         application.get(CommunityProvider),
         application.get(StartResponseDeliveryQueue),
+        new GrammyUpdateAdapter(),
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);

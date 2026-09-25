@@ -1,3 +1,4 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
 import type { DurableMembershipEnvelope } from "../membership-evidence/membership-evidence-provider.js";
 import { randomUUID } from "node:crypto";
 
@@ -5,7 +6,7 @@ import { sql } from "kysely";
 
 import type { Database } from "../../database/database.js";
 import { canonicalJson, digest } from "../../security/payload-digest.js";
-import type { Clock } from "../identity-linking/clock.js";
+import type { Clock } from "../../shared/clock.js";
 import {
   accessAllows,
   accessValidUntil,
@@ -57,7 +58,7 @@ import {
   RESTORABLE_REMOVAL_ORIGINS,
   type CommunityMutation,
 } from "./community-storage.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const ATTEMPT_BUDGET = 5;
 const PERMIT_WINDOW_MILLISECONDS = 5000;
@@ -337,13 +338,11 @@ export class CommunityProvider {
     command: CommunitySetCommand,
     now: Date,
   ): Promise<void> {
-    const link = await tx
-      .selectFrom("platform_links")
-      .select("telegram_user_id")
-      .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", command.binding.accountRef)
-      .where("telegram_identity_ref", "=", command.binding.telegramIdentityRef)
-      .executeTakeFirst();
+    const link = await findPlatformLink(tx, {
+      telegramIdentityRef: command.binding.telegramIdentityRef,
+      botIdentity: this.bot,
+      accountRef: command.binding.accountRef,
+    });
     await tx
       .insertInto("community_bindings")
       .values({
@@ -352,7 +351,7 @@ export class CommunityProvider {
         telegram_identity_ref: command.binding.telegramIdentityRef,
         link_ref: command.binding.linkRef,
         link_revision: command.binding.linkRevision,
-        telegram_user_id: link?.telegram_user_id ?? null,
+        telegram_user_id: link?.telegramUserId ?? null,
         first_seen_at: now,
         last_seen_at: now,
       })
@@ -362,7 +361,7 @@ export class CommunityProvider {
           .doUpdateSet({
             link_ref: command.binding.linkRef,
             link_revision: command.binding.linkRevision,
-            ...(link ? { telegram_user_id: link.telegram_user_id } : {}),
+            ...(link ? { telegram_user_id: link.telegramUserId } : {}),
             last_seen_at: now,
           }),
       )
@@ -426,30 +425,19 @@ export class CommunityProvider {
     )
       return;
     const now = this.clock.now();
-    const intended = await this.db
-      .selectFrom("platform_links")
-      .innerJoin("community_desired_states", (join) =>
-        join
-          .onRef(
-            "community_desired_states.bot_identity",
-            "=",
-            "platform_links.bot_identity",
-          )
-          .onRef(
-            "community_desired_states.account_ref",
-            "=",
-            "platform_links.account_ref",
-          )
-          .onRef(
-            "community_desired_states.telegram_identity_ref",
-            "=",
-            "platform_links.telegram_identity_ref",
-          ),
-      )
-      .selectAll("community_desired_states")
-      .where("platform_links.bot_identity", "=", this.bot)
-      .where("platform_links.telegram_user_id", "=", request.telegramUserId)
-      .executeTakeFirst();
+    const link = await findPlatformLink(this.db, {
+      botIdentity: this.bot,
+      telegramUserId: request.telegramUserId,
+    });
+    const intended =
+      link &&
+      (await this.db
+        .selectFrom("community_desired_states")
+        .selectAll()
+        .where("bot_identity", "=", link.botIdentity)
+        .where("account_ref", "=", link.accountRef)
+        .where("telegram_identity_ref", "=", link.telegramIdentityRef)
+        .executeTakeFirst());
 
     if (
       !intended ||
@@ -515,19 +503,17 @@ export class CommunityProvider {
    * is not membership. Reconciliation is what makes a missing link appear.
    */
   async admissionFor(telegramUserId: string): Promise<CommunityAdmission> {
-    const link = await this.db
-      .selectFrom("platform_links")
-      .select(["account_ref", "telegram_identity_ref"])
-      .where("bot_identity", "=", this.bot)
-      .where("telegram_user_id", "=", telegramUserId)
-      .executeTakeFirst();
+    const link = await findPlatformLink(this.db, {
+      botIdentity: this.bot,
+      telegramUserId,
+    });
     if (!link) return { kind: "none" };
     const desired = await this.db
       .selectFrom("community_desired_states")
       .selectAll()
       .where("bot_identity", "=", this.bot)
-      .where("account_ref", "=", link.account_ref)
-      .where("telegram_identity_ref", "=", link.telegram_identity_ref)
+      .where("account_ref", "=", link.accountRef)
+      .where("telegram_identity_ref", "=", link.telegramIdentityRef)
       .executeTakeFirst();
     const now = this.clock.now();
     if (!desired || !accessAllows(desired.access, now)) return { kind: "none" };
@@ -550,25 +536,23 @@ export class CommunityProvider {
       event.canonicalChatId !== this.canonicalChatId
     )
       return;
-    const link = await this.db
-      .selectFrom("platform_links")
-      .select(["account_ref", "telegram_identity_ref"])
-      .where("bot_identity", "=", this.bot)
-      .where("telegram_user_id", "=", event.subjectTelegramUserId)
-      .executeTakeFirst();
+    const link = await findPlatformLink(this.db, {
+      botIdentity: this.bot,
+      telegramUserId: event.subjectTelegramUserId,
+    });
     if (!link) return;
     await this.db.transaction().execute(async (tx) => {
-      await lockAccount(tx, this.bot, link.account_ref);
+      await lockAccount(tx, this.bot, link.accountRef);
       const current = await tx
         .selectFrom("community_desired_states")
         .selectAll()
         .where("bot_identity", "=", this.bot)
-        .where("account_ref", "=", link.account_ref)
+        .where("account_ref", "=", link.accountRef)
         .forUpdate()
         .executeTakeFirst();
       if (
         !current ||
-        current.telegram_identity_ref !== link.telegram_identity_ref ||
+        current.telegram_identity_ref !== link.telegramIdentityRef ||
         (current.last_membership_event_at &&
           (current.last_membership_event_at > event.eventAt ||
             (current.last_membership_event_at.getTime() ===
@@ -670,7 +654,7 @@ export class CommunityProvider {
           due_at: this.clock.now(),
         })
         .where("bot_identity", "=", this.bot)
-        .where("account_ref", "=", link.account_ref)
+        .where("account_ref", "=", link.accountRef)
         .execute();
       await setDesired(
         tx,

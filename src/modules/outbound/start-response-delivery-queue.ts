@@ -54,6 +54,105 @@ export interface ClaimedStartResponseDelivery {
   readonly lease: Lease<"start_response_deliveries">;
 }
 
+/** One reply the bot sends to a contact's private chat. */
+export interface PlannedReply {
+  readonly botIdentity: string;
+  readonly telegramUserId: string;
+  readonly privateChatId: string;
+  readonly messageText: string;
+  /** Work replayed under the same key reuses the first reply instead of sending twice. */
+  readonly sourceKey: string;
+  /** The update that asked for this reply, when a contact's own message did. */
+  readonly triggerUpdateId?: string;
+  readonly buttons?: readonly TelegramButton[];
+  readonly signInRequestRef?: string;
+  /** Edits this earlier bot message instead of sending a new one. */
+  readonly editMessageId?: string;
+  readonly now: Date;
+}
+
+/**
+ * Every reply enters the outbox here; `StartResponseDeliveryQueue.enqueue` is the same call for
+ * injected callers. Pass the caller's transaction so the reply commits together with the
+ * decision it answers. Returns false, and adds nothing, when the source key already has a reply.
+ */
+export async function enqueueReply(
+  database: Database | Transaction<DatabaseSchema>,
+  reply: PlannedReply,
+): Promise<boolean> {
+  const inserted = await database
+    .insertInto("start_response_deliveries")
+    .values({
+      attempt_count: 0,
+      available_at: reply.now,
+      bot_identity: reply.botIdentity,
+      buttons: reply.buttons
+        ? (JSON.stringify(
+            reply.buttons,
+          ) as unknown as readonly TelegramButton[])
+        : null,
+      created_at: reply.now,
+      delivered_at: null,
+      diagnostic_code: null,
+      edit_message_id: reply.editMessageId ?? null,
+      locked_at: null,
+      message_text: reply.messageText,
+      private_chat_id: reply.privateChatId,
+      sign_in_request_ref: reply.signInRequestRef ?? null,
+      source_key: reply.sourceKey,
+      state: "pending",
+      telegram_user_id: reply.telegramUserId,
+      trigger_update_id: reply.triggerUpdateId ?? null,
+      updated_at: reply.now,
+    })
+    .onConflict((conflict) => conflict.column("source_key").doNothing())
+    .returning("id")
+    .executeTakeFirst();
+  return inserted !== undefined;
+}
+
+/** Whether a reply is due now; service replies always go ahead of marketing sends. */
+export async function hasDueReply(
+  database: Database | Transaction<DatabaseSchema>,
+  botIdentity: string,
+  now: Date,
+): Promise<boolean> {
+  const due = await database
+    .selectFrom("start_response_deliveries")
+    .select("id")
+    .where("bot_identity", "=", botIdentity)
+    .where("state", "in", ["pending", "retry_scheduled"])
+    .where("available_at", "<=", now)
+    .executeTakeFirst();
+  return due !== undefined;
+}
+
+/** Replies per delivery state, for the redacted operator snapshot. */
+export async function replyStateCounts(
+  database: Database,
+): Promise<Record<string, number>> {
+  const rows = await database
+    .selectFrom("start_response_deliveries")
+    .select(["state as key", (eb) => eb.fn.countAll<string>().as("count")])
+    .groupBy("state")
+    .orderBy("state")
+    .execute();
+  return Object.fromEntries(rows.map((row) => [row.key, Number(row.count)]));
+}
+
+/** Send attempts per outcome, for the redacted operator snapshot. */
+export async function replyAttemptOutcomeCounts(
+  database: Database,
+): Promise<Record<string, number>> {
+  const rows = await database
+    .selectFrom("start_response_delivery_attempts")
+    .select(["outcome as key", (eb) => eb.fn.countAll<string>().as("count")])
+    .groupBy("outcome")
+    .orderBy("outcome")
+    .execute();
+  return Object.fromEntries(rows.map((row) => [row.key, Number(row.count)]));
+}
+
 @Injectable()
 export class StartResponseDeliveryQueue {
   constructor(
@@ -63,48 +162,11 @@ export class StartResponseDeliveryQueue {
     private readonly config?: ApplicationConfig,
   ) {}
 
-  /**
-   * Adds one durable private-chat reply. The source key makes a replayed update
-   * reuse the same intent instead of sending twice.
-   */
   async enqueue(
-    delivery: {
-      readonly buttons?: readonly TelegramButton[];
-      readonly botIdentity: string;
-      readonly telegramUserId: string;
-      readonly privateChatId: string;
-      readonly messageText: string;
-      readonly sourceKey: string;
-      readonly triggerUpdateId?: string;
-      readonly now: Date;
-    },
+    reply: PlannedReply,
     database: Database | Transaction<DatabaseSchema> = this.database,
-  ): Promise<void> {
-    await database
-      .insertInto("start_response_deliveries")
-      .values({
-        buttons: delivery.buttons
-          ? (JSON.stringify(
-              delivery.buttons,
-            ) as unknown as readonly TelegramButton[])
-          : null,
-        attempt_count: 0,
-        available_at: delivery.now,
-        bot_identity: delivery.botIdentity,
-        created_at: delivery.now,
-        delivered_at: null,
-        diagnostic_code: null,
-        locked_at: null,
-        message_text: delivery.messageText,
-        private_chat_id: delivery.privateChatId,
-        source_key: delivery.sourceKey,
-        state: "pending",
-        telegram_user_id: delivery.telegramUserId,
-        trigger_update_id: delivery.triggerUpdateId ?? null,
-        updated_at: delivery.now,
-      })
-      .onConflict((conflict) => conflict.doNothing())
-      .execute();
+  ): Promise<boolean> {
+    return enqueueReply(database, reply);
   }
 
   async claimNext(

@@ -1,5 +1,6 @@
 import { CommunicationsError } from "./communications-contract.js";
-import type { Action, Context, State } from "./author-admin.js";
+import type { Context } from "./author-admin.js";
+import { parseAuthorState, type AuthorButton } from "./author-dialog.js";
 import type { AuthorFunnelState } from "./author-funnels.js";
 
 type Kind = "broadcast" | "funnel" | "intro";
@@ -94,7 +95,7 @@ export async function discardComposition(c: Context, id: string) {
 export async function compositionButtons(
   c: Context,
   id: string,
-): Promise<[string, Action][]> {
+): Promise<AuthorButton[]> {
   const pending = await compositions(c)
     .where("destination_id", "=", id)
     .executeTakeFirst();
@@ -109,7 +110,8 @@ export async function restoreComposition(c: Context, id: string) {
     .where("destination_id", "=", id)
     .executeTakeFirst();
   if (!pending) throw new CommunicationsError("not_found");
-  const composer = (pending.state as State).composing;
+  // A composition stores the whole session it came from; an untrusted one is not restored.
+  const composer = parseAuthorState(pending.state)?.composing;
   if (!composer) throw new CommunicationsError("not_found");
   const d = composer.destination;
   if (d.kind === "broadcast") {

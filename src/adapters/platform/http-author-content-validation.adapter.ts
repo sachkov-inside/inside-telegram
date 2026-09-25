@@ -13,7 +13,7 @@ import type { MessagePart } from "../../modules/communications/funnel-types.js";
 import {
   reportCondition,
   reportFailure,
-} from "../../operations/failure-diagnostics.js";
+} from "../../shared/failure-diagnostics.js";
 
 const validRequest = contractValidator("contentValidationRequest");
 const validResponse = contractValidator("contentValidationResponse");

@@ -16,9 +16,9 @@ import {
   TELEGRAM_MESSAGES,
   type TelegramMessages,
 } from "../modules/outbound/telegram-messages.js";
-import { CLOCK, type Clock } from "../modules/identity-linking/clock.js";
+import { CLOCK, type Clock } from "../shared/clock.js";
 import { telegramTurnPending } from "../modules/outbound/telegram-transport-slots.js";
-import { reportCondition } from "./failure-diagnostics.js";
+import { reportCondition } from "../shared/failure-diagnostics.js";
 import { WorkerLoop, type WorkerPacing } from "./worker-loop.js";
 
 const RECONNECT_MILLISECONDS = 5000;

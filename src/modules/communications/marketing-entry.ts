@@ -1,3 +1,4 @@
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import { cancelDelivery } from "./funnel-timeline.js";
 import { updateMarketingAvailability } from "./marketing-preferences.js";
 import { randomUUID } from "node:crypto";
@@ -7,8 +8,8 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
-import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
+import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
 import { contactLock, planDelivery } from "./communication-state.js";
 import type { FunnelDraft, IntroSnapshot } from "./funnel-types.js";
 
@@ -72,28 +73,17 @@ export class MarketingEntry {
           observed_at: now,
         })
         .execute();
-      await tx
-        .insertInto("start_response_deliveries")
-        .values({
-          attempt_count: 0,
-          available_at: now,
-          bot_identity: start.botIdentity,
-          created_at: now,
-          delivered_at: null,
-          diagnostic_code: null,
-          locked_at: null,
-          message_text: enabled
-            ? "Сообщения включены. Пропущенные сообщения не придут."
-            : "Сообщения выключены. Чтобы включить их снова, отправьте /resume.",
-          private_chat_id: start.privateChatId,
-          source_key: `marketing-preference:${start.botIdentity}:${start.updateId}`,
-          state: "pending",
-          telegram_user_id: start.telegramUserId,
-          trigger_update_id: start.updateId,
-          updated_at: now,
-        })
-        .onConflict((c) => c.doNothing())
-        .execute();
+      await enqueueReply(tx, {
+        botIdentity: start.botIdentity,
+        telegramUserId: start.telegramUserId,
+        privateChatId: start.privateChatId,
+        messageText: enabled
+          ? "Сообщения включены. Пропущенные сообщения не придут."
+          : "Сообщения выключены. Чтобы включить их снова, отправьте /resume.",
+        sourceKey: `marketing-preference:${start.botIdentity}:${start.updateId}`,
+        triggerUpdateId: start.updateId,
+        now,
+      });
     });
   }
   async enter(start: VerifiedPrivateStart, source?: string): Promise<void> {

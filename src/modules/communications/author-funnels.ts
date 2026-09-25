@@ -11,7 +11,8 @@ import { messageLabel, previewAuthorMessage } from "./author-message-view.js";
 import { sql } from "kysely";
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
-import type { Action, Context } from "./author-admin.js";
+import type { Context } from "./author-admin.js";
+import type { AuthorButton, FunnelAction } from "./author-dialog.js";
 import { authorRequest } from "./author-request.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
@@ -30,15 +31,22 @@ import type {
   MessagePart,
 } from "./funnel-types.js";
 
-type Buttons = [string, Action][];
+type Buttons = AuthorButton[];
 type Reply = (text: string, buttons?: Buttons) => Promise<void>;
+export const FUNNEL_PROMPTS = [
+  "name",
+  "delay",
+  "source-name",
+  "source-code",
+  "part-delay",
+] as const;
 export interface AuthorFunnelState {
   funnel?: FunnelSnapshot;
   intro?: IntroSnapshot;
   dirty?: boolean;
   target?: "entry" | "intro" | string;
   replacePartId?: string;
-  prompt?: "name" | "delay" | "source-name" | "source-code" | "part-delay";
+  prompt?: (typeof FUNNEL_PROMPTS)[number];
   sourceName?: string;
   timingPartId?: string;
 }
@@ -134,14 +142,14 @@ export class AuthorFunnels {
         ...pending,
         ...(f.lifecycle !== "archived" && !pending.length
           ? [
-              ["Добавить сообщение", { kind: "sequence:funnel" }] as [
-                string,
-                Action,
-              ],
+              [
+                "Добавить сообщение",
+                { kind: "sequence:funnel" },
+              ] as AuthorButton,
             ]
           : []),
         ...(s.dirty
-          ? [["Сохранить черновик", { kind: "f:save" }] as [string, Action]]
+          ? [["Сохранить черновик", { kind: "f:save" }] as AuthorButton]
           : []),
         ...(!s.dirty &&
         f.lifecycle !== "archived" &&
@@ -153,26 +161,26 @@ export class AuthorFunnels {
                   ? "Включить воронку"
                   : "Применить изменения",
                 { kind: "f:preview" },
-              ] as [string, Action],
+              ] as AuthorButton,
             ]
           : []),
         ...(f.lifecycle === "draft" && !f.isDefault
-          ? [["Сделать основной", { kind: "f:default" }] as [string, Action]]
+          ? [["Сделать основной", { kind: "f:default" }] as AuthorButton]
           : []),
         ...(f.lifecycle === "published"
           ? [
-              ["Приостановить", { kind: "f:life", value: "pause" }] as [
-                string,
-                Action,
-              ],
+              [
+                "Приостановить",
+                { kind: "f:life", value: "pause" },
+              ] as AuthorButton,
             ]
           : []),
         ...(f.lifecycle === "paused"
           ? [
-              ["Продолжить", { kind: "f:life", value: "resume" }] as [
-                string,
-                Action,
-              ],
+              [
+                "Продолжить",
+                { kind: "f:life", value: "resume" },
+              ] as AuthorButton,
             ]
           : []),
         ...(f.lifecycle !== "archived"
@@ -180,7 +188,7 @@ export class AuthorFunnels {
               [
                 "Отменить воронку",
                 { kind: f.revision ? "f:confirm-archive" : "f:discard" },
-              ] as [string, Action],
+              ] as AuthorButton,
             ]
           : []),
         ["Все воронки", { kind: "f:list" }],
@@ -229,7 +237,7 @@ export class AuthorFunnels {
           ] as Buttons)
         : []),
       ...(s.dirty
-        ? [["Отказаться от правок", { kind: "f:discard" }] as [string, Action]]
+        ? [["Отказаться от правок", { kind: "f:discard" }] as AuthorButton]
         : []),
       ["Общий вводный блок", { kind: "f:intro" }],
       ...root,
@@ -331,7 +339,7 @@ export class AuthorFunnels {
         )),
         ...parts
           .slice(offset, offset + 10)
-          .map((part, i): [string, Action] => [
+          .map((part, i): AuthorButton => [
             `Сообщение ${offset + i + 1}`,
             { kind: "f:part", id: part.partId },
           ]),
@@ -365,7 +373,7 @@ export class AuthorFunnels {
       ],
     );
   }
-  async act(c: Context, a: Action, reply: Reply): Promise<void> {
+  async act(c: Context, a: FunnelAction, reply: Reply): Promise<void> {
     await sql`savepoint author_funnel_action`.execute(c.tx);
     try {
       await this.perform(c, a, reply);
@@ -375,7 +383,11 @@ export class AuthorFunnels {
       throw error;
     }
   }
-  private async perform(c: Context, a: Action, reply: Reply): Promise<void> {
+  private async perform(
+    c: Context,
+    a: FunnelAction,
+    reply: Reply,
+  ): Promise<void> {
     if (a.kind === "f:settings") return this.settings(c, reply);
     if (a.kind === "f:messages") {
       const f = this.state(c).funnel!;
@@ -399,7 +411,7 @@ export class AuthorFunnels {
         [
           ...messages
             .slice(offset, offset + 5)
-            .map(({ p, target, when }, i): [string, Action] => [
+            .map(({ p, target, when }, i): AuthorButton => [
               `${offset + i + 1}. ${when} · ${messageLabel(p.content, 25)}`,
               { kind: "f:message", id: p.partId, value: target },
             ]),
@@ -408,7 +420,7 @@ export class AuthorFunnels {
                 [
                   "Предыдущие",
                   { kind: "f:messages", value: String(offset - 5) },
-                ] as [string, Action],
+                ] as AuthorButton,
               ]
             : []),
           ...(messages.length > offset + 5
@@ -416,7 +428,7 @@ export class AuthorFunnels {
                 [
                   "Следующие",
                   { kind: "f:messages", value: String(offset + 5) },
-                ] as [string, Action],
+                ] as AuthorButton,
               ]
             : []),
           ["Добавить сообщения", { kind: "batch:funnel" }],
@@ -477,7 +489,7 @@ export class AuthorFunnels {
         scratch = scratch.where("draft_id", ">", a.id);
       }
       const ids = await saved.union(scratch).orderBy("id").limit(11).execute();
-      const items: [string, Action][] = [];
+      const items: AuthorButton[] = [];
       for (const { id } of ids.slice(0, 10)) {
         const draft = await drafts(c)
           .where("draft_id", "=", id)
@@ -505,10 +517,10 @@ export class AuthorFunnels {
         ...items,
         ...(ids.length > 10
           ? [
-              ["Следующие воронки", { kind: "f:list", id: ids[9]!.id }] as [
-                string,
-                Action,
-              ],
+              [
+                "Следующие воронки",
+                { kind: "f:list", id: ids[9]!.id },
+              ] as AuthorButton,
             ]
           : []),
         ["В меню", { kind: "home" }],
@@ -703,7 +715,7 @@ export class AuthorFunnels {
         [
           ...f.steps
             .slice(offset, offset + 15)
-            .map((step, i): [string, Action] => [
+            .map((step, i): AuthorButton => [
               `Шаг ${offset + i + 1} · ${formatFunnelDelay(step.delaySeconds)}`,
               { kind: "f:step", id: step.stepId },
             ]),
@@ -796,7 +808,7 @@ export class AuthorFunnels {
         [
           ...f.sources
             .slice(offset, offset + 15)
-            .map((source): [string, Action] => [
+            .map((source): AuthorButton => [
               source.name.slice(0, 50),
               { kind: "f:source", id: source.sourceId },
             ]),

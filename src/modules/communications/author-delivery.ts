@@ -1,3 +1,4 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
 import { randomUUID } from "node:crypto";
 import { isDeepStrictEqual } from "node:util";
 import { Inject, Injectable } from "@nestjs/common";
@@ -38,7 +39,7 @@ import {
   type DurableQueue,
 } from "../../database/durable-queue.js";
 import { transactionWithExternalReads } from "../../database/external-reads.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 export const AUTHOR_TRANSPORT = Symbol("AUTHOR_TRANSPORT");
 
@@ -139,23 +140,21 @@ export class AuthorDelivery {
       if (!template) throw new CommunicationsError("not_found");
       if (template.revision !== request.expectedRevision)
         throw new CommunicationsError("revision_conflict");
-      const link = await tx
-        .selectFrom("platform_links")
-        .selectAll()
-        .where("bot_identity", "=", this.config.botIdentity)
-        .where("account_ref", "=", accountRef)
-        .forShare()
-        .executeTakeFirst();
+      const link = await findPlatformLink(
+        tx,
+        { botIdentity: this.config.botIdentity, accountRef },
+        "share",
+      );
       if (!link) throw new CommunicationsError("forbidden");
       const result = { testDeliveryId: randomUUID() };
       await enqueueAuthorMessage(tx, {
         deliveryId: result.testDeliveryId,
         botIdentity: this.config.botIdentity,
         accountRef,
-        telegramUserId: link.telegram_user_id,
-        telegramIdentityRef: link.telegram_identity_ref,
+        telegramUserId: link.telegramUserId,
+        telegramIdentityRef: link.telegramIdentityRef,
         message: {
-          chatId: link.telegram_user_id,
+          chatId: link.telegramUserId,
           content: template.content as TemplateContent,
         },
       });
@@ -226,16 +225,17 @@ export class AuthorDelivery {
               ),
             ]),
           prepare: async (tx, row) => {
-            const link = await tx
-              .selectFrom("platform_links")
-              .selectAll()
-              .where("bot_identity", "=", row.bot_identity)
-              .where("telegram_user_id", "=", row.telegram_user_id)
-              .forShare()
-              .executeTakeFirst();
+            const link = await findPlatformLink(
+              tx,
+              {
+                botIdentity: row.bot_identity,
+                telegramUserId: row.telegram_user_id,
+              },
+              "share",
+            );
             const allowed =
-              link?.account_ref === row.account_ref &&
-              link.telegram_identity_ref === row.telegram_identity_ref
+              link?.accountRef === row.account_ref &&
+              link.telegramIdentityRef === row.telegram_identity_ref
                 ? await authorizeAuthor(this.authorization, {
                     kind: "telegram",
                     accountRef: row.account_ref,

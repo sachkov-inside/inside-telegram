@@ -6,7 +6,7 @@ import type {
   TelegramMessageEdit,
   TelegramTextMessage,
 } from "../../modules/outbound/telegram-messages.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 export class GrammyMessagesAdapter implements TelegramMessages {
   private readonly api: TelegramApi;

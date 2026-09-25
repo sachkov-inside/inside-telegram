@@ -1,3 +1,4 @@
+import { hasDueReply } from "../outbound/start-response-delivery-queue.js";
 import { enqueueBroadcastAuthorMenu } from "./author-delivery-menu.js";
 import { completeBroadcasts, launchDueBroadcasts } from "./broadcasts.js";
 import { trackedContent } from "./communication-tracking.js";
@@ -16,7 +17,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import {
   admitTelegramSlot,
   chatLaneBusy,
@@ -39,7 +40,7 @@ import type {
   BroadcastPart,
   DeliveryPart,
 } from "./funnel-types.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 const REPLY_KINDS = ["intro", "entry", "fallback"] as const;
 const BACKLOG_KINDS = ["step", "broadcast"] as const;
 type Queue = typeof REPLY_KINDS | typeof BACKLOG_KINDS;
@@ -260,14 +261,8 @@ export class FunnelScheduler {
       await schedulerLock(tx, this.config.botIdentity);
       const now = this.clock.now();
       // A marketing backlog must never reserve capacity ahead of a ready service response.
-      const service = await tx
-        .selectFrom("start_response_deliveries")
-        .select("id")
-        .where("bot_identity", "=", this.config.botIdentity)
-        .where("state", "in", ["pending", "retry_scheduled"])
-        .where("available_at", "<=", now)
-        .executeTakeFirst();
-      if (service) return { kind: "capacity_busy" } as const;
+      if (await hasDueReply(tx, this.config.botIdentity, now))
+        return { kind: "capacity_busy" } as const;
       // Replies to a contact's own /start go ahead of the funnel and broadcast backlog.
       for (const queue of [REPLY_KINDS, BACKLOG_KINDS]) {
         const outcome = await this.claimFrom(tx, resumeAfter, queue, now);

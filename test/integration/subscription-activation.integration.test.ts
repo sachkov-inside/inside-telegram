@@ -8,7 +8,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { AppModule } from "../../src/app.module.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import { DATABASE, type Database } from "../../src/database/database.js";
-import { CLOCK } from "../../src/modules/identity-linking/clock.js";
+import { CLOCK } from "../../src/shared/clock.js";
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
 import { SourceGroupProof } from "../../src/modules/subscription-activation/source-group-proof.js";
 import {

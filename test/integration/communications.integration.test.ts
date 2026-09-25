@@ -6,10 +6,8 @@ import {
   type AuthorContentValidationResult,
 } from "../../src/modules/communications/author-content-validation.js";
 import type { MessagePart } from "../../src/modules/communications/funnel-types.js";
-import {
-  AuthorAdmin,
-  type State,
-} from "../../src/modules/communications/author-admin.js";
+import { AuthorAdmin } from "../../src/modules/communications/author-admin.js";
+import { parseAuthorState } from "../../src/modules/communications/author-dialog.js";
 import { AuthorDelivery } from "../../src/modules/communications/author-delivery.js";
 import { translateAuthorInput } from "../../src/adapters/telegram/grammy-author-admin.adapter.js";
 import { randomUUID } from "node:crypto";
@@ -600,7 +598,10 @@ async function sessionState() {
     .select("state")
     .where("telegram_user_id", "=", "42")
     .executeTakeFirstOrThrow();
-  return row.state as State;
+  // Every stored session must be one the current version accepts.
+  const state = parseAuthorState(row.state);
+  if (!state) throw new Error("Stored author session is not trusted");
+  return state;
 }
 
 async function broadcastRows() {

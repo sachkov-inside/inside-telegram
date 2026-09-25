@@ -68,11 +68,7 @@ import { BotContacts } from "./modules/bot-contacts/bot-contacts.js";
 import { SignInAccountLink } from "./modules/bot-sign-in/sign-in-account-link.js";
 import { BotSignIn } from "./modules/bot-sign-in/bot-sign-in.js";
 import { BotSignInController } from "./modules/bot-sign-in/bot-sign-in.controller.js";
-import {
-  CLOCK,
-  systemClock,
-  type Clock,
-} from "./modules/identity-linking/clock.js";
+import { CLOCK, systemClock, type Clock } from "./shared/clock.js";
 import { IdentityLinking } from "./modules/identity-linking/identity-linking.js";
 import { IdentityLinkRecovery } from "./modules/identity-linking/identity-link-recovery.js";
 import { IdentityLinkingController } from "./modules/identity-linking/identity-linking.controller.js";
@@ -100,11 +96,14 @@ import { StartResponseDeliveryProcessor } from "./modules/outbound/start-respons
 import { StartResponseDeliveryQueue } from "./modules/outbound/start-response-delivery-queue.js";
 import { TelegramUpdateInbox } from "./modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "./modules/update-inbox/telegram-update-processor.js";
+import { TELEGRAM_UPDATE_TRANSLATOR } from "./modules/update-inbox/telegram-update-command.js";
+import { GrammyUpdateAdapter } from "./adapters/telegram/grammy-update.adapter.js";
 import { TelegramWebhook } from "./modules/webhook/telegram-webhook.js";
 import { TelegramWebhookController } from "./modules/webhook/telegram-webhook.controller.js";
 import { BackgroundWorkers } from "./operations/background-workers.js";
 import { OperationsController } from "./operations/operations.controller.js";
 import { RuntimeMetrics } from "./operations/runtime-metrics.js";
+import { RUNTIME_COUNTERS } from "./shared/runtime-counters.js";
 
 @Module({})
 export class AppModule {
@@ -361,8 +360,13 @@ export class AppModule {
         MembershipEvidenceOutbox,
         MembershipEvidenceProvider,
         RuntimeMetrics,
+        { provide: RUNTIME_COUNTERS, useExisting: RuntimeMetrics },
         TelegramUpdateInbox,
         TelegramUpdateProcessor,
+        {
+          provide: TELEGRAM_UPDATE_TRANSLATOR,
+          useValue: new GrammyUpdateAdapter(),
+        },
         TelegramWebhook,
         StartResponseDeliveryProcessor,
         StartResponseDeliveryQueue,

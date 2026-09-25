@@ -18,7 +18,7 @@ import { CommunityProvider } from "../modules/community/community-provider.js";
 import { InitialMembershipCheckProcessor } from "../modules/membership-evidence/initial-membership-check-processor.js";
 import { MembershipEvidenceDeliveryProcessor } from "../modules/membership-evidence/membership-evidence-delivery-processor.js";
 import { MembershipEvidenceProvider } from "../modules/membership-evidence/membership-evidence-provider.js";
-import { CLOCK, type Clock } from "../modules/identity-linking/clock.js";
+import { CLOCK, type Clock } from "../shared/clock.js";
 import { telegramTurnPending } from "../modules/outbound/telegram-transport-slots.js";
 import { StartResponseDeliveryProcessor } from "../modules/outbound/start-response-delivery-processor.js";
 import { TelegramUpdateInbox } from "../modules/update-inbox/telegram-update-inbox.js";

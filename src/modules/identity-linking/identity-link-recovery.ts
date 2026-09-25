@@ -7,7 +7,7 @@ import {
   type DatabaseSchema,
   type IdentityLinkRecoveriesTable,
 } from "../../database/database.js";
-import { CLOCK, type Clock } from "./clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import { lockIdentityLinkAccount } from "./identity-link-account-lock.js";
 import { isOpaqueRef } from "./identity-linking-validation.js";
 

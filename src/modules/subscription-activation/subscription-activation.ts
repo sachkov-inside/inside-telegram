@@ -6,9 +6,9 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import { reserveTelegramIdentity } from "../identity-linking/stable-telegram-identity.js";
-import type { VerifiedPrivateStart } from "../bot-contacts/bot-contacts.js";
+import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
 import { StartResponseDeliveryQueue } from "../outbound/start-response-delivery-queue.js";
 import { CommunityProvider } from "../community/community-provider.js";
 import {
@@ -29,7 +29,7 @@ import {
   ownAccessText,
 } from "./activation-view.js";
 import type { ActivationTables } from "./activation-storage.js";
-import { reportFailure } from "../../operations/failure-diagnostics.js";
+import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 type Attempt = Selectable<ActivationTables["activation_attempts"]>;
 const RETENTION = 30 * 24 * 60 * 60_000;

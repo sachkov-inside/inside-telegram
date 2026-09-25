@@ -4,7 +4,7 @@ import {
   type ApplicationConfig,
 } from "../../config/application-config.js";
 import { DATABASE, type Database } from "../../database/database.js";
-import { CLOCK, type Clock } from "../identity-linking/clock.js";
+import { CLOCK, type Clock } from "../../shared/clock.js";
 import { IdentityLinking } from "../identity-linking/identity-linking.js";
 import { isRequestRef } from "./bot-sign-in.js";
 

@@ -1,3 +1,4 @@
+import { findPlatformLink } from "../identity-linking/platform-links.js";
 import { Inject, Injectable } from "@nestjs/common";
 
 import {
@@ -104,27 +105,27 @@ export class MembershipEvidenceOutbox {
     delivery: ClaimedMembershipEvidenceDelivery,
     operation: () => Promise<Result>,
   ): Promise<Result | undefined> {
-    const owner = await this.database
+    const subject = await this.database
       .selectFrom("membership_evidence_outbox")
       .innerJoin(
         "membership_check_results",
         "membership_check_results.result_ref",
         "membership_evidence_outbox.result_ref",
       )
-      .innerJoin(
-        "platform_links",
-        "platform_links.telegram_identity_ref",
-        "membership_check_results.telegram_identity_ref",
-      )
-      .select("platform_links.bot_identity")
+      .select("membership_check_results.telegram_identity_ref")
       .where("membership_evidence_outbox.id", "=", delivery.idempotencyKey)
       .executeTakeFirst();
+    const owner =
+      subject &&
+      (await findPlatformLink(this.database, {
+        telegramIdentityRef: subject.telegram_identity_ref,
+      }));
     if (!owner) {
       return undefined;
     }
     return withProviderDeliveryLock(
       this.database,
-      owner.bot_identity,
+      owner.botIdentity,
       async (connection) => {
         // Only the current lease holder delivers; a worker whose lease expired stays silent.
         const stored = await connection

@@ -5,7 +5,7 @@ import {
   CommunityRestrictions,
   type RestrictionDecision,
 } from "../modules/community/community-restrictions.js";
-import { systemClock } from "../modules/identity-linking/clock.js";
+import { systemClock } from "../shared/clock.js";
 
 const mode = process.argv[2];
 if (

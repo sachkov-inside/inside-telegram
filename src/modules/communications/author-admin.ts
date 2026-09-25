@@ -1,3 +1,6 @@
+import { unhandled } from "../../shared/unhandled.js";
+import { findPlatformLink } from "../identity-linking/platform-links.js";
+import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import {
   AuthorSequenceComposer,
   type SequenceResult,
@@ -11,7 +14,6 @@ import {
 } from "./author-button.js";
 import {
   AuthorComposer,
-  type ComposerState,
   type ComposerResult,
   type MessageDestination,
 } from "./author-composer.js";
@@ -29,7 +31,7 @@ import {
   restoreComposition,
 } from "./author-drafts.js";
 import { messageLabel, previewAuthorMessage } from "./author-message-view.js";
-import { AuthorFunnels, type AuthorFunnelState } from "./author-funnels.js";
+import { AuthorFunnels } from "./author-funnels.js";
 import { authorRequest } from "./author-request.js";
 import { randomUUID } from "node:crypto";
 import { Inject, Injectable } from "@nestjs/common";
@@ -43,7 +45,7 @@ import {
   APPLICATION_CONFIG,
   type ApplicationConfig,
 } from "../../config/application-config.js";
-import type { AuthorInput } from "../../adapters/telegram/grammy-author-admin.adapter.js";
+import type { AuthorInput } from "./author-input.js";
 import {
   AUTHOR_AUTHORIZATION,
   authorizeAuthor,
@@ -55,51 +57,85 @@ import { AuthorDelivery, enqueueAuthorMessage } from "./author-delivery.js";
 import {
   CommunicationsError,
   validateContent,
-  type TemplateContent,
   type CommunicationsRequest,
-  type TemplateSnapshot,
 } from "./communications-contract.js";
 import type { broadcastView } from "./broadcasts.js";
+import {
+  emptyAuthorState,
+  pageAuthorMenu,
+  parseAuthorState,
+  resolveAuthorCallback,
+  isComposeAction,
+  isFunnelAction,
+  type AuthorAction,
+  type AuthorButton,
+  type AuthorState,
+  type ComposeAction,
+  type FunnelAction,
+} from "./author-dialog.js";
 import { communicationLock } from "./communication-state.js";
 
 type Broadcast = ReturnType<typeof broadcastView>;
-export type Action = { kind: string; id?: string; value?: string };
-export type State = {
-  freshMenu?: boolean;
-  batch?: "broadcast" | "funnel";
-  menu?: { text: string; buttons: [string, Action][] };
-
-  composing?: ComposerState;
-  broadcastName?: string;
-  pendingSchedule?: string | null;
-  libraryQuery?: string;
-  token: string;
-  actions: Action[];
-  funnelAuthor?: AuthorFunnelState;
-  template?: TemplateSnapshot;
-  broadcast?: Broadcast;
-  prompt?:
-    | "capture"
-    | "replace"
-    | "button-title"
-    | "button-url"
-    | "button-row"
-    | "schedule"
-    | "broadcast-name"
-    | "post-search";
-  replacePart?: { broadcastId: string; partId: string };
-  buttonTitle?: string;
-  buttonUrl?: string;
-};
+type BroadcastAction = Extract<
+  AuthorAction,
+  {
+    kind:
+      | "broadcast-sample"
+      | "parts"
+      | "show-part"
+      | "replace-part"
+      | "move-part"
+      | "remove-part"
+      | "statistics"
+      | "schedule"
+      | "confirm-launch"
+      | "confirm-cancel"
+      | "launch"
+      | "pause"
+      | "resume"
+      | "cancel";
+  }
+>;
+/** Composer buttons that start or restore a composition; the composer handles the rest. */
+const COMPOSITION_ENTRIES = [
+  "compose:broadcast",
+  "compose:funnel",
+  "compose:edit-broadcast",
+  "compose:edit-funnel",
+  "compose:resume",
+  "compose:discard",
+] as const;
+type ComposerStep = Exclude<
+  ComposeAction,
+  { kind: (typeof COMPOSITION_ENTRIES)[number] }
+>;
+function isComposerStep(action: AuthorAction): action is ComposerStep {
+  return (
+    isComposeAction(action) &&
+    !(COMPOSITION_ENTRIES as readonly string[]).includes(action.kind)
+  );
+}
+/** Funnel buttons that the admin handles; the funnel editor handles the rest. */
+const FUNNEL_ENTRIES = ["f:new", "f:posts"] as const;
+type FunnelStep = Exclude<
+  FunnelAction,
+  { kind: (typeof FUNNEL_ENTRIES)[number] }
+>;
+function isFunnelStep(action: AuthorAction): action is FunnelStep {
+  return (
+    isFunnelAction(action) &&
+    !(FUNNEL_ENTRIES as readonly string[]).includes(action.kind)
+  );
+}
 type Tx = Transaction<DatabaseSchema>;
 export type Context = {
   tx: Tx;
   input: AuthorInput;
   accountRef: string;
   identityRef: string;
-  state: State;
+  state: AuthorState;
 };
-const home: [string, Action][] = [
+const home: AuthorButton[] = [
   ["Рассылки", { kind: "broadcasts" }],
   ["Воронки", { kind: "f:list" }],
   ["Статистика", { kind: "overview" }],
@@ -171,18 +207,19 @@ export class AuthorAdmin {
         )
         .executeTakeFirst();
       if (earlier) throw new Error("Earlier author update is still pending");
-      const link = await tx
-        .selectFrom("platform_links")
-        .selectAll()
-        .where("bot_identity", "=", input.botIdentity)
-        .where("telegram_user_id", "=", input.telegramUserId)
-        .forShare()
-        .executeTakeFirst();
+      const link = await findPlatformLink(
+        tx,
+        {
+          botIdentity: input.botIdentity,
+          telegramUserId: input.telegramUserId,
+        },
+        "share",
+      );
       const allowed = link
         ? await authorizeAuthor(this.authorization, {
             kind: "telegram",
-            accountRef: link.account_ref,
-            telegramIdentityRef: link.telegram_identity_ref,
+            accountRef: link.accountRef,
+            telegramIdentityRef: link.telegramIdentityRef,
             botIdentity: input.botIdentity,
           })
         : "denied";
@@ -191,7 +228,7 @@ export class AuthorAdmin {
       if (
         allowed !== "allowed" ||
         !link ||
-        (!open && session && session.account_ref !== link.account_ref)
+        (!open && session && session.account_ref !== link.accountRef)
       ) {
         await tx
           .deleteFrom("communication_author_sessions")
@@ -199,34 +236,24 @@ export class AuthorAdmin {
           .where("telegram_user_id", "=", input.telegramUserId)
           .execute();
         // Use the ordinary reply queue for a denial without exposing any author data.
-        const now = new Date();
-        await tx
-          .insertInto("start_response_deliveries")
-          .values({
-            attempt_count: 0,
-            available_at: now,
-            bot_identity: input.botIdentity,
-            created_at: now,
-            delivered_at: null,
-            diagnostic_code: null,
-            locked_at: null,
-            message_text:
-              "Нет доступа к админке. Свяжите Telegram с аккаунтом, которому разрешено управление рассылками.",
-            private_chat_id: input.telegramUserId,
-            source_key: `author-denied:${input.botIdentity}:${input.updateId}`,
-            state: "pending",
-            telegram_user_id: input.telegramUserId,
-            trigger_update_id: null,
-            updated_at: now,
-          })
-          .execute();
+        await enqueueReply(tx, {
+          botIdentity: input.botIdentity,
+          telegramUserId: input.telegramUserId,
+          privateChatId: input.privateChatId,
+          messageText:
+            "Нет доступа к админке. Свяжите Telegram с аккаунтом, которому разрешено управление рассылками.",
+          sourceKey: `author-denied:${input.botIdentity}:${input.updateId}`,
+          now: new Date(),
+        });
       } else {
         const context: Context = {
           tx,
           input,
-          accountRef: link.account_ref,
-          identityRef: link.telegram_identity_ref,
-          state: open ? empty() : ((session?.state as State) ?? empty()),
+          accountRef: link.accountRef,
+          identityRef: link.telegramIdentityRef,
+          state: open
+            ? emptyAuthorState()
+            : (parseAuthorState(session?.state) ?? emptyAuthorState()),
         };
         if (close && context.state.batch) {
           const kind = context.state.batch;
@@ -250,31 +277,20 @@ export class AuthorAdmin {
             ),
           );
         } else if (open || close) {
-          context.state = empty();
+          context.state = emptyAuthorState();
           await this.reply(
             context,
             "Админка коммуникаций. Текст и медиа готовьте здесь, в Telegram.",
             home,
           );
         } else if (input.callbackData) {
-          const [, token, index] = input.callbackData.split(":");
-          const navigation: Action | undefined =
-            token === "open-broadcast" &&
-            /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
-              index ?? "",
-            )
-              ? { kind: "read-broadcast", id: index }
-              : (token === "broadcasts" || token === "home") && index === "0"
-                ? { kind: token }
-                : undefined;
-          const action =
-            navigation ??
-            (token === context.state.token && /^\d+$/.test(index ?? "")
-              ? context.state.actions[Number(index)]
-              : undefined);
+          const action = resolveAuthorCallback(
+            context.state,
+            input.callbackData,
+          );
           if (!action) {
             const pending = context.state.composing;
-            if (!pending) context.state = empty();
+            if (!pending) context.state = emptyAuthorState();
             await this.reply(
               context,
               "Это меню уже устарело. Незавершённое сообщение сохранено, если вы начали его создание.",
@@ -297,7 +313,7 @@ export class AuthorAdmin {
               ].includes(error.code)
             )
               throw error;
-            context.state = empty();
+            context.state = emptyAuthorState();
             await this.reply(
               context,
               "Данные изменились. Откройте актуальный пост, рассылку или воронку и повторите правку.",
@@ -312,12 +328,12 @@ export class AuthorAdmin {
           .values({
             bot_identity: input.botIdentity,
             telegram_user_id: input.telegramUserId,
-            account_ref: link.account_ref,
+            account_ref: link.accountRef,
             state: JSON.stringify(context.state),
           })
           .onConflict((c) =>
             c.columns(["bot_identity", "telegram_user_id"]).doUpdateSet({
-              account_ref: link.account_ref,
+              account_ref: link.accountRef,
               state: JSON.stringify(context.state),
             }),
           )
@@ -350,45 +366,19 @@ export class AuthorAdmin {
   private async reply(
     c: Context,
     text: string,
-    buttons: [string, Action][] = [["В меню", { kind: "home" }]],
+    buttons: AuthorButton[] = [["В меню", { kind: "home" }]],
   ) {
     c.state.menu = { text, buttons };
     return this.renderMenu(c, 0);
   }
   private async renderMenu(c: Context, page: number) {
     const menu = c.state.menu!;
-    const choices = new Set([
-      "compose:choose",
-      "read-post",
-      "read-broadcast",
-      "show-part",
-      "f:read",
-      "f:part",
-      "f:message",
-      "part-sample",
-    ]);
-    if (
-      menu.buttons.length <= 6 ||
-      menu.buttons.filter(([, a]) => choices.has(a.kind)).length > 1
-    )
-      return this.sendMenu(c, menu.text, menu.buttons);
-    const last = menu.buttons.at(-1)!;
-    const options = menu.buttons.slice(0, -1);
-    const buttons = options.slice(page * 4, page * 4 + 4);
-    if (page > 0)
-      buttons.push([
-        "← Предыдущие действия",
-        { kind: "menu:page", value: String(page - 1) },
-      ]);
-    if (options.length > page * 4 + 4)
-      buttons.push(["Ещё →", { kind: "menu:page", value: String(page + 1) }]);
-    buttons.push(last);
-    return this.sendMenu(c, menu.text, buttons);
+    return this.sendMenu(c, menu.text, pageAuthorMenu(menu, page));
   }
   private async sendMenu(
     c: Context,
     text: string,
-    buttons: [string, Action][] = [["В меню", { kind: "home" }]],
+    buttons: AuthorButton[] = [["В меню", { kind: "home" }]],
   ) {
     c.state.token = randomUUID();
     c.state.actions = buttons.map(([, action]) => action);
@@ -421,7 +411,7 @@ export class AuthorAdmin {
         ["Образец себе", { kind: "sample" }],
         ["Заменить сообщение", { kind: "replace" }],
         ["Добавить кнопку", { kind: "button" }],
-        ...t.content.buttons.map((b, i): [string, Action] => [
+        ...t.content.buttons.map((b, i): AuthorButton => [
           `Удалить: ${b.text}`,
           { kind: "remove-button", value: String(i) },
         ]),
@@ -495,45 +485,35 @@ export class AuthorAdmin {
         ...pending,
         ...(b.state === "draft" && !pending.length
           ? [
-              ["Добавить сообщение", { kind: "sequence:broadcast" }] as [
-                string,
-                Action,
-              ],
+              [
+                "Добавить сообщение",
+                { kind: "sequence:broadcast" },
+              ] as AuthorButton,
             ]
           : []),
         ...(b.state === "draft" && b.parts.length && !pending.length
-          ? [["Запустить", { kind: "confirm-launch" }] as [string, Action]]
+          ? [["Запустить", { kind: "confirm-launch" }] as AuthorButton]
           : []),
         ...(["scheduled", "running"].includes(b.state)
-          ? [["Приостановить", { kind: "pause" }] as [string, Action]]
+          ? [["Приостановить", { kind: "pause" }] as AuthorButton]
           : []),
         ...(b.state === "paused"
-          ? [["Продолжить", { kind: "resume" }] as [string, Action]]
+          ? [["Продолжить", { kind: "resume" }] as AuthorButton]
           : []),
         ...(!["completed", "cancelled"].includes(b.state)
-          ? [
-              ["Отменить рассылку", { kind: "confirm-cancel" }] as [
-                string,
-                Action,
-              ],
-            ]
+          ? [["Отменить рассылку", { kind: "confirm-cancel" }] as AuthorButton]
           : []),
         ...(b.parts.length
           ? [
-              ["Посмотреть сообщения", { kind: "broadcast-sample" }] as [
-                string,
-                Action,
-              ],
+              [
+                "Посмотреть сообщения",
+                { kind: "broadcast-sample" },
+              ] as AuthorButton,
             ]
           : []),
         ...(["running", "paused", "completed", "cancelled"].includes(b.state) &&
         b.revision
-          ? [
-              ["Результаты отправки", { kind: "statistics" }] as [
-                string,
-                Action,
-              ],
-            ]
+          ? [["Результаты отправки", { kind: "statistics" }] as AuthorButton]
           : []),
         ["Все рассылки", { kind: "broadcasts" }],
       ],
@@ -673,7 +653,7 @@ export class AuthorAdmin {
     await retainBroadcast(c);
     if (render) await this.broadcast(c);
   }
-  private async act(c: Context, a: Action): Promise<void> {
+  private async act(c: Context, a: AuthorAction): Promise<void> {
     // Expected revision is taken from the menu the author actually saw.
     await sql`savepoint author_admin_action`.execute(c.tx);
     try {
@@ -691,7 +671,7 @@ export class AuthorAdmin {
         ].includes(error.code)
       )
         throw error;
-      c.state = empty();
+      c.state = emptyAuthorState();
       await this.reply(
         c,
         "Пост, рассылка или воронка изменились либо действие недоступно. Откройте актуальную версию.",
@@ -699,487 +679,538 @@ export class AuthorAdmin {
       );
     }
   }
-  private async perform(c: Context, a: Action): Promise<void> {
-    const reply = (text: string, buttons?: [string, Action][]) =>
+  private async perform(c: Context, a: AuthorAction): Promise<void> {
+    const reply = (text: string, buttons?: AuthorButton[]) =>
       this.reply(c, text, buttons);
-    if (a.kind === "sequence:broadcast" || a.kind === "sequence:funnel")
-      return this.beginSequence(
-        c,
-        a.kind === "sequence:broadcast" ? "broadcast" : "funnel",
-      );
-    if (a.kind.startsWith("sequence:"))
-      return this.sequenceResult(c, await this.sequence.act(c, a, reply));
-    if (a.kind === "menu:page") return this.renderMenu(c, Number(a.value));
-    if (a.kind === "batch:broadcast" || a.kind === "batch:funnel")
-      return this.beginBatch(
-        c,
-        a.kind === "batch:broadcast" ? "broadcast" : "funnel",
-      );
-    if (a.kind === "batch:done") {
-      const kind = c.state.batch;
-      c.state.batch = undefined;
-      if (kind === "funnel")
-        return this.authorFunnels.act(c, { kind: "f:save" }, reply);
-      return this.broadcast(c);
-    }
-    if (a.kind === "send-options")
-      return reply(
-        "Все сообщения этой рассылки отправятся подряд всем подписчикам. Когда начать?",
-        [
-          ["Сейчас", { kind: "send-now" }],
-          ["Запланировать", { kind: "schedule" }],
-          ...(c.state.broadcast!.state === "draft" &&
-          c.state.broadcast!.scheduledAt
-            ? [
-                ["Подтвердить отправку", { kind: "confirm-launch" }] as [
-                  string,
-                  Action,
-                ],
-              ]
-            : []),
-          [
-            "Назад",
-            { kind: "read-broadcast", id: c.state.broadcast!.broadcastId },
-          ],
-        ],
-      );
-    if (a.kind === "apply-schedule") {
-      if (c.state.pendingSchedule === undefined)
-        throw new CommunicationsError("revision_conflict");
-      c.state.broadcast!.scheduledAt = c.state.pendingSchedule;
-      c.state.broadcast!.audience = { kind: "all" };
-      c.state.pendingSchedule = undefined;
-      return this.saveBroadcast(c);
-    }
-    if (a.kind === "send-now") {
-      if (c.state.broadcast!.state !== "draft")
-        return this.confirmSchedule(c, null);
-      c.state.broadcast!.audience = { kind: "all" };
-      c.state.broadcast!.scheduledAt = null;
-      await this.saveBroadcast(c, false);
-      return this.perform(c, { kind: "confirm-launch" });
-    }
-
-    if (
-      [
-        "compose:broadcast",
-        "compose:funnel",
-        "compose:edit-broadcast",
-        "compose:edit-funnel",
-        "pick-part",
-        "f:posts",
-      ].includes(a.kind)
-    ) {
-      let destination: MessageDestination;
-      if (a.kind.includes("funnel") || a.kind === "f:posts") {
-        const f = c.state.funnelAuthor;
-        const id =
-          f?.target === "intro" ? f.intro?.introId : f?.funnel?.funnelId;
-        if (!id || !f?.target) throw new CommunicationsError("not_found");
-        destination = {
-          kind: "funnel",
-          id,
-          expectedRevision: (f.target === "intro" ? f.intro! : f.funnel!)
-            .revision,
-          target: f.target,
-          partId: a.id && a.kind === "compose:edit-funnel" ? a.id : a.value,
-        };
-      } else {
-        const b = c.state.broadcast;
-        if (!b) throw new CommunicationsError("not_found");
-        destination = {
-          kind: "broadcast",
-          id: b.broadcastId,
-          expectedRevision: b.revision,
-          partId: a.id ?? c.state.replacePart?.partId,
-        };
-      }
-      const pending = await compositionButtons(c, destination.id);
-      if (pending.length)
-        return reply(
-          "Для этого объекта уже есть незавершённое сообщение. Продолжите его или явно отмените добавление.",
-          pending,
-        );
-      let content;
-      if (a.kind === "compose:edit-broadcast")
-        content = c.state.broadcast?.parts.find(
-          (p) => p.partId === a.id,
-        )?.content;
-      if (a.kind === "compose:edit-funnel")
-        content = this.authorFunnels
-          .selectedParts(c)
-          .find((p) => p.partId === a.id)?.content;
-      if (a.kind === "pick-part" || a.kind === "f:posts") {
-        c.state.composing = { destination };
-        return this.composer.library(c, reply);
-      }
-      return this.composer.begin(c, destination, reply, content);
-    }
-    if (a.kind === "compose:resume" && a.id) {
-      await restoreComposition(c, a.id);
-      return c.state.composing?.sequence
-        ? this.sequence.show(c, reply)
-        : this.composer.resume(c, reply);
-    }
-    if (a.kind === "compose:discard" && a.id) {
-      await restoreComposition(c, a.id);
-      if (c.state.composing?.sequence)
-        return this.sequenceResult(c, { kind: "finished" });
-      return this.composeResult(
-        c,
-        await this.composer.act(c, { kind: "compose:cancel" }, reply),
-      );
-    }
-    if (a.kind.startsWith("compose:"))
-      return this.composeResult(c, await this.composer.act(c, a, reply));
-    if (a.kind === "new-broadcast") {
-      c.state.broadcast = newBroadcast();
-      c.state.broadcastName = undefined;
-      await retainBroadcast(c);
-      return this.beginSequence(c, "broadcast");
-    }
-    if (a.kind === "rename-broadcast") {
-      c.state.prompt = "broadcast-name";
-      return reply("Напишите название рассылки (до 128 символов).", [
-        [
-          "К рассылке",
-          { kind: "read-broadcast", id: c.state.broadcast!.broadcastId },
-        ],
-      ]);
-    }
-    if (a.kind === "copy-broadcast" && c.state.broadcast) {
-      const source = c.state.broadcast;
-      c.state.broadcast = newBroadcast(source.parts);
-      c.state.broadcast.audience = { kind: "all" };
-      c.state.broadcastName =
-        `Копия: ${c.state.broadcastName ?? "Рассылка"}`.slice(0, 128);
-      return this.saveBroadcast(c);
-    }
-    if (a.kind === "overview") {
-      const result = await this.funnels.execute(
-        this.request(c, "statistics.read", {}),
-        c.tx,
-      );
-      if (!("statistics" in result)) throw new CommunicationsError("malformed");
-      const d = result.statistics.deliveries;
-      return reply(
-        `Статистика сообщений\nОтправлено: ${d.sent}\nОжидает: ${d.pending}\nПропущено: ${d.suppressed}\nОшибки: ${d.failed}\nНеизвестный результат: ${d.unknown}`,
-        home,
-      );
-    }
-    if (a.kind === "f:new") {
-      await this.authorFunnels.act(c, a, async () => {});
-      return this.beginSequence(c, "funnel");
-    }
-    if (a.kind.startsWith("f:"))
-      return this.authorFunnels.act(c, a, (text, buttons) =>
-        this.reply(c, text, buttons),
-      );
     const t = c.state.template;
     const b = c.state.broadcast;
-    if (a.kind === "home") {
-      c.state.batch = undefined;
-      await retainFunnelDraft(c);
-      c.state = empty();
-      return this.reply(c, "Админка коммуникаций", home);
-    }
-    if (a.kind === "new" || a.kind === "replace") {
-      if (a.kind === "replace" && !t)
-        return this.reply(c, "Выберите пост.", home);
-      c.state.prompt = a.kind === "new" ? "capture" : "replace";
-      return this.reply(
-        c,
-        "Пришлите одно сообщение: текст, фото, видео, кружок, голосовое или документ. Используйте форматирование Telegram. Альбомы и опросы пока не поддерживаются. /cancel — выйти.",
-      );
-    }
-    if (a.kind === "posts" || a.kind === "posts-all") {
-      if (a.kind === "posts-all") c.state.libraryQuery = undefined;
-      const list = await this.posts.list(
-        this.request(c, "templates.list", a.id ? { cursor: a.id } : {}),
-        c.tx,
-        { search: c.state.libraryQuery, limit: 10 },
-      );
-      c.state.prompt = undefined;
-      return this.reply(
-        c,
-        c.state.libraryQuery
-          ? `Поиск: ${c.state.libraryQuery}`
-          : "Сохранённые посты",
-        [
-          ...list.templates.map((p): [string, Action] => [
-            messageLabel(p.content),
-            { kind: "read-post", id: p.templateId },
+    // A button whose post or broadcast is no longer selected.
+    const unavailable = () =>
+      b
+        ? this.reply(c, "Откройте меню заново.", home)
+        : this.reply(c, "Выберите пост, рассылку или воронку.", home);
+    if (isComposerStep(a))
+      return this.composeResult(c, await this.composer.act(c, a, reply));
+    if (isFunnelStep(a)) return this.authorFunnels.act(c, a, reply);
+    switch (a.kind) {
+      case "sequence:broadcast":
+        return this.beginSequence(c, "broadcast");
+      case "sequence:funnel":
+        return this.beginSequence(c, "funnel");
+      case "sequence:discard":
+      case "sequence:done":
+      case "sequence:time":
+        return this.sequenceResult(c, await this.sequence.act(c, a, reply));
+      case "menu:page":
+        return this.renderMenu(c, Number(a.value));
+      case "batch:broadcast":
+        return this.beginBatch(c, "broadcast");
+      case "batch:funnel":
+        return this.beginBatch(c, "funnel");
+      case "batch:done": {
+        const kind = c.state.batch;
+        c.state.batch = undefined;
+        if (kind === "funnel")
+          return this.authorFunnels.act(c, { kind: "f:save" }, reply);
+        return this.broadcast(c);
+      }
+      case "send-options":
+        return reply(
+          "Все сообщения этой рассылки отправятся подряд всем подписчикам. Когда начать?",
+          [
+            ["Сейчас", { kind: "send-now" }],
+            ["Запланировать", { kind: "schedule" }],
+            ...(c.state.broadcast!.state === "draft" &&
+            c.state.broadcast!.scheduledAt
+              ? [
+                  [
+                    "Подтвердить отправку",
+                    { kind: "confirm-launch" },
+                  ] as AuthorButton,
+                ]
+              : []),
+            [
+              "Назад",
+              { kind: "read-broadcast", id: c.state.broadcast!.broadcastId },
+            ],
+          ],
+        );
+      case "apply-schedule":
+        if (c.state.pendingSchedule === undefined)
+          throw new CommunicationsError("revision_conflict");
+        c.state.broadcast!.scheduledAt = c.state.pendingSchedule;
+        c.state.broadcast!.audience = { kind: "all" };
+        c.state.pendingSchedule = undefined;
+        return this.saveBroadcast(c);
+      case "send-now":
+        if (c.state.broadcast!.state !== "draft")
+          return this.confirmSchedule(c, null);
+        c.state.broadcast!.audience = { kind: "all" };
+        c.state.broadcast!.scheduledAt = null;
+        await this.saveBroadcast(c, false);
+        return this.perform(c, { kind: "confirm-launch" });
+      case "compose:broadcast":
+      case "compose:funnel":
+      case "compose:edit-broadcast":
+      case "compose:edit-funnel":
+      case "pick-part":
+      case "f:posts":
+        return this.beginComposition(c, a);
+      case "compose:resume":
+        if (!a.id)
+          return this.composeResult(c, await this.composer.act(c, a, reply));
+        await restoreComposition(c, a.id);
+        return c.state.composing?.sequence
+          ? this.sequence.show(c, reply)
+          : this.composer.resume(c, reply);
+      case "compose:discard":
+        if (!a.id)
+          return this.composeResult(c, await this.composer.act(c, a, reply));
+        await restoreComposition(c, a.id);
+        if (c.state.composing?.sequence)
+          return this.sequenceResult(c, { kind: "finished" });
+        return this.composeResult(
+          c,
+          await this.composer.act(c, { kind: "compose:cancel" }, reply),
+        );
+      case "new-broadcast":
+        c.state.broadcast = newBroadcast();
+        c.state.broadcastName = undefined;
+        await retainBroadcast(c);
+        return this.beginSequence(c, "broadcast");
+      case "rename-broadcast":
+        c.state.prompt = { kind: "broadcast-name" };
+        return reply("Напишите название рассылки (до 128 символов).", [
+          [
+            "К рассылке",
+            { kind: "read-broadcast", id: c.state.broadcast!.broadcastId },
+          ],
+        ]);
+      case "copy-broadcast": {
+        if (!b) return unavailable();
+        c.state.broadcast = newBroadcast(b.parts);
+        c.state.broadcast.audience = { kind: "all" };
+        c.state.broadcastName =
+          `Копия: ${c.state.broadcastName ?? "Рассылка"}`.slice(0, 128);
+        return this.saveBroadcast(c);
+      }
+      case "overview": {
+        const result = await this.funnels.execute(
+          this.request(c, "statistics.read", {}),
+          c.tx,
+        );
+        if (!("statistics" in result))
+          throw new CommunicationsError("malformed");
+        const d = result.statistics.deliveries;
+        return reply(
+          `Статистика сообщений\nОтправлено: ${d.sent}\nОжидает: ${d.pending}\nПропущено: ${d.suppressed}\nОшибки: ${d.failed}\nНеизвестный результат: ${d.unknown}`,
+          home,
+        );
+      }
+      case "f:new":
+        await this.authorFunnels.act(c, a, async () => {});
+        return this.beginSequence(c, "funnel");
+      case "home":
+        c.state.batch = undefined;
+        await retainFunnelDraft(c);
+        c.state = emptyAuthorState();
+        return this.reply(c, "Админка коммуникаций", home);
+      case "new":
+      case "replace":
+        if (a.kind === "replace" && !t)
+          return this.reply(c, "Выберите пост.", home);
+        c.state.prompt = { kind: a.kind === "new" ? "capture" : "replace" };
+        return this.reply(
+          c,
+          "Пришлите одно сообщение: текст, фото, видео, кружок, голосовое или документ. Используйте форматирование Telegram. Альбомы и опросы пока не поддерживаются. /cancel — выйти.",
+        );
+      case "posts":
+      case "posts-all": {
+        if (a.kind === "posts-all") c.state.libraryQuery = undefined;
+        const list = await this.posts.list(
+          this.request(c, "templates.list", a.id ? { cursor: a.id } : {}),
+          c.tx,
+          { search: c.state.libraryQuery, limit: 10 },
+        );
+        c.state.prompt = undefined;
+        return this.reply(
+          c,
+          c.state.libraryQuery
+            ? `Поиск: ${c.state.libraryQuery}`
+            : "Сохранённые посты",
+          [
+            ...list.templates.map((p): AuthorButton => [
+              messageLabel(p.content),
+              { kind: "read-post", id: p.templateId },
+            ]),
+            ...(list.nextCursor
+              ? [
+                  [
+                    "Следующие",
+                    { kind: "posts", id: list.nextCursor },
+                  ] as AuthorButton,
+                ]
+              : []),
+            ["Найти пост", { kind: "post-search" }],
+            ["Все посты", { kind: "posts-all" }],
+            ["В меню", { kind: "home" }],
+          ],
+        );
+      }
+      case "post-search":
+        c.state.prompt = { kind: "post-search" };
+        return this.reply(c, "Напишите часть текста или тип сообщения.", []);
+      case "read-post":
+        c.state.template = await this.posts.execute(
+          this.request(c, "templates.read", { templateId: a.id! }),
+          c.tx,
+        );
+        return this.post(c);
+      case "sample":
+        if (!t) return unavailable();
+        await this.delivery.testSend(
+          this.request(
+            c,
+            "templates.testSend",
+            { templateId: t.templateId },
+            t.revision,
+          ),
+          c.tx,
+        );
+        return this.reply(
+          c,
+          "Образец поставлен в очередь только вам. При неизвестном результате отправки автоматического повтора не будет.",
+          [["Вернуться к посту", { kind: "read-post", id: t.templateId }]],
+        );
+      case "button":
+        if (!t) return unavailable();
+        c.state.prompt = { kind: "button-title" };
+        return this.reply(c, "Напишите название кнопки (до 64 символов).");
+      case "remove-button":
+        if (!t) return unavailable();
+        c.state.template = await this.posts.execute(
+          this.request(
+            c,
+            "templates.save",
+            {
+              templateId: t.templateId,
+              content: {
+                ...t.content,
+                buttons: t.content.buttons.filter(
+                  (_, i) => i !== Number(a.value),
+                ),
+              },
+            },
+            t.revision,
+          ),
+          c.tx,
+        );
+        return this.post(c);
+      case "create-broadcast":
+        if (!t) return unavailable();
+        c.state.broadcast = newBroadcast([
+          { partId: randomUUID(), content: t.content },
+        ]);
+        c.state.broadcastName = t.content.text.slice(0, 128) || "Рассылка";
+        return this.saveBroadcast(c);
+      case "broadcasts": {
+        c.state.batch = undefined;
+        c.state.composing = undefined;
+        c.state.prompt = undefined;
+        const list = await this.broadcastDrafts.list(c, a.id);
+        return this.reply(c, "Рассылки", [
+          ["Создать рассылку", { kind: "new-broadcast" }],
+          ...list.items.map(({ broadcast: item, name }): AuthorButton => [
+            `${name.slice(0, 35)} · ${broadcastNames[item.state]}`,
+            { kind: "read-broadcast", id: item.broadcastId },
           ]),
           ...(list.nextCursor
             ? [
-                ["Следующие", { kind: "posts", id: list.nextCursor }] as [
-                  string,
-                  Action,
-                ],
-              ]
-            : []),
-          ["Найти пост", { kind: "post-search" }],
-          ["Все посты", { kind: "posts-all" }],
-          ["В меню", { kind: "home" }],
-        ],
-      );
-    }
-    if (a.kind === "post-search") {
-      c.state.prompt = "post-search";
-      return this.reply(c, "Напишите часть текста или тип сообщения.", []);
-    }
-    if (a.kind === "read-post") {
-      c.state.template = await this.posts.execute(
-        this.request(c, "templates.read", { templateId: a.id! }),
-        c.tx,
-      );
-      return this.post(c);
-    }
-    if (a.kind === "sample" && t) {
-      await this.delivery.testSend(
-        this.request(
-          c,
-          "templates.testSend",
-          { templateId: t.templateId },
-          t.revision,
-        ),
-        c.tx,
-      );
-      return this.reply(
-        c,
-        "Образец поставлен в очередь только вам. При неизвестном результате отправки автоматического повтора не будет.",
-        [["Вернуться к посту", { kind: "read-post", id: t.templateId }]],
-      );
-    }
-    if (a.kind === "button" && t) {
-      c.state.prompt = "button-title";
-      return this.reply(c, "Напишите название кнопки (до 64 символов).");
-    }
-    if (a.kind === "remove-button" && t) {
-      c.state.template = await this.posts.execute(
-        this.request(
-          c,
-          "templates.save",
-          {
-            templateId: t.templateId,
-            content: {
-              ...t.content,
-              buttons: t.content.buttons.filter(
-                (_, i) => i !== Number(a.value),
-              ),
-            },
-          },
-          t.revision,
-        ),
-        c.tx,
-      );
-      return this.post(c);
-    }
-    if (a.kind === "create-broadcast" && t) {
-      c.state.broadcast = newBroadcast([
-        { partId: randomUUID(), content: t.content },
-      ]);
-      c.state.broadcastName = t.content.text.slice(0, 128) || "Рассылка";
-      return this.saveBroadcast(c);
-    }
-    if (a.kind === "broadcasts") {
-      c.state.batch = undefined;
-      c.state.composing = undefined;
-      c.state.prompt = undefined;
-      const list = await this.broadcastDrafts.list(c, a.id);
-      return this.reply(c, "Рассылки", [
-        ["Создать рассылку", { kind: "new-broadcast" }],
-        ...list.items.map(({ broadcast: item, name }): [string, Action] => [
-          `${name.slice(0, 35)} · ${broadcastNames[item.state]}`,
-          { kind: "read-broadcast", id: item.broadcastId },
-        ]),
-        ...(list.nextCursor
-          ? [
-              ["Следующие", { kind: "broadcasts", id: list.nextCursor }] as [
-                string,
-                Action,
-              ],
-            ]
-          : []),
-        ["В меню", { kind: "home" }],
-      ]);
-    }
-    if (a.kind === "read-broadcast" && a.id) {
-      c.state.composing = undefined;
-      await this.broadcastDrafts.read(c, a.id);
-      return this.broadcast(c);
-    }
-    if (!b) return this.reply(c, "Выберите пост, рассылку или воронку.", home);
-    if (a.kind === "broadcast-sample") {
-      for (const part of b.parts)
-        await enqueueAuthorMessage(c.tx, {
-          deliveryId: randomUUID(),
-          botIdentity: c.input.botIdentity,
-          accountRef: c.accountRef,
-          telegramUserId: c.input.telegramUserId,
-          telegramIdentityRef: c.identityRef,
-          message: { chatId: c.input.telegramUserId, content: part.content },
-        });
-      c.state.freshMenu = true;
-      return this.broadcast(c);
-    }
-    if (a.kind === "parts") {
-      const offset = Number(a.value ?? 0);
-      return this.reply(
-        c,
-        "Сообщения отправятся по порядку. Выберите сообщение, чтобы изменить его или порядок отправки.",
-        [
-          ...b.parts
-            .slice(offset, offset + 5)
-            .map((part, index): [string, Action] => [
-              `${offset + index + 1}. ${messageLabel(part.content, 32)}`,
-              { kind: "show-part", id: part.partId },
-            ]),
-          ...(offset > 0
-            ? [
                 [
-                  "Предыдущие",
-                  { kind: "parts", value: String(offset - 5) },
-                ] as [string, Action],
+                  "Следующие",
+                  { kind: "broadcasts", id: list.nextCursor },
+                ] as AuthorButton,
               ]
             : []),
-          ...(b.parts.length > offset + 5
-            ? [
-                ["Следующие", { kind: "parts", value: String(offset + 5) }] as [
-                  string,
-                  Action,
-                ],
-              ]
-            : []),
-          ["Добавить сообщения", { kind: "batch:broadcast" }],
-          ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
-        ],
-      );
-    }
-    if (a.kind === "show-part") {
-      const part = b.parts.find((p) => p.partId === a.id);
-      if (!part) throw new CommunicationsError("not_found");
-      await previewAuthorMessage(c, part.content);
-      return this.reply(c, messageLabel(part.content, 300), [
-        [
-          "Изменить сообщение и кнопки",
-          { kind: "compose:edit-broadcast", id: part.partId },
-        ],
-        [
-          "Заменить из сохранённых",
-          { kind: "replace-part", value: String(b.parts.indexOf(part)) },
-        ],
-        ...(b.parts.indexOf(part) > 0
-          ? [
-              [
-                "Поднять выше",
-                { kind: "move-part", value: String(b.parts.indexOf(part)) },
-              ] as [string, Action],
-            ]
-          : []),
-        ...(b.parts.length > 1
-          ? [
-              [
-                "Удалить сообщение",
-                { kind: "remove-part", value: String(b.parts.indexOf(part)) },
-              ] as [string, Action],
-            ]
-          : []),
-        ["Все сообщения", { kind: "parts" }],
-      ]);
-    }
-    if (a.kind === "replace-part") {
-      const part = b.parts[Number(a.value)];
-      if (!part) throw new CommunicationsError("revision_conflict");
-      c.state.replacePart = { broadcastId: b.broadcastId, partId: part.partId };
-      return this.perform(c, { kind: "pick-part" });
-    }
-    if (a.kind === "move-part") {
-      const index = Number(a.value);
-      const part = b.parts[index];
-      const before = b.parts[index - 1];
-      if (part && before) {
-        b.parts[index] = before;
-        b.parts[index - 1] = part;
+          ["В меню", { kind: "home" }],
+        ]);
       }
-      return this.saveBroadcast(c);
+      case "read-broadcast":
+        if (!a.id) return unavailable();
+        c.state.composing = undefined;
+        await this.broadcastDrafts.read(c, a.id);
+        return this.broadcast(c);
+      case "broadcast-sample":
+      case "parts":
+      case "show-part":
+      case "replace-part":
+      case "move-part":
+      case "remove-part":
+      case "statistics":
+      case "schedule":
+      case "confirm-launch":
+      case "confirm-cancel":
+      case "launch":
+      case "pause":
+      case "resume":
+      case "cancel":
+        if (!b) return unavailable();
+        return this.performOnBroadcast(c, a, b);
+      default:
+        return unhandled(a, "author action");
     }
-    if (a.kind === "remove-part") {
-      if (b.parts.length > 1)
-        b.parts = b.parts.filter((_, index) => index !== Number(a.value));
-      return this.saveBroadcast(c);
-    }
-    if (a.kind === "statistics") {
-      const result = await this.funnels.execute(
-        this.request(c, "statistics.read", { broadcastId: b.broadcastId }),
-        c.tx,
-      );
-      if (!("statistics" in result)) return;
-      const counts = result.statistics.deliveries;
-      return this.reply(
-        c,
-        `Результаты рассылки\nОтправлено: ${counts.sent}\nОжидает: ${counts.pending}\nПропущено: ${counts.suppressed}\nОшибки: ${counts.failed}\nНеизвестный результат: ${counts.unknown}\nЧастично отменено: ${counts.partialCancelled}\nОбновите статус, чтобы увидеть новые результаты.`,
-        [["К рассылке", { kind: "read-broadcast", id: b.broadcastId }]],
-      );
-    }
-    if (a.kind === "schedule") {
-      c.state.prompt = "schedule";
-      return this.reply(
-        c,
-        "Введите дату и время по Москве: ДД.ММ.ГГГГ ЧЧ:ММ (UTC+3). Или напишите «сразу». Сохранение времени ещё не запускает черновик.",
-      );
-    }
-    if (a.kind === "confirm-launch" || a.kind === "confirm-cancel") {
-      if (a.kind === "confirm-launch" && b.audience.kind !== "all") {
-        b.audience = { kind: "all" };
-        await this.saveBroadcast(c, false);
-        return this.perform(c, a);
-      }
-      return this.reply(
-        c,
-        a.kind === "confirm-launch"
-          ? `Запустить «${c.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}.\nКому: ${b.audience.kind === "all" ? "все доступные контакты" : `выбранные воронки: ${b.audience.funnelIds.length}, без дублей`}.\nКогда: ${b.scheduledAt ? new Date(b.scheduledAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " · Москва" : "сразу после подтверждения"}.`
-          : "Отменить рассылку? Уже отправленные сообщения останутся у получателей.",
-        [
-          [
-            a.kind === "confirm-launch" ? "Запустить рассылку" : "Да, отменить",
-            { kind: a.kind === "confirm-launch" ? "launch" : "cancel" },
-          ],
-          ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
-        ],
-      );
-    }
-    if (["launch", "pause", "resume", "cancel"].includes(a.kind)) {
-      if (b.revision === 0) {
-        if (a.kind === "cancel") {
-          b.state = "cancelled";
-          await retainBroadcast(c);
-          return this.broadcast(c);
-        }
+  }
+  /** Actions on the selected broadcast. */
+  private async performOnBroadcast(
+    c: Context,
+    a: BroadcastAction,
+    b: Broadcast,
+  ): Promise<void> {
+    switch (a.kind) {
+      case "broadcast-sample":
+        for (const part of b.parts)
+          await enqueueAuthorMessage(c.tx, {
+            deliveryId: randomUUID(),
+            botIdentity: c.input.botIdentity,
+            accountRef: c.accountRef,
+            telegramUserId: c.input.telegramUserId,
+            telegramIdentityRef: c.identityRef,
+            message: { chatId: c.input.telegramUserId, content: part.content },
+          });
+        c.state.freshMenu = true;
+        return this.broadcast(c);
+      case "parts": {
+        const offset = Number(a.value ?? 0);
         return this.reply(
           c,
-          "Добавьте хотя бы одно сообщение перед запуском.",
+          "Сообщения отправятся по порядку. Выберите сообщение, чтобы изменить его или порядок отправки.",
+          [
+            ...b.parts
+              .slice(offset, offset + 5)
+              .map((part, index): AuthorButton => [
+                `${offset + index + 1}. ${messageLabel(part.content, 32)}`,
+                { kind: "show-part", id: part.partId },
+              ]),
+            ...(offset > 0
+              ? [
+                  [
+                    "Предыдущие",
+                    { kind: "parts", value: String(offset - 5) },
+                  ] as AuthorButton,
+                ]
+              : []),
+            ...(b.parts.length > offset + 5
+              ? [
+                  [
+                    "Следующие",
+                    { kind: "parts", value: String(offset + 5) },
+                  ] as AuthorButton,
+                ]
+              : []),
+            ["Добавить сообщения", { kind: "batch:broadcast" }],
+            ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
+          ],
+        );
+      }
+      case "show-part": {
+        const part = b.parts.find((p) => p.partId === a.id);
+        if (!part) throw new CommunicationsError("not_found");
+        await previewAuthorMessage(c, part.content);
+        return this.reply(c, messageLabel(part.content, 300), [
+          [
+            "Изменить сообщение и кнопки",
+            { kind: "compose:edit-broadcast", id: part.partId },
+          ],
+          [
+            "Заменить из сохранённых",
+            { kind: "replace-part", value: String(b.parts.indexOf(part)) },
+          ],
+          ...(b.parts.indexOf(part) > 0
+            ? [
+                [
+                  "Поднять выше",
+                  { kind: "move-part", value: String(b.parts.indexOf(part)) },
+                ] as AuthorButton,
+              ]
+            : []),
+          ...(b.parts.length > 1
+            ? [
+                [
+                  "Удалить сообщение",
+                  {
+                    kind: "remove-part",
+                    value: String(b.parts.indexOf(part)),
+                  },
+                ] as AuthorButton,
+              ]
+            : []),
+          ["Все сообщения", { kind: "parts" }],
+        ]);
+      }
+      case "replace-part": {
+        const part = b.parts[Number(a.value)];
+        if (!part) throw new CommunicationsError("revision_conflict");
+        c.state.replacePart = {
+          broadcastId: b.broadcastId,
+          partId: part.partId,
+        };
+        return this.perform(c, { kind: "pick-part" });
+      }
+      case "move-part": {
+        const index = Number(a.value);
+        const part = b.parts[index];
+        const before = b.parts[index - 1];
+        if (part && before) {
+          b.parts[index] = before;
+          b.parts[index - 1] = part;
+        }
+        return this.saveBroadcast(c);
+      }
+      case "remove-part":
+        if (b.parts.length > 1)
+          b.parts = b.parts.filter((_, index) => index !== Number(a.value));
+        return this.saveBroadcast(c);
+      case "statistics": {
+        const result = await this.funnels.execute(
+          this.request(c, "statistics.read", { broadcastId: b.broadcastId }),
+          c.tx,
+        );
+        if (!("statistics" in result)) return;
+        const counts = result.statistics.deliveries;
+        return this.reply(
+          c,
+          `Результаты рассылки\nОтправлено: ${counts.sent}\nОжидает: ${counts.pending}\nПропущено: ${counts.suppressed}\nОшибки: ${counts.failed}\nНеизвестный результат: ${counts.unknown}\nЧастично отменено: ${counts.partialCancelled}\nОбновите статус, чтобы увидеть новые результаты.`,
           [["К рассылке", { kind: "read-broadcast", id: b.broadcastId }]],
         );
       }
-      const result = await this.funnels.execute(
-        this.request(
+      case "schedule":
+        c.state.prompt = { kind: "schedule" };
+        return this.reply(
           c,
-          a.kind === "launch" ? "broadcasts.launch" : "broadcasts.lifecycle",
-          {
-            broadcastId: b.broadcastId,
-            ...(a.kind !== "launch"
-              ? { action: a.kind as "pause" | "resume" | "cancel" }
-              : {}),
-          },
-          b.revision,
-        ),
-        c.tx,
-      );
-      if ("broadcast" in result) c.state.broadcast = result.broadcast;
-      return this.broadcast(c);
+          "Введите дату и время по Москве: ДД.ММ.ГГГГ ЧЧ:ММ (UTC+3). Или напишите «сразу». Сохранение времени ещё не запускает черновик.",
+        );
+      case "confirm-launch":
+      case "confirm-cancel":
+        if (a.kind === "confirm-launch" && b.audience.kind !== "all") {
+          b.audience = { kind: "all" };
+          await this.saveBroadcast(c, false);
+          return this.perform(c, a);
+        }
+        return this.reply(
+          c,
+          a.kind === "confirm-launch"
+            ? `Запустить «${c.state.broadcastName ?? "Рассылка"}»?\n${b.parts.length} сообщений, версия ${b.revision}.\nКому: ${b.audience.kind === "all" ? "все доступные контакты" : `выбранные воронки: ${b.audience.funnelIds.length}, без дублей`}.\nКогда: ${b.scheduledAt ? new Date(b.scheduledAt).toLocaleString("ru-RU", { timeZone: "Europe/Moscow" }) + " · Москва" : "сразу после подтверждения"}.`
+            : "Отменить рассылку? Уже отправленные сообщения останутся у получателей.",
+          [
+            [
+              a.kind === "confirm-launch"
+                ? "Запустить рассылку"
+                : "Да, отменить",
+              { kind: a.kind === "confirm-launch" ? "launch" : "cancel" },
+            ],
+            ["Назад", { kind: "read-broadcast", id: b.broadcastId }],
+          ],
+        );
+      case "launch":
+      case "pause":
+      case "resume":
+      case "cancel": {
+        if (b.revision === 0) {
+          if (a.kind === "cancel") {
+            b.state = "cancelled";
+            await retainBroadcast(c);
+            return this.broadcast(c);
+          }
+          return this.reply(
+            c,
+            "Добавьте хотя бы одно сообщение перед запуском.",
+            [["К рассылке", { kind: "read-broadcast", id: b.broadcastId }]],
+          );
+        }
+        const result = await this.funnels.execute(
+          this.request(
+            c,
+            a.kind === "launch" ? "broadcasts.launch" : "broadcasts.lifecycle",
+            {
+              broadcastId: b.broadcastId,
+              ...(a.kind !== "launch" ? { action: a.kind } : {}),
+            },
+            b.revision,
+          ),
+          c.tx,
+        );
+        if ("broadcast" in result) c.state.broadcast = result.broadcast;
+        return this.broadcast(c);
+      }
+      default:
+        return unhandled(a, "author action");
     }
-    return this.reply(c, "Откройте меню заново.", home);
+  }
+  /** Starts a message for a broadcast or funnel, from scratch, a saved post or an existing part. */
+  private async beginComposition(
+    c: Context,
+    a: Extract<
+      AuthorAction,
+      {
+        kind:
+          | "compose:broadcast"
+          | "compose:funnel"
+          | "compose:edit-broadcast"
+          | "compose:edit-funnel"
+          | "pick-part"
+          | "f:posts";
+      }
+    >,
+  ): Promise<void> {
+    const reply = (text: string, buttons?: AuthorButton[]) =>
+      this.reply(c, text, buttons);
+    let destination: MessageDestination;
+    if (
+      a.kind === "compose:funnel" ||
+      a.kind === "compose:edit-funnel" ||
+      a.kind === "f:posts"
+    ) {
+      const f = c.state.funnelAuthor;
+      const id = f?.target === "intro" ? f.intro?.introId : f?.funnel?.funnelId;
+      if (!id || !f?.target) throw new CommunicationsError("not_found");
+      destination = {
+        kind: "funnel",
+        id,
+        expectedRevision: (f.target === "intro" ? f.intro! : f.funnel!)
+          .revision,
+        target: f.target,
+        partId: a.id && a.kind === "compose:edit-funnel" ? a.id : a.value,
+      };
+    } else {
+      const b = c.state.broadcast;
+      if (!b) throw new CommunicationsError("not_found");
+      destination = {
+        kind: "broadcast",
+        id: b.broadcastId,
+        expectedRevision: b.revision,
+        partId: a.id ?? c.state.replacePart?.partId,
+      };
+    }
+    const pending = await compositionButtons(c, destination.id);
+    if (pending.length)
+      return reply(
+        "Для этого объекта уже есть незавершённое сообщение. Продолжите его или явно отмените добавление.",
+        pending,
+      );
+    let content;
+    if (a.kind === "compose:edit-broadcast")
+      content = c.state.broadcast?.parts.find(
+        (p) => p.partId === a.id,
+      )?.content;
+    if (a.kind === "compose:edit-funnel")
+      content = this.authorFunnels
+        .selectedParts(c)
+        .find((p) => p.partId === a.id)?.content;
+    if (a.kind === "pick-part" || a.kind === "f:posts") {
+      c.state.composing = { destination };
+      return this.composer.library(c, reply);
+    }
+    return this.composer.begin(c, destination, reply, content);
   }
   private async composeResult(
     c: Context,
@@ -1262,14 +1293,14 @@ export class AuthorAdmin {
       return this.composer.answer(c, (text, buttons) =>
         this.reply(c, text, buttons),
       );
-    if (c.state.prompt === "broadcast-name") {
+    if (c.state.prompt?.kind === "broadcast-name") {
       const name = c.input.text;
       if (!name || name.length > 128)
         return this.reply(c, "Введите от 1 до 128 символов.");
       c.state.broadcastName = name;
       return this.saveBroadcast(c);
     }
-    if (c.state.prompt === "post-search") {
+    if (c.state.prompt?.kind === "post-search") {
       if (!c.input.text || c.input.text.length > 128)
         return this.reply(c, "Введите от 1 до 128 символов.");
       c.state.libraryQuery = c.input.text;
@@ -1281,7 +1312,8 @@ export class AuthorAdmin {
       );
     const state = c.state;
     const text = c.input.text;
-    if (state.prompt === "capture" || state.prompt === "replace") {
+    const prompt = state.prompt;
+    if (prompt?.kind === "capture" || prompt?.kind === "replace") {
       try {
         validateContent(c.input.content);
       } catch {
@@ -1290,7 +1322,7 @@ export class AuthorAdmin {
           "Не удалось принять оформление. Пришлите отдельное поддерживаемое сообщение.",
         );
       }
-      const prior = state.prompt === "replace" ? state.template : undefined;
+      const prior = prompt.kind === "replace" ? state.template : undefined;
       try {
         state.template = await this.posts.execute(
           this.request(
@@ -1313,21 +1345,20 @@ export class AuthorAdmin {
           error.code !== "revision_conflict"
         )
           throw error;
-        c.state = empty();
+        c.state = emptyAuthorState();
         return this.reply(c, "Пост уже изменился. Откройте его заново.", home);
       }
       return this.post(c);
     }
-    if (state.prompt === "button-title") {
+    if (prompt?.kind === "button-title") {
       if (!text || text.length > 64)
         return this.reply(c, "Название должно содержать от 1 до 64 символов.");
-      state.buttonTitle = text;
-      state.prompt = "button-url";
+      state.prompt = { kind: "button-url", buttonTitle: text };
       return this.reply(c, "Пришлите HTTPS-ссылку для кнопки.");
     }
-    if (state.prompt === "button-url") {
+    if (prompt?.kind === "button-url") {
       try {
-        validateAuthorButtonUrl(state.buttonTitle, text);
+        validateAuthorButtonUrl(prompt.buttonTitle, text);
       } catch {
         return this.reply(
           c,
@@ -1343,7 +1374,7 @@ export class AuthorAdmin {
             templateId: t.templateId,
             content: appendAuthorButton(
               t.content,
-              state.buttonTitle!,
+              prompt.buttonTitle,
               text,
               nextAuthorButtonRow(t.content),
             ),
@@ -1354,36 +1385,7 @@ export class AuthorAdmin {
       );
       return this.post(c);
     }
-    if (state.prompt === "button-row" && state.template) {
-      if (!/^([1-9]|1[0-9]|20)$/.test(text))
-        return this.reply(c, "Введите номер ряда от 1 до 20.");
-      const t = state.template;
-      let content: TemplateContent;
-      try {
-        content = appendAuthorButton(
-          t.content,
-          state.buttonTitle!,
-          state.buttonUrl!,
-          Number(text) - 1,
-        );
-      } catch {
-        return this.reply(
-          c,
-          "Достигнут лимит: до 20 кнопок и до 8 кнопок в ряду. Удалите лишние или выберите другой ряд.",
-        );
-      }
-      state.template = await this.posts.execute(
-        this.request(
-          c,
-          "templates.save",
-          { templateId: t.templateId, content },
-          t.revision,
-        ),
-        c.tx,
-      );
-      return this.post(c);
-    }
-    if (state.prompt === "schedule" && state.broadcast) {
+    if (prompt?.kind === "schedule" && state.broadcast) {
       const date = parseMoscowSchedule(text);
       if (date === undefined || (date !== null && new Date(date) <= new Date()))
         return this.reply(
@@ -1397,16 +1399,13 @@ export class AuthorAdmin {
       await this.saveBroadcast(c, false);
       return this.perform(c, { kind: "confirm-launch" });
     }
-    c.state = empty();
+    c.state = emptyAuthorState();
     return this.reply(
       c,
       "Выберите «Рассылки» или «Воронки», чтобы добавить сообщения.",
       home,
     );
   }
-}
-function empty(): State {
-  return { token: randomUUID(), actions: [] };
 }
 export function parseMoscowSchedule(text: string): string | null | undefined {
   if (text.toLowerCase() === "сразу") return null;
