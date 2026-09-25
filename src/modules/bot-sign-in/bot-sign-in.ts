@@ -163,7 +163,7 @@ export class BotSignIn {
         signInRequestRef: request.request_ref,
         now,
       });
-      if (!prompted) throw new Error("Sign-in prompt was already queued");
+      if (!prompted) throw new SignInPromptQueuedError();
     });
   }
 
@@ -316,4 +316,9 @@ function isDigest(value: string): boolean {
 
 export function digestSignInSecret(value: string): string {
   return createHash("sha256").update(value).digest("base64url");
+}
+
+/** A second prompt for one sign-in request; the whole acceptance rolls back. */
+class SignInPromptQueuedError extends Error {
+  override readonly name = "SignInPromptQueuedError";
 }

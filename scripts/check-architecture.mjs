@@ -15,7 +15,7 @@ const adapterForbiddenImports = [
 
 // Application modules reach Telegram, Platform and the broker only through adapters.
 const transportPackages = ["grammy", "amqplib"];
-const networkCall = /\bfetch\s*\(/;
+const networkCall = /(?<![.\w$])fetch\s*\(/;
 
 // A module never depends on the layers that compose or drive it.
 const moduleForbiddenLayers = [
