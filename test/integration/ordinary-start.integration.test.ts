@@ -10,6 +10,7 @@ import {
   describe,
   expect,
   it,
+  onTestFinished,
   vi,
 } from "vitest";
 
@@ -23,6 +24,10 @@ import {
   migrateToLatest,
 } from "../../src/database/migrator.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
+import {
+  TELEGRAM_CALLBACK_ANSWERS,
+  type TelegramCallbackAnswers,
+} from "../../src/modules/bot-sign-in/telegram-callback-answers.js";
 import type {
   TelegramDeliveryResult,
   TelegramMessages,
@@ -374,6 +379,75 @@ describe("Telegram webhook contract", () => {
       claimed.push((await inbox.claimNext(acceptedAt))?.updateId);
 
     expect(claimed).toEqual(["50", "53", "54", undefined]);
+  });
+
+  it("stops one user's burst at the limit without holding back others or their membership events", async () => {
+    const answered: string[] = [];
+    const answers = application.get<symbol, TelegramCallbackAnswers>(
+      TELEGRAM_CALLBACK_ANSWERS,
+    );
+    const answer = vi
+      .spyOn(answers, "answer")
+      .mockImplementation(async (id) => {
+        answered.push(id);
+      });
+    onTestFinished(() => answer.mockRestore());
+    const burst = [
+      ...Array.from({ length: 10 }, (_, index) =>
+        privateStartUpdate(700 + index, 700),
+      ),
+      {
+        update_id: 710,
+        callback_query: {
+          id: "burst-press",
+          from: { id: 700, is_bot: false },
+          message: { chat: { id: 700, type: "private" } },
+          data: "author:menu",
+        },
+      },
+      privateStartUpdate(711, 700),
+      privateStartUpdate(712, 701),
+      privateContactabilityUpdate(713, 700, "kicked"),
+    ];
+    for (const payload of burst)
+      expect(
+        (await injectWebhook(payload, config.webhookSecret)).statusCode,
+      ).toBe(202);
+
+    await application.get(TelegramUpdateProcessor).processAvailable();
+
+    const replies = await database
+      .selectFrom("start_response_deliveries")
+      .select(["message_text", "private_chat_id"])
+      .orderBy("id")
+      .execute();
+    expect(replies.filter((reply) => reply.private_chat_id === "700")).toEqual([
+      ...Array.from({ length: 10 }, () => ({
+        message_text: config.welcomeText,
+        private_chat_id: "700",
+      })),
+      {
+        message_text:
+          "Слишком много запросов подряд. Подождите несколько секунд и повторите.",
+        private_chat_id: "700",
+      },
+    ]);
+    expect(replies.filter((reply) => reply.private_chat_id === "701")).toEqual([
+      { message_text: config.welcomeText, private_chat_id: "701" },
+    ]);
+    expect(answered).toEqual(["burst-press"]);
+    const contact = await database
+      .selectFrom("bot_contacts")
+      .select("contactability")
+      .where("telegram_user_id", "=", "700")
+      .executeTakeFirstOrThrow();
+    expect(contact.contactability).toBe("blocked");
+    const states = await database
+      .selectFrom("telegram_updates")
+      .select("state")
+      .distinct()
+      .execute();
+    expect(states).toEqual([{ state: "processed" }]);
   });
 
   it("recovers an update whose worker lease expired", async () => {

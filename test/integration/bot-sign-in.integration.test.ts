@@ -47,6 +47,8 @@ const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl)
   throw new Error("DATABASE_URL is required for integration tests");
 const config = loadApplicationConfig({
+  // Scripted conversations exceed the per-user limit, which other tests cover.
+  TELEGRAM_SENDER_RATE_REQUESTS: "10000",
   DATABASE_URL: databaseUrl,
   PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
   TELEGRAM_SIGN_IN_ENABLED: "true",
@@ -474,6 +476,8 @@ describe("bot sign-in provider", () => {
 
   it("reports disabled over authenticated HTTP after loading a disabled runtime configuration", async () => {
     const disabledConfig = loadApplicationConfig({
+      // Scripted conversations exceed the per-user limit, which other tests cover.
+      TELEGRAM_SENDER_RATE_REQUESTS: "10000",
       DATABASE_URL: databaseUrl,
       PLATFORM_INTEGRATION_SECRET: config.platformIntegrationSecret,
       TELEGRAM_BOT_IDENTITY: config.botIdentity,

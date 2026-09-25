@@ -436,6 +436,31 @@ describe("application configuration", () => {
     }
   });
 
+  it("limits each user to the owner's 10 requests per 10 seconds unless configured within bounds", () => {
+    expect(loadApplicationConfig(validEnvironment).senderRate).toEqual({
+      requests: 10,
+      windowMs: 10_000,
+    });
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SENDER_RATE_REQUESTS: "30",
+        TELEGRAM_SENDER_RATE_WINDOW_SECONDS: "60",
+      }).senderRate,
+    ).toEqual({ requests: 30, windowMs: 60_000 });
+    for (const [name, bad] of [
+      ["TELEGRAM_SENDER_RATE_REQUESTS", "0"],
+      ["TELEGRAM_SENDER_RATE_REQUESTS", "10001"],
+      ["TELEGRAM_SENDER_RATE_WINDOW_SECONDS", "0"],
+      ["TELEGRAM_SENDER_RATE_WINDOW_SECONDS", "3601"],
+      ["TELEGRAM_SENDER_RATE_WINDOW_SECONDS", "ten"],
+    ] as const) {
+      expect(() =>
+        loadApplicationConfig({ ...validEnvironment, [name]: bad }),
+      ).toThrow(name);
+    }
+  });
+
   it("bounds the community reconciliation cadence to at most one minute", () => {
     expect(() =>
       loadApplicationConfig({

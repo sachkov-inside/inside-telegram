@@ -26,6 +26,18 @@ export interface CommunityTexts {
   readonly readmission: string;
 }
 
+/** How many private-chat requests one user may make within a sliding window. */
+export interface SenderRate {
+  readonly requests: number;
+  readonly windowMs: number;
+}
+
+/** The owner's limit from #87; tests of other behaviour may raise it. */
+export const DEFAULT_SENDER_RATE: SenderRate = Object.freeze({
+  requests: 10,
+  windowMs: 10_000,
+});
+
 export interface ApplicationConfig {
   readonly activation?: ActivationConfig;
   readonly notifications?: NotificationConfig;
@@ -66,6 +78,8 @@ export interface ApplicationConfig {
   readonly platformTrackingRedirectUrl?: string;
   readonly platformTrackingTargetPrefixes?: readonly string[];
   readonly port: number;
+  /** Absent means `DEFAULT_SENDER_RATE`. */
+  readonly senderRate?: SenderRate;
   readonly signInEnabled?: boolean;
   readonly signInIntegrationSecret?: string;
   readonly webhookSecret: string;
@@ -137,6 +151,23 @@ export function loadApplicationConfig(
     3650,
     "TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS",
   );
+  const senderRate: SenderRate = Object.freeze({
+    requests: parseBoundedInteger(
+      environment.TELEGRAM_SENDER_RATE_REQUESTS,
+      DEFAULT_SENDER_RATE.requests,
+      1,
+      10_000,
+      "TELEGRAM_SENDER_RATE_REQUESTS",
+    ),
+    windowMs:
+      parseBoundedInteger(
+        environment.TELEGRAM_SENDER_RATE_WINDOW_SECONDS,
+        DEFAULT_SENDER_RATE.windowMs / 1000,
+        1,
+        3600,
+        "TELEGRAM_SENDER_RATE_WINDOW_SECONDS",
+      ) * 1000,
+  });
 
   const evidenceDeliveryMode =
     environment.PLATFORM_EVIDENCE_DELIVERY_MODE ?? "disabled";
@@ -438,6 +469,7 @@ export function loadApplicationConfig(
     ...(platformEvidenceDeliveryUrl ? { platformEvidenceDeliveryUrl } : {}),
     platformIntegrationSecret,
     port: parsePort(environment.PORT),
+    senderRate,
     signInEnabled,
     ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
     webhookSecret,
