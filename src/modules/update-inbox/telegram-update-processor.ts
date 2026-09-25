@@ -52,7 +52,7 @@ interface UserRequest {
 
 @Injectable()
 export class TelegramUpdateProcessor {
-  private readonly senderRate: SenderRateLimit;
+  private readonly senderLimit: SenderRateLimit;
 
   constructor(
     @Inject(SubscriptionActivation)
@@ -84,7 +84,7 @@ export class TelegramUpdateProcessor {
     private readonly translator: TelegramUpdateTranslator,
   ) {
     // Counted by webhook arrival, so a backlog after a processing delay is not refused.
-    this.senderRate = new SenderRateLimit(
+    this.senderLimit = new SenderRateLimit(
       config.senderRate ?? DEFAULT_SENDER_RATE,
     );
   }
@@ -110,7 +110,7 @@ export class TelegramUpdateProcessor {
         );
         const request = userRequest(command);
         const admission = request
-          ? this.senderRate.admit(
+          ? this.senderLimit.admit(
               `${update.botIdentity}:${request.telegramUserId}`,
               update.updateId,
               update.receivedAt,
@@ -302,10 +302,6 @@ export class TelegramUpdateProcessor {
 function userRequest(command: TelegramUpdateCommand): UserRequest | undefined {
   switch (command.kind) {
     case "access-action":
-      return {
-        ...contactOf(command.value),
-        callbackQueryId: command.callbackQueryId,
-      };
     case "sign-in-decision":
       return {
         ...contactOf(command.value),

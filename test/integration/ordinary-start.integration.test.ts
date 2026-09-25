@@ -39,6 +39,7 @@ import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-upd
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
 import {
+  canonicalJoinRequestUpdate,
   canonicalMembershipUpdate,
   canonicalProviderMembershipUpdate,
   privateContactabilityUpdate,
@@ -381,7 +382,7 @@ describe("Telegram webhook contract", () => {
     expect(claimed).toEqual(["50", "53", "54", undefined]);
   });
 
-  it("stops one user's burst at the limit without holding back others or their membership events", async () => {
+  it("stops one user's burst at the limit without holding back others or their Telegram events", async () => {
     const answered: string[] = [];
     const answers = application.get<symbol, TelegramCallbackAnswers>(
       TELEGRAM_CALLBACK_ANSWERS,
@@ -408,7 +409,10 @@ describe("Telegram webhook contract", () => {
       privateStartUpdate(711, 700),
       privateStartUpdate(712, 701),
       privateContactabilityUpdate(713, 700, "kicked"),
+      canonicalMembershipUpdate(714, -1000000000000, 700, "member"),
+      canonicalJoinRequestUpdate(715, -1000000000000, 700),
     ];
+    const refusedBefore = await refusedCount();
     for (const payload of burst)
       expect(
         (await injectWebhook(payload, config.webhookSecret)).statusCode,
@@ -448,6 +452,7 @@ describe("Telegram webhook contract", () => {
       .distinct()
       .execute();
     expect(states).toEqual([{ state: "processed" }]);
+    await expect(refusedCount()).resolves.toBe(refusedBefore + 2);
   });
 
   it("recovers an update whose worker lease expired", async () => {
@@ -705,6 +710,15 @@ async function injectWebhook(payload: unknown, secret?: string) {
     payload: JSON.stringify(payload),
     url: "/webhooks/telegram",
   });
+}
+
+async function refusedCount(): Promise<number> {
+  const metrics = await fastify.inject({ method: "GET", url: "/metrics" });
+  const line = /^inside_telegram_update_rate_limited_total (\d+)$/m.exec(
+    metrics.body,
+  );
+  if (!line) throw new Error("rate-limited counter is missing from /metrics");
+  return Number(line[1]);
 }
 
 async function tableCount(

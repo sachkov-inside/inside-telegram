@@ -43,7 +43,6 @@ Git; зашифруйте файлы для host и отдельного recover
 | Процесс | `DATABASE_URL`, `WORKERS_ENABLED` | внутренняя сеть БД; `true` | — |
 | Бот | `TELEGRAM_BOT_IDENTITY`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CANONICAL_CHAT_ID`, `TELEGRAM_WEBHOOK_SECRET` | dedicated production bot; одна общая группа | `TELEGRAM_BOT_START_URL` |
 | Ответы в личном чате | `TELEGRAM_DELIVERY_MODE` и тексты `TELEGRAM_*_TEXT` | `live`; тексты по-русски | — |
-| Частота запросов пользователя | `TELEGRAM_SENDER_RATE_REQUESTS`, `TELEGRAM_SENDER_RATE_WINDOW_SECONDS` | не задавать: 10 за 10 секунд | — |
 | Привязка | `PLATFORM_INTEGRATION_SECRET` | секрет | `TELEGRAM_LINKING_SECRET`; `TELEGRAM_LINKING_ENDPOINT=https://<telegram>/integrations/platform/v1/identity-links` |
 | Communications API | `PLATFORM_COMMUNICATIONS_SECRET` | отдельный секрет; без него API отвечает 401 | `TELEGRAM_COMMUNICATIONS_SECRET`; `TELEGRAM_COMMUNICATIONS_ENDPOINT=https://<telegram>/integrations/platform/v1/communications` |
 | Membership Evidence | `TELEGRAM_MEMBERSHIP_MODE`, `TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS`, `TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS`, `PLATFORM_EVIDENCE_DELIVERY_MODE`, `PLATFORM_EVIDENCE_DELIVERY_URL`, `PLATFORM_EVIDENCE_DELIVERY_SECRET` | `live`, `240000`, `90`, `live`, `https://<platform>/integrations/telegram/v1/membership-evidence` | `TELEGRAM_EVIDENCE_INGRESS_SECRET` |

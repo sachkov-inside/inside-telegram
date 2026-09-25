@@ -1,6 +1,13 @@
 import type { SenderRate } from "../../config/application-config.js";
 
 /**
+ * Update cycles run senders out of arrival order, and one sender's updates can wait behind a
+ * 60 s lease and retry backoff. A sender is forgotten only after the window plus this margin, so
+ * its window survives while other senders run ahead.
+ */
+const IDLE_GRACE_MS = 120_000;
+
+/**
  * `admitted` runs the request. `notify` refuses it and tells the sender once per window;
  * `silent` refuses it without a reply.
  */
@@ -18,7 +25,7 @@ export class SenderRateLimit {
 
   constructor(private readonly policy: SenderRate) {}
 
-  /** Senders with a request or notice still inside the window. */
+  /** Senders remembered for their window or its idle grace. */
   get trackedSenders(): number {
     return this.senders.size;
   }
@@ -26,7 +33,7 @@ export class SenderRateLimit {
   admit(sender: string, updateId: string, receivedAt: Date): SenderAdmission {
     const at = receivedAt.getTime();
     const since = at - this.policy.windowMs;
-    if (this.sweptAt <= since) this.forgetIdle(since, at);
+    if (this.sweptAt <= since) this.forgetIdle(since - IDLE_GRACE_MS, at);
     const window = this.senders.get(sender) ?? { admitted: [] };
     this.senders.set(sender, window);
     window.admitted = window.admitted.filter((request) => request.at > since);
@@ -44,12 +51,12 @@ export class SenderRateLimit {
     return "notify";
   }
 
-  /** Drops senders with nothing left in the window, at most once per window. */
-  private forgetIdle(since: number, at: number): void {
+  /** Drops senders with nothing after `before`, at most once per window. */
+  private forgetIdle(before: number, at: number): void {
     for (const [sender, window] of this.senders)
       if (
-        window.admitted.every((request) => request.at <= since) &&
-        (window.notice === undefined || window.notice.at <= since)
+        window.admitted.every((request) => request.at <= before) &&
+        (window.notice === undefined || window.notice.at <= before)
       )
         this.senders.delete(sender);
     this.sweptAt = at;

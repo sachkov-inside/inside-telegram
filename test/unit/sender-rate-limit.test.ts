@@ -58,7 +58,7 @@ describe("SenderRateLimit", () => {
     ]);
   });
 
-  it("limits each sender separately and forgets senders idle for a whole window", () => {
+  it("limits each sender separately and forgets senders idle past the window and retry grace", () => {
     const limit = new SenderRateLimit({ requests: 1, windowMs: 10_000 });
 
     expect([
@@ -68,7 +68,18 @@ describe("SenderRateLimit", () => {
     ]).toEqual(["admitted", "notify", "admitted"]);
     expect(limit.trackedSenders).toBe(2);
 
-    expect(limit.admit("user-c", "4", at(12))).toBe("admitted");
+    expect(limit.admit("user-c", "4", at(133))).toBe("admitted");
     expect(limit.trackedSenders).toBe(1);
+  });
+
+  it("keeps a lagging sender's window while other senders run ahead", () => {
+    const limit = new SenderRateLimit({ requests: 1, windowMs: 10_000 });
+
+    expect([
+      limit.admit("user-a", "1", at(0)),
+      limit.admit("user-b", "2", at(30)),
+      limit.admit("user-a", "3", at(1)),
+      limit.admit("user-a", "1", at(0)),
+    ]).toEqual(["admitted", "admitted", "notify", "admitted"]);
   });
 });

@@ -46,24 +46,26 @@ import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl)
   throw new Error("DATABASE_URL is required for integration tests");
-const config = loadApplicationConfig({
-  // Scripted conversations exceed the per-user limit, which other tests cover.
-  TELEGRAM_SENDER_RATE_REQUESTS: "10000",
-  DATABASE_URL: databaseUrl,
-  PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
-  TELEGRAM_SIGN_IN_ENABLED: "true",
-  TELEGRAM_SIGN_IN_INTEGRATION_SECRET:
-    "synthetic_sign_in_credential_for_tests_only",
-  TELEGRAM_BOT_IDENTITY: "inside",
-  TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
-  TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic link receipt",
-  TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member",
-  TELEGRAM_LINKED_NON_MEMBER_TEXT: "Synthetic non-member",
-  TELEGRAM_LINKED_UNAVAILABLE_TEXT: "Synthetic unavailable",
-  TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
-  TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
-  WORKERS_ENABLED: "false",
-});
+const config = {
+  ...loadApplicationConfig({
+    DATABASE_URL: databaseUrl,
+    PLATFORM_INTEGRATION_SECRET: "synthetic_platform_secret_for_tests_only",
+    TELEGRAM_SIGN_IN_ENABLED: "true",
+    TELEGRAM_SIGN_IN_INTEGRATION_SECRET:
+      "synthetic_sign_in_credential_for_tests_only",
+    TELEGRAM_BOT_IDENTITY: "inside",
+    TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
+    TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic link receipt",
+    TELEGRAM_LINKED_MEMBER_TEXT: "Synthetic member",
+    TELEGRAM_LINKED_NON_MEMBER_TEXT: "Synthetic non-member",
+    TELEGRAM_LINKED_UNAVAILABLE_TEXT: "Synthetic unavailable",
+    TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
+    TELEGRAM_WELCOME_TEXT: "Synthetic welcome",
+    WORKERS_ENABLED: "false",
+  }),
+  // Scripted conversations exceed the per-user limit, which ordinary-start covers.
+  senderRate: { requests: 10_000, windowMs: 10_000 },
+};
 const contractVersion = "inside.bot-sign-in.v1";
 let application: NestFastifyApplication;
 let fastify: FastifyInstance;
@@ -475,23 +477,25 @@ describe("bot sign-in provider", () => {
   });
 
   it("reports disabled over authenticated HTTP after loading a disabled runtime configuration", async () => {
-    const disabledConfig = loadApplicationConfig({
-      // Scripted conversations exceed the per-user limit, which other tests cover.
-      TELEGRAM_SENDER_RATE_REQUESTS: "10000",
-      DATABASE_URL: databaseUrl,
-      PLATFORM_INTEGRATION_SECRET: config.platformIntegrationSecret,
-      TELEGRAM_BOT_IDENTITY: config.botIdentity,
-      TELEGRAM_CANONICAL_CHAT_ID: config.canonicalChatId,
-      TELEGRAM_LINK_RECEIPT_TEXT: config.linkReceiptText,
-      TELEGRAM_LINKED_MEMBER_TEXT: config.linkedMemberText,
-      TELEGRAM_LINKED_NON_MEMBER_TEXT: config.linkedNonMemberText,
-      TELEGRAM_LINKED_UNAVAILABLE_TEXT: config.linkedUnavailableText,
-      TELEGRAM_WEBHOOK_SECRET: config.webhookSecret,
-      TELEGRAM_WELCOME_TEXT: config.welcomeText,
-      TELEGRAM_SIGN_IN_ENABLED: "false",
-      TELEGRAM_SIGN_IN_INTEGRATION_SECRET: config.signInIntegrationSecret,
-      WORKERS_ENABLED: "false",
-    });
+    const disabledConfig = {
+      ...loadApplicationConfig({
+        DATABASE_URL: databaseUrl,
+        PLATFORM_INTEGRATION_SECRET: config.platformIntegrationSecret,
+        TELEGRAM_BOT_IDENTITY: config.botIdentity,
+        TELEGRAM_CANONICAL_CHAT_ID: config.canonicalChatId,
+        TELEGRAM_LINK_RECEIPT_TEXT: config.linkReceiptText,
+        TELEGRAM_LINKED_MEMBER_TEXT: config.linkedMemberText,
+        TELEGRAM_LINKED_NON_MEMBER_TEXT: config.linkedNonMemberText,
+        TELEGRAM_LINKED_UNAVAILABLE_TEXT: config.linkedUnavailableText,
+        TELEGRAM_WEBHOOK_SECRET: config.webhookSecret,
+        TELEGRAM_WELCOME_TEXT: config.welcomeText,
+        TELEGRAM_SIGN_IN_ENABLED: "false",
+        TELEGRAM_SIGN_IN_INTEGRATION_SECRET: config.signInIntegrationSecret,
+        WORKERS_ENABLED: "false",
+      }),
+      // Scripted conversations exceed the per-user limit, which ordinary-start covers.
+      senderRate: { requests: 10_000, windowMs: 10_000 },
+    };
     const challenge = await register();
     await start(challenge, 42);
     await callback(challenge, 42);

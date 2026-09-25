@@ -32,7 +32,7 @@ export interface SenderRate {
   readonly windowMs: number;
 }
 
-/** The owner's limit from #87; tests of other behaviour may raise it. */
+/** The owner's limit from #87; only tests of other behaviour set `senderRate` to raise it. */
 export const DEFAULT_SENDER_RATE: SenderRate = Object.freeze({
   requests: 10,
   windowMs: 10_000,
@@ -151,23 +151,6 @@ export function loadApplicationConfig(
     3650,
     "TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS",
   );
-  const senderRate: SenderRate = Object.freeze({
-    requests: parseBoundedInteger(
-      environment.TELEGRAM_SENDER_RATE_REQUESTS,
-      DEFAULT_SENDER_RATE.requests,
-      1,
-      10_000,
-      "TELEGRAM_SENDER_RATE_REQUESTS",
-    ),
-    windowMs:
-      parseBoundedInteger(
-        environment.TELEGRAM_SENDER_RATE_WINDOW_SECONDS,
-        DEFAULT_SENDER_RATE.windowMs / 1000,
-        1,
-        3600,
-        "TELEGRAM_SENDER_RATE_WINDOW_SECONDS",
-      ) * 1000,
-  });
 
   const evidenceDeliveryMode =
     environment.PLATFORM_EVIDENCE_DELIVERY_MODE ?? "disabled";
@@ -469,7 +452,6 @@ export function loadApplicationConfig(
     ...(platformEvidenceDeliveryUrl ? { platformEvidenceDeliveryUrl } : {}),
     platformIntegrationSecret,
     port: parsePort(environment.PORT),
-    senderRate,
     signInEnabled,
     ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
     webhookSecret,
