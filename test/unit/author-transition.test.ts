@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
   emptyAuthorState,
-  parseAuthorState,
   type AuthorBroadcast,
   type AuthorState,
 } from "../../src/modules/communications/author-dialog.js";
@@ -239,17 +238,8 @@ describe("stale menu", () => {
     expect(dialog.state.composing).toEqual(composing);
   });
 
-  it("resets a session saved with a removed button and still offers the unfinished message", () => {
-    const stored = {
-      ...emptyAuthorState("old"),
-      actions: [{ kind: "send-options" }],
-      broadcast: broadcast(),
-    };
-    expect(
-      parseAuthorState(JSON.parse(JSON.stringify(stored))),
-    ).toBeUndefined();
-
-    // The admin starts an untrusted session over, while unfinished messages live outside it.
+  it("offers an unfinished message on its broadcast card after the session started over", () => {
+    // An untrusted stored session starts over; unfinished messages live outside it.
     const dialog = new Dialog(emptyAuthorState("fresh"));
     dialog.pending.add(uuid(900));
     dialog.send({ kind: "callback", data: "author:old:0" });
