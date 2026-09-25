@@ -13,8 +13,9 @@ const adapterForbiddenImports = [
   /^pg$/,
 ];
 
-// Application modules reach Telegram and the broker only through adapters.
+// Application modules reach Telegram, Platform and the broker only through adapters.
 const transportPackages = ["grammy", "amqplib"];
+const networkCall = /\bfetch\s*\(/;
 
 // A module never depends on the layers that compose or drive it.
 const moduleForbiddenLayers = [
@@ -67,8 +68,11 @@ for (const file of files) {
     }
   }
 
+  const code = withoutComments(source);
+  if (layer === "modules" && networkCall.test(code))
+    violations.push(`${file}: module calls fetch`);
+
   if (layer !== "database") {
-    const code = withoutComments(source);
     for (const [table, owner] of Object.entries(tableOwners)) {
       if (
         !file.startsWith(`${owner}/`) &&
@@ -113,7 +117,9 @@ function resolveImport(file, specifier) {
 }
 
 function withoutComments(source) {
-  return source.replace(/\/\*[\s\S]*?\*\//g, "").replace(/^\s*\/\/.*$/gm, "");
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/(^|\s)\/\/.*$/gm, "$1");
 }
 
 /** Every elementary cycle once, starting from its alphabetically first module. */

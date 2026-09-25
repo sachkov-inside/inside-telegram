@@ -21,8 +21,9 @@ export interface PlatformLink {
 }
 
 /**
- * Selects one link by one of its unique keys; the optional fields must also match.
- * A Telegram identity is unique per link, and so is a bot's Telegram user.
+ * Selects a link; every given field must match. A Telegram identity and a bot's Telegram user
+ * are unique keys. An Account has at most one link per bot by the linking rules, not by a
+ * database constraint.
  */
 export type PlatformLinkMatch =
   | {
@@ -99,39 +100,49 @@ function platformLink(row: Selectable<PlatformLinksTable>): PlatformLink {
   };
 }
 
-/**
- * Records a Membership observation of a linked identity. A decisive observation starts a new
- * Membership Evidence revision and returns it; an unavailable one only moves the observation
- * marker, and only when it came from a Telegram event.
- */
-export async function recordMembershipObservation(
+/** A Telegram membership observation of a linked identity. */
+export interface MembershipObservation {
+  readonly observedAt: Date;
+  /** The Telegram update that reported it, when an event did. */
+  readonly updateId: string | null;
+}
+
+/** Starts a new Membership Evidence revision for a decisive observation and returns it. */
+export async function reviseMembershipEvidence(
   transaction: Transaction<DatabaseSchema>,
   telegramIdentityRef: string,
-  observation: {
-    readonly observedAt: Date;
-    readonly updateId: string | null;
-    readonly revises: boolean;
-  },
-): Promise<string | undefined> {
-  const marker = {
-    last_membership_observation_at: observation.observedAt,
-    last_membership_observation_update_id: observation.updateId,
-  };
-  if (!observation.revises) {
-    await transaction
-      .updateTable("platform_links")
-      .set(marker)
-      .where("telegram_identity_ref", "=", telegramIdentityRef)
-      .execute();
-    return undefined;
-  }
+  observation: MembershipObservation,
+): Promise<string> {
   const revision = await transaction
     .updateTable("platform_links")
-    .set({ ...marker, evidence_version: sql`evidence_version + 1` })
+    .set({
+      ...observationMarker(observation),
+      evidence_version: sql`evidence_version + 1`,
+    })
     .where("telegram_identity_ref", "=", telegramIdentityRef)
     .returning("evidence_version")
     .executeTakeFirstOrThrow();
   return revision.evidence_version;
+}
+
+/** Moves the observation marker without a new revision, for an undecided observation. */
+export async function markMembershipObservation(
+  transaction: Transaction<DatabaseSchema>,
+  telegramIdentityRef: string,
+  observation: MembershipObservation,
+): Promise<void> {
+  await transaction
+    .updateTable("platform_links")
+    .set(observationMarker(observation))
+    .where("telegram_identity_ref", "=", telegramIdentityRef)
+    .execute();
+}
+
+function observationMarker(observation: MembershipObservation) {
+  return {
+    last_membership_observation_at: observation.observedAt,
+    last_membership_observation_update_id: observation.updateId,
+  };
 }
 
 /** Every linked identity with its link time, for scheduling per-identity work in one statement. */

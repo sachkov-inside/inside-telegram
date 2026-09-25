@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { ComposerState } from "./author-composer.js";
-import type { AuthorFunnelState } from "./author-funnels.js";
+import { COMPOSER_PROMPTS, type ComposerState } from "./author-composer.js";
+import { FUNNEL_PROMPTS, type AuthorFunnelState } from "./author-funnels.js";
 import type { broadcastView } from "./broadcasts.js";
 import type { TemplateSnapshot } from "./communications-contract.js";
 
@@ -128,6 +128,14 @@ export type SequenceAction = Extract<
 >;
 export type FunnelAction = Extract<AuthorAction, { kind: `f:${string}` }>;
 
+export function isComposeAction(action: AuthorAction): action is ComposeAction {
+  return action.kind.startsWith("compose:");
+}
+
+export function isFunnelAction(action: AuthorAction): action is FunnelAction {
+  return action.kind.startsWith("f:");
+}
+
 export type AuthorButton = [label: string, action: AuthorAction];
 
 export interface AuthorMenu {
@@ -135,15 +143,19 @@ export interface AuthorMenu {
   buttons: AuthorButton[];
 }
 
+const AUTHOR_PROMPT_KINDS = [
+  "capture",
+  "replace",
+  "button-title",
+  "schedule",
+  "broadcast-name",
+  "post-search",
+] as const;
+
 /** The text the dialog waits for from the author outside a composer or funnel prompt. */
 export type AuthorPrompt =
-  | { readonly kind: "capture" }
-  | { readonly kind: "replace" }
-  | { readonly kind: "button-title" }
-  | { readonly kind: "button-url"; readonly buttonTitle: string }
-  | { readonly kind: "schedule" }
-  | { readonly kind: "broadcast-name" }
-  | { readonly kind: "post-search" };
+  | { readonly kind: (typeof AUTHOR_PROMPT_KINDS)[number] }
+  | { readonly kind: "button-url"; readonly buttonTitle: string };
 
 /** Versions 0 and 1 differ only in the prompt; a session without a version is version 0. */
 export const AUTHOR_STATE_VERSION = 1;
@@ -280,12 +292,10 @@ function isAuthorState(value: unknown): value is AuthorState {
   );
 }
 
-const ACTION_KINDS = new Set<unknown>(AUTHOR_ACTION_KINDS);
-
 function isAuthorAction(value: unknown): value is AuthorAction {
   return (
     isRecord(value) &&
-    ACTION_KINDS.has(value.kind) &&
+    includes(AUTHOR_ACTION_KINDS, value.kind) &&
     optional(value.id, isString) &&
     optional(value.value, isString)
   );
@@ -306,28 +316,11 @@ function isAuthorMenu(value: unknown): value is AuthorMenu {
   );
 }
 
-const PROMPT_KINDS = new Set<unknown>([
-  "capture",
-  "replace",
-  "button-title",
-  "schedule",
-  "broadcast-name",
-  "post-search",
-]);
-
 function isAuthorPrompt(value: unknown): value is AuthorPrompt {
   if (!isRecord(value)) return false;
   if (value.kind === "button-url") return isString(value.buttonTitle);
-  return PROMPT_KINDS.has(value.kind);
+  return includes(AUTHOR_PROMPT_KINDS, value.kind);
 }
-
-const COMPOSER_PROMPTS = new Set<unknown>([
-  "capture",
-  "search",
-  "button-title",
-  "button-url",
-  "button-row",
-]);
 
 function isComposerState(value: unknown): value is ComposerState {
   if (!isRecord(value) || !isRecord(value.destination)) return false;
@@ -337,24 +330,16 @@ function isComposerState(value: unknown): value is ComposerState {
       (destination.kind === "funnel" && isString(destination.target))) &&
     isString(destination.id) &&
     typeof destination.expectedRevision === "number" &&
-    optional(value.prompt, (v) => COMPOSER_PROMPTS.has(v))
+    optional(value.prompt, (v) => includes(COMPOSER_PROMPTS, v))
   );
 }
-
-const FUNNEL_PROMPTS = new Set<unknown>([
-  "name",
-  "delay",
-  "source-name",
-  "source-code",
-  "part-delay",
-]);
 
 function isFunnelState(value: unknown): value is AuthorFunnelState {
   return (
     isRecord(value) &&
     optional(value.funnel, (v) => isRecord(v) && isString(v.funnelId)) &&
     optional(value.intro, (v) => isRecord(v) && isString(v.introId)) &&
-    optional(value.prompt, (v) => FUNNEL_PROMPTS.has(v))
+    optional(value.prompt, (v) => includes(FUNNEL_PROMPTS, v))
   );
 }
 
@@ -377,6 +362,11 @@ function isBroadcast(
     isString(value.state) &&
     Array.isArray(value.parts)
   );
+}
+
+// Lists are read at call time: author-composer and author-funnels import this module back.
+function includes(list: readonly string[], value: unknown): boolean {
+  return (list as readonly unknown[]).includes(value);
 }
 
 function optional(value: unknown, check: (value: unknown) => boolean) {

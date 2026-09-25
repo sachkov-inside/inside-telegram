@@ -1,3 +1,4 @@
+import { unhandled } from "../../shared/unhandled.js";
 import { SubscriptionActivation } from "../subscription-activation/subscription-activation.js";
 import { AuthorAdmin } from "../communications/author-admin.js";
 import { MarketingEntry } from "../communications/marketing-entry.js";
@@ -164,7 +165,7 @@ export class TelegramUpdateProcessor {
       case "ignored":
         return;
       default:
-        return unhandled(command);
+        return unhandled(command, "Telegram update command");
     }
   }
 
@@ -239,10 +240,4 @@ export class TelegramUpdateProcessor {
       now: contact.observedAt,
     });
   }
-}
-
-function unhandled(command: never): never {
-  throw new Error(
-    `Unhandled Telegram update command ${(command as { kind: string }).kind}`,
-  );
 }

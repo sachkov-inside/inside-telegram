@@ -1,3 +1,4 @@
+import { unhandled } from "../../shared/unhandled.js";
 import { findPlatformLink } from "../identity-linking/platform-links.js";
 import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import {
@@ -64,9 +65,13 @@ import {
   pageAuthorMenu,
   parseAuthorState,
   resolveAuthorCallback,
+  isComposeAction,
+  isFunnelAction,
   type AuthorAction,
   type AuthorButton,
   type AuthorState,
+  type ComposeAction,
+  type FunnelAction,
 } from "./author-dialog.js";
 import { communicationLock } from "./communication-state.js";
 
@@ -91,6 +96,41 @@ type BroadcastAction = Extract<
       | "cancel";
   }
 >;
+/** Composer buttons the composer handles itself; the rest start or restore a composition. */
+type ComposerStep = Exclude<
+  ComposeAction,
+  {
+    kind:
+      | "compose:broadcast"
+      | "compose:funnel"
+      | "compose:edit-broadcast"
+      | "compose:edit-funnel"
+      | "compose:resume"
+      | "compose:discard";
+  }
+>;
+function isComposerStep(action: AuthorAction): action is ComposerStep {
+  return (
+    isComposeAction(action) &&
+    ![
+      "compose:broadcast",
+      "compose:funnel",
+      "compose:edit-broadcast",
+      "compose:edit-funnel",
+      "compose:resume",
+      "compose:discard",
+    ].includes(action.kind)
+  );
+}
+/** Funnel buttons the funnel editor handles itself. */
+type FunnelStep = Exclude<FunnelAction, { kind: "f:new" | "f:posts" }>;
+function isFunnelStep(action: AuthorAction): action is FunnelStep {
+  return (
+    isFunnelAction(action) &&
+    action.kind !== "f:new" &&
+    action.kind !== "f:posts"
+  );
+}
 type Tx = Transaction<DatabaseSchema>;
 export type Context = {
   tx: Tx;
@@ -653,6 +693,9 @@ export class AuthorAdmin {
       b
         ? this.reply(c, "Откройте меню заново.", home)
         : this.reply(c, "Выберите пост, рассылку или воронку.", home);
+    if (isComposerStep(a))
+      return this.composeResult(c, await this.composer.act(c, a, reply));
+    if (isFunnelStep(a)) return this.authorFunnels.act(c, a, reply);
     switch (a.kind) {
       case "sequence:broadcast":
         return this.beginSequence(c, "broadcast");
@@ -734,17 +777,6 @@ export class AuthorAdmin {
           c,
           await this.composer.act(c, { kind: "compose:cancel" }, reply),
         );
-      case "compose:accept":
-      case "compose:all":
-      case "compose:button":
-      case "compose:cancel":
-      case "compose:choose":
-      case "compose:library":
-      case "compose:preview":
-      case "compose:remove-button":
-      case "compose:replace":
-      case "compose:search":
-        return this.composeResult(c, await this.composer.act(c, a, reply));
       case "new-broadcast":
         c.state.broadcast = newBroadcast();
         c.state.broadcastName = undefined;
@@ -782,41 +814,6 @@ export class AuthorAdmin {
       case "f:new":
         await this.authorFunnels.act(c, a, async () => {});
         return this.beginSequence(c, "funnel");
-      case "f:add-source":
-      case "f:add-step":
-      case "f:confirm-archive":
-      case "f:default":
-      case "f:delay":
-      case "f:discard":
-      case "f:intro":
-      case "f:life":
-      case "f:list":
-      case "f:message":
-      case "f:messages":
-      case "f:move-part":
-      case "f:move-step":
-      case "f:name":
-      case "f:part":
-      case "f:parts":
-      case "f:parts-page":
-      case "f:preview":
-      case "f:publish":
-      case "f:read":
-      case "f:remove-part":
-      case "f:remove-source":
-      case "f:remove-step":
-      case "f:sample":
-      case "f:save":
-      case "f:save-intro":
-      case "f:settings":
-      case "f:show":
-      case "f:source":
-      case "f:sources":
-      case "f:step":
-      case "f:steps":
-      case "f:timing":
-      case "f:timing-entry":
-        return this.authorFunnels.act(c, a, reply);
       case "home":
         c.state.batch = undefined;
         await retainFunnelDraft(c);
@@ -964,7 +961,7 @@ export class AuthorAdmin {
         if (!b) return unavailable();
         return this.performOnBroadcast(c, a, b);
       default:
-        return unhandled(a);
+        return unhandled(a, "author action");
     }
   }
   /** Actions on the selected broadcast. */
@@ -1150,7 +1147,7 @@ export class AuthorAdmin {
         return this.broadcast(c);
       }
       default:
-        return unhandled(a);
+        return unhandled(a, "author action");
     }
   }
   /** Starts a message for a broadcast or funnel, from scratch, a saved post or an existing part. */
@@ -1423,10 +1420,4 @@ export function parseMoscowSchedule(text: string): string | null | undefined {
   const local = new Date(value.getTime() + 3 * 3600000).toISOString();
   if (local.slice(0, 16) !== `${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}`) return;
   return value.toISOString();
-}
-
-function unhandled(action: never): never {
-  throw new Error(
-    `Unhandled author action ${(action as { kind: string }).kind}`,
-  );
 }

@@ -153,7 +153,7 @@ export class BotSignIn {
         .where("request_ref", "=", request.request_ref)
         .execute();
       // Commit the prompt with the identity receipt. Inbox retries cannot reassign it or enqueue another prompt.
-      await enqueueReply(transaction, {
+      const prompted = await enqueueReply(transaction, {
         botIdentity: contact.botIdentity,
         telegramUserId: contact.telegramUserId,
         privateChatId: contact.privateChatId,
@@ -163,6 +163,7 @@ export class BotSignIn {
         signInRequestRef: request.request_ref,
         now,
       });
+      if (!prompted) throw new Error("Sign-in prompt was already queued");
     });
   }
 

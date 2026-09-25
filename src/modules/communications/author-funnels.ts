@@ -33,13 +33,20 @@ import type {
 
 type Buttons = AuthorButton[];
 type Reply = (text: string, buttons?: Buttons) => Promise<void>;
+export const FUNNEL_PROMPTS = [
+  "name",
+  "delay",
+  "source-name",
+  "source-code",
+  "part-delay",
+] as const;
 export interface AuthorFunnelState {
   funnel?: FunnelSnapshot;
   intro?: IntroSnapshot;
   dirty?: boolean;
   target?: "entry" | "intro" | string;
   replacePartId?: string;
-  prompt?: "name" | "delay" | "source-name" | "source-code" | "part-delay";
+  prompt?: (typeof FUNNEL_PROMPTS)[number];
   sourceName?: string;
   timingPartId?: string;
 }

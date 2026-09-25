@@ -2,25 +2,11 @@ import { Injectable } from "@nestjs/common";
 
 import type { CommunitySnapshot } from "../modules/community/community-provider.js";
 import type { ReconciliationBatchOutcome } from "../modules/membership-evidence/membership-reconciliation.js";
-import type {
-  RuntimeCounter,
-  RuntimeCounters,
+import {
+  RUNTIME_COUNTER_NAMES,
+  type RuntimeCounter,
+  type RuntimeCounters,
 } from "../shared/runtime-counters.js";
-
-const counterNames: readonly RuntimeCounter[] = [
-  "webhook_accepted",
-  "webhook_duplicate",
-  "update_processed",
-  "update_ignored",
-  "update_failed",
-  "delivery_delivered",
-  "delivery_api_rejected",
-  "delivery_api_retryable",
-  "delivery_transport_unknown",
-  "reconciliation_success",
-  "reconciliation_failure",
-  "reconciliation_degraded",
-];
 
 type Gauge =
   | "activation_pending"
@@ -89,12 +75,9 @@ export class RuntimeMetrics implements RuntimeCounters {
   }
 
   render(): string {
-    const counters = counterNames
-      .map(
-        (name) =>
-          `inside_telegram_${name}_total ${this.counters.get(name) ?? 0}`,
-      )
-      .join("\n");
+    const counters = RUNTIME_COUNTER_NAMES.map(
+      (name) => `inside_telegram_${name}_total ${this.counters.get(name) ?? 0}`,
+    ).join("\n");
     const gauges = gaugeNames
       .map((name) => `inside_telegram_${name} ${this.gauges.get(name) ?? 0}`)
       .join("\n");

@@ -23,6 +23,7 @@ describe("architecture guardrail", () => {
       "module-imports-transport",
       "modules/contacts/contacts.ts: module imports transport package grammy",
     ],
+    ["module-calls-fetch", "modules/contacts/contacts.ts: module calls fetch"],
     [
       "shared-imports-module",
       "shared/clock.ts: shared kernel imports modules/contacts/contacts.ts",

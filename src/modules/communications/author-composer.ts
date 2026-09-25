@@ -18,11 +18,18 @@ export type MessageDestination = { expectedRevision: number } & (
   | { kind: "broadcast"; id: string; partId?: string }
   | { kind: "funnel"; id: string; target: string; partId?: string }
 );
+export const COMPOSER_PROMPTS = [
+  "capture",
+  "search",
+  "button-title",
+  "button-url",
+  "button-row",
+] as const;
 export interface ComposerState {
   destination: MessageDestination;
   sequence?: { lastOffset: number; firstEntry: boolean };
   content?: TemplateContent;
-  prompt?: "capture" | "search" | "button-title" | "button-url" | "button-row";
+  prompt?: (typeof COMPOSER_PROMPTS)[number];
   buttonTitle?: string;
   buttonUrl?: string;
   query?: string;

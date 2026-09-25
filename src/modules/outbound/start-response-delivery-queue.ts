@@ -72,8 +72,9 @@ export interface PlannedReply {
 }
 
 /**
- * The only way to add a reply to the outbox. Pass the caller's transaction so the reply commits
- * together with the decision it answers. Returns false when the source key already has a reply.
+ * Every reply enters the outbox here; `StartResponseDeliveryQueue.enqueue` is the same call for
+ * injected callers. Pass the caller's transaction so the reply commits together with the
+ * decision it answers. Returns false, and adds nothing, when the source key already has a reply.
  */
 export async function enqueueReply(
   database: Database | Transaction<DatabaseSchema>,

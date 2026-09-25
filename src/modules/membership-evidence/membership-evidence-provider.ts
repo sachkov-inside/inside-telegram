@@ -1,7 +1,8 @@
 import {
   findPlatformLink,
   lockPlatformLink,
-  recordMembershipObservation,
+  markMembershipObservation,
+  reviseMembershipEvidence,
 } from "../identity-linking/platform-links.js";
 import { enqueueReply } from "../outbound/start-response-delivery-queue.js";
 import { randomUUID } from "node:crypto";
@@ -660,13 +661,12 @@ async function recordEvidence(
   let evidenceVersion: number | undefined;
   let evidenceRef: string | undefined;
   if (record.normalizedState !== "unavailable") {
-    const revision = await recordMembershipObservation(
+    const revision = await reviseMembershipEvidence(
       transaction,
       record.telegramIdentityRef,
       {
         observedAt: record.event?.eventAt ?? record.observedAt,
         updateId: record.event?.updateId ?? null,
-        revises: true,
       },
     );
     evidenceVersion = Number(revision);
@@ -675,10 +675,9 @@ async function recordEvidence(
     }
     evidenceRef = randomUUID();
   } else if (record.event) {
-    await recordMembershipObservation(transaction, record.telegramIdentityRef, {
+    await markMembershipObservation(transaction, record.telegramIdentityRef, {
       observedAt: record.event.eventAt,
       updateId: record.event.updateId,
-      revises: false,
     });
   }
 
