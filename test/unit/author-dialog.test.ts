@@ -8,11 +8,12 @@ import {
   type AuthorAction,
   type AuthorState,
 } from "../../src/modules/communications/author-dialog.js";
+import type { TemplateContent } from "../../src/modules/communications/communications-contract.js";
 
 const broadcastId = "4f7c1d2e-9a8b-4c3d-8e7f-6a5b4c3d2e1f";
 
 function stateWith(actions: AuthorAction[]): AuthorState {
-  return { ...emptyAuthorState(), token: "menu-token", actions };
+  return { ...emptyAuthorState("menu-token"), actions };
 }
 
 describe("author callback navigation", () => {
@@ -131,6 +132,114 @@ describe("stored author session", () => {
       { ...current, composing: { destination: { kind: "post", id: "p" } } },
     ])
       expect(parseAuthorState(stored), JSON.stringify(stored)).toBeUndefined();
+  });
+
+  it("trusts only buttons that carry the data their kind needs", () => {
+    const current = JSON.parse(JSON.stringify(stateWith([])));
+    for (const actions of [
+      [{ kind: "read-post" }],
+      [{ kind: "f:message", id: "part" }],
+      [{ kind: "f:life", value: "delete" }],
+      [{ kind: "menu:page", value: 1 }],
+      [{ kind: "posts", id: 7 }],
+    ])
+      expect(
+        parseAuthorState({ ...current, actions }),
+        JSON.stringify(actions),
+      ).toBeUndefined();
+    const valid: AuthorAction[] = [
+      { kind: "posts" },
+      { kind: "posts", id: "cursor" },
+      { kind: "f:message", id: "part", value: "entry" },
+      { kind: "f:life", value: "archive" },
+    ];
+    expect(parseAuthorState({ ...current, actions: valid })?.actions).toEqual(
+      valid,
+    );
+    const typed: AuthorAction[] = [
+      // @ts-expect-error A post link names its post.
+      { kind: "read-post" },
+      // @ts-expect-error Home carries no selection.
+      { kind: "home", id: "post" },
+      // @ts-expect-error A lifecycle button names one of the known changes.
+      { kind: "f:life", value: "delete" },
+    ];
+    expect(typed).toHaveLength(3);
+  });
+
+  it("checks the nested snapshots of a stored session", () => {
+    const content: TemplateContent = {
+      type: "text",
+      text: "Пост",
+      entities: [],
+      buttons: [],
+    };
+    const part = { partId: broadcastId, content };
+    const nested: AuthorState = {
+      ...stateWith([]),
+      composing: {
+        destination: {
+          kind: "funnel",
+          id: broadcastId,
+          target: "entry",
+          expectedRevision: 1,
+        },
+        sequence: { lastOffset: 0, firstEntry: true },
+        content,
+      },
+      funnelAuthor: {
+        funnel: {
+          funnelId: broadcastId,
+          name: "Новая воронка",
+          isDefault: false,
+          entryResponse: { stepId: broadcastId, parts: [part] },
+          steps: [{ stepId: broadcastId, delaySeconds: 60, parts: [] }],
+          sources: [],
+          revision: 0,
+          publishedRevision: null,
+          lifecycle: "draft",
+        },
+        dirty: true,
+        target: "entry",
+      },
+      broadcast: {
+        broadcastId,
+        revision: 0,
+        state: "draft",
+        parts: [{ ...part, sendAfterSeconds: 60 }],
+        audience: { kind: "all" },
+        scheduledAt: null,
+        audienceSnapshotId: null,
+        snapshotSize: 0,
+      },
+      template: {
+        templateId: broadcastId,
+        revision: 1,
+        botIdentity: "inside",
+        content,
+      },
+    };
+    const stored = JSON.parse(JSON.stringify(nested));
+    expect(parseAuthorState(stored)).toEqual(nested);
+
+    const changed = (edit: (copy: typeof stored) => void) => {
+      const copy = structuredClone(stored);
+      edit(copy);
+      return copy;
+    };
+    for (const untrusted of [
+      changed((s) => (s.composing.content = { type: "sticker" })),
+      changed((s) => (s.composing.sequence = { lastOffset: "0" })),
+      changed((s) => (s.composing.destination.expectedRevision = "1")),
+      changed((s) => (s.funnelAuthor.funnel.steps[0].parts = [{ partId: 1 }])),
+      changed((s) => (s.funnelAuthor.funnel.lifecycle = "deleted")),
+      changed((s) => (s.funnelAuthor.funnel.sources = [{ code: "x" }])),
+      changed((s) => (s.funnelAuthor.prompt = "title")),
+      changed((s) => (s.broadcast.parts[0].partId = "not-an-id")),
+      changed((s) => (s.broadcast.audience = { kind: "funnels" })),
+      changed((s) => delete s.template.botIdentity),
+    ])
+      expect(parseAuthorState(untrusted)).toBeUndefined();
   });
 
   it("upgrades a session saved before states were versioned", () => {

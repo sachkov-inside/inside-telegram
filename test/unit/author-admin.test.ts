@@ -2,7 +2,6 @@ import { parseFunnelDelay } from "../../src/modules/communications/author-funnel
 import { describe, expect, it } from "vitest";
 import { translateAuthorInput } from "../../src/adapters/telegram/grammy-author-admin.adapter.js";
 import { snapshot } from "../../src/adapters/telegram/grammy-template-intake.adapter.js";
-import { parseMoscowSchedule } from "../../src/modules/communications/author-admin.js";
 import { buttonRows } from "../../src/modules/communications/button-rows.js";
 import { validateContent } from "../../src/modules/communications/communications-contract.js";
 
@@ -73,19 +72,6 @@ describe("native author input", () => {
         })),
       }),
     ).toThrow("unsupported_content");
-  });
-  it("parses explicit Moscow time without accepting invalid dates or implicit machine timezones", () => {
-    expect(parseMoscowSchedule("01.01.2099 12:00")).toBe(
-      "2099-01-01T09:00:00.000Z",
-    );
-    expect(parseMoscowSchedule("сразу")).toBeNull();
-    for (const input of [
-      "31.02.2099 12:00",
-      "01.01.2099 25:00",
-      "tomorrow",
-      "2099-01-01",
-    ])
-      expect(parseMoscowSchedule(input)).toBeUndefined();
   });
 });
 

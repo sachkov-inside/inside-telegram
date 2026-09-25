@@ -39,6 +39,24 @@ const tableOwners = {
   start_response_delivery_attempts: "modules/outbound",
 };
 
+// The author dialog decides every transition from its arguments alone; author-admin.ts runs
+// the effects. Its files import no package and no module that reaches I/O; types are free.
+const pureDialogFiles = [
+  "author-button",
+  "author-composer",
+  "author-dialog",
+  "author-funnels",
+  "author-message-view",
+  "author-sequence-composer",
+  "author-transition",
+  "author-turn",
+].map((name) => `modules/communications/${name}.ts`);
+const pureDialogImports = [
+  ...pureDialogFiles,
+  "modules/communications/communications-contract.ts",
+  "shared/unhandled.ts",
+];
+
 const root = process.argv[2] ?? "src";
 const files = await sourceFiles(root);
 const violations = [];
@@ -70,6 +88,15 @@ for (const file of files) {
         violations.push(`${file}: shared kernel imports ${target}`);
     }
   }
+
+  if (pureDialogFiles.includes(file))
+    for (const specifier of valueImportSpecifiers(source)) {
+      const target = resolveImport(file, specifier);
+      if (!target || !pureDialogImports.includes(target))
+        violations.push(
+          `${file}: pure author dialog imports ${target ?? specifier}`,
+        );
+    }
 
   const code = withoutComments(source);
   if (layer === "modules" && networkCall.test(code))
@@ -109,6 +136,36 @@ function importSpecifiers(source) {
       /(?:\bfrom\s+|\bimport\s*\(\s*|^\s*import\s+)["']([^"']+)["']/gm,
     ),
   ].map((match) => match[1]);
+}
+
+/** Modules loaded at runtime; `import type` and all-type import lists are erased. */
+function valueImportSpecifiers(source) {
+  const statements = source.matchAll(
+    /^\s*(import|export)\s+(?!type\b)(?:([^"';]*?)\bfrom\s+)?["']([^"']+)["']/gm,
+  );
+  const dynamic = source.matchAll(/\bimport\s*\(\s*["']([^"']+)["']/g);
+  return [
+    ...[...statements]
+      .filter(
+        ([, keyword, clause]) =>
+          !onlyTypes(clause) && (keyword === "import" || clause !== undefined),
+      )
+      .map((match) => match[3]),
+    ...[...dynamic].map((match) => match[1]),
+  ];
+}
+
+/** `{ type A, type B }`: an import clause that names only types. */
+function onlyTypes(clause) {
+  const names = /^\{([^}]*)\}\s*$/.exec(clause?.trim() ?? "")?.[1];
+  return (
+    names !== undefined &&
+    names
+      .split(",")
+      .map((name) => name.trim())
+      .filter(Boolean)
+      .every((name) => name.startsWith("type "))
+  );
 }
 
 /** The imported file relative to the root, or undefined for a package import. */

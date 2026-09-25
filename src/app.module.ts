@@ -3,7 +3,6 @@ import { SourceGroupProof } from "./modules/subscription-activation/source-group
 import { ACTIVATION_PLATFORM } from "./modules/subscription-activation/activation-ports.js";
 import { HttpActivationPlatform } from "./adapters/platform/http-activation-platform.adapter.js";
 import { NotificationWorker } from "./operations/notification-worker.js";
-import { AuthorFunnels } from "./modules/communications/author-funnels.js";
 import {
   AUTHOR_CONTENT_VALIDATION,
   DisabledAuthorContentValidation,
@@ -296,7 +295,6 @@ export class AppModule {
           },
         },
         AuthorAdmin,
-        AuthorFunnels,
         AuthorDelivery,
         {
           provide: AUTHOR_TRANSPORT,

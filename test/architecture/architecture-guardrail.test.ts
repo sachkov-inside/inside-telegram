@@ -30,6 +30,18 @@ describe("architecture guardrail", () => {
     ],
     ["module-cycle", "module cycle: contacts -> marketing -> contacts"],
     [
+      "pure-dialog-imports-io",
+      "modules/communications/author-transition.ts: pure author dialog imports database/drafts.ts",
+    ],
+    [
+      "pure-dialog-imports-io",
+      "modules/communications/author-funnels.ts: pure author dialog imports database/drafts.ts",
+    ],
+    [
+      "pure-dialog-imports-io",
+      "modules/communications/author-composer.ts: pure author dialog imports node:crypto",
+    ],
+    [
       "foreign-table-access",
       "modules/marketing/marketing.ts: platform_links is owned by modules/identity-linking",
     ],
@@ -39,6 +51,14 @@ describe("architecture guardrail", () => {
     expect(result.stdout.split("\n")).toContain(violation);
     expect(result.status).toBe(1);
   });
+});
+
+it("lets the pure author dialog import types from anywhere", () => {
+  const result = runGuardrail(
+    "test/architecture/fixtures/pure-dialog-imports-io/src",
+  );
+
+  expect(result.stdout).not.toContain("author-turn.ts");
 });
 
 function runGuardrail(root?: string) {
