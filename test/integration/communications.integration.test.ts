@@ -912,6 +912,7 @@ describe("simple sequential authoring", () => {
       "Запустить",
       "Отменить рассылку",
       "Посмотреть сообщения",
+      "Изменить сообщения",
       "Все рассылки",
     ]);
     const response = await http({
@@ -1303,5 +1304,185 @@ describe("funnel settings in the bot", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(texts(response.json().intro.parts)).toEqual(["Добро пожаловать"]);
+  });
+});
+
+describe("broadcast authoring in the bot", () => {
+  const buy = { text: "Купить", url: "https://example.com/buy", row: 0 };
+  /** The messages of the open broadcast as the API and MCP read them. */
+  async function apiParts() {
+    const { broadcastId } = (await sessionState()).broadcast!;
+    const response = await http({
+      ...request(),
+      operation: "broadcasts.read",
+      payload: { broadcastId },
+    });
+    expect(response.statusCode).toBe(200);
+    return response.json().broadcast.parts as {
+      content: { text: string; buttons: unknown[] };
+      sendAfterSeconds?: number;
+    }[];
+  }
+  /** Each message's text and send time. */
+  async function apiBroadcast() {
+    return (await apiParts()).map((p) => [
+      p.content.text,
+      p.sendAfterSeconds ?? 0,
+    ]);
+  }
+  async function savePost(text: string) {
+    const templateId = randomUUID();
+    const response = await http({
+      ...request(),
+      payload: { templateId, content: { ...content, text } },
+    });
+    expect(response.statusCode).toBe(200);
+    return templateId;
+  }
+  /** A saved bot broadcast: «Первое» at launch and «Второе» one hour later. */
+  async function savedBroadcast() {
+    await beginSequence("Рассылки");
+    await acceptPost(103, "Первое", "сразу");
+    await acceptPost(104, "Второе", "1 час");
+    await authorClick(105, "Готово");
+    await authorClick(106, "Изменить сообщения");
+  }
+
+  it("edits a saved post, sends its sample and creates a broadcast from it", async () => {
+    await seedLink();
+    const templateId = await savePost("Урок");
+    await authorMessage(100, "/admin");
+    await authorClick(101, "Рассылки");
+    await authorClick(102, "Сохранённые посты");
+    await authorClick(103, "📝 Текст · Урок");
+    await authorClick(104, "Добавить кнопку");
+    await authorMessage(105, "Купить");
+    await authorMessage(106, buy.url);
+    await authorClick(107, "Заменить сообщение");
+    await authorMessage(108, "Новый урок");
+
+    const read = await http({
+      ...request(),
+      operation: "templates.read",
+      payload: { templateId },
+    });
+    expect(read.json().template).toMatchObject({
+      revision: 3,
+      content: { text: "Новый урок", buttons: [buy] },
+    });
+
+    await authorClick(109, "Образец себе");
+    const outbox = await database
+      .selectFrom("communication_author_outbox")
+      .select("message")
+      .execute();
+    expect(
+      outbox.filter(
+        ({ message }) =>
+          (message as { content: { text: string } }).content.text ===
+          "Новый урок",
+      ),
+    ).toHaveLength(1);
+
+    await authorClick(110, "Вернуться к посту");
+    await authorClick(110.1, "Удалить: Купить");
+    const withoutButton = await http({
+      ...request(),
+      operation: "templates.read",
+      payload: { templateId },
+    });
+    expect(withoutButton.json().template).toMatchObject({
+      revision: 4,
+      content: { text: "Новый урок", buttons: [] },
+    });
+    await authorClick(111, "Создать рассылку");
+    expect(await apiParts()).toMatchObject([
+      { content: { text: "Новый урок", buttons: [] } },
+    ]);
+    expect(await lastAuthorText()).toContain(
+      "Новый урок\nЧерновик · сообщений: 1",
+    );
+  });
+
+  it("saves a moved, rewritten and removed message", async () => {
+    await savedBroadcast();
+    await authorClick(110, "2. Через 1 ч · 📝 Текст · Второе");
+    await authorClick(111, "Поднять выше");
+    expect(await apiBroadcast()).toEqual([
+      ["Второе", 0],
+      ["Первое", 3600],
+    ]);
+
+    await authorClick(112, "Изменить сообщения");
+    await authorClick(113, "1. Сразу · 📝 Текст · Второе");
+    await authorClick(114, "Изменить сообщение и кнопки");
+    await authorClick(115, "Прислать другое");
+    await authorMessage(116, "Главное");
+    await authorClick(117, "Заменить сообщение");
+    expect(await apiBroadcast()).toEqual([
+      ["Главное", 0],
+      ["Первое", 3600],
+    ]);
+
+    await authorClick(118, "Изменить сообщения");
+    await authorClick(119, "2. Через 1 ч · 📝 Текст · Первое");
+    await authorClick(120, "Удалить сообщение");
+    expect(await apiBroadcast()).toEqual([["Главное", 0]]);
+  });
+
+  it("replaces a message with a saved post and adds another saved post", async () => {
+    await savePost("Урок");
+    await savedBroadcast();
+    await authorClick(110, "1. Сразу · 📝 Текст · Первое");
+    await authorClick(111, "Заменить из сохранённых");
+    await authorClick(112, "📝 Текст · Урок");
+    await authorClick(113, "Заменить сообщение");
+    expect(await apiBroadcast()).toEqual([
+      ["Урок", 0],
+      ["Второе", 3600],
+    ]);
+
+    await authorClick(114, "Изменить сообщения");
+    await authorClick(115, "Добавить сохранённый пост");
+    await authorClick(116, "📝 Текст · Урок");
+    await authorClick(117, "Добавить в рассылку");
+    expect(await apiBroadcast()).toEqual([
+      ["Урок", 0],
+      ["Второе", 3600],
+      ["Урок", 3600],
+    ]);
+  });
+
+  it("creates a message with a button after the last one", async () => {
+    await savedBroadcast();
+    await authorClick(110, "Создать сообщение");
+    await authorMessage(111, "Третье");
+    await authorClick(112, "Добавить кнопку");
+    await authorMessage(113, "Купить");
+    await authorMessage(114, buy.url);
+    await authorClick(115, "Добавить в рассылку");
+
+    expect(await apiBroadcast()).toEqual([
+      ["Первое", 0],
+      ["Второе", 3600],
+      ["Третье", 3600],
+    ]);
+    expect((await apiParts())[2]!.content.buttons).toEqual([buy]);
+  });
+
+  it("adds several messages in a row", async () => {
+    await savedBroadcast();
+    await authorClick(110, "Добавить сообщения");
+    await authorMessage(111, "Третье");
+    await authorMessage(112, "Четвёртое");
+    await authorClick(113, "Готово");
+
+    expect(await apiBroadcast()).toEqual([
+      ["Первое", 0],
+      ["Второе", 3600],
+      ["Третье", 3600],
+      ["Четвёртое", 3600],
+    ]);
+    expect(await lastAuthorText()).toContain("Черновик · сообщений: 4");
   });
 });
