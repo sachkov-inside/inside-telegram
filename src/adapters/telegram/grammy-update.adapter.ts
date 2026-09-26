@@ -27,8 +27,8 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
   }
 
   const message = { ...payload.message };
-  delete message[LINK_TOKEN_FIELD];
-  delete message[SIGN_IN_TOKEN_FIELD];
+  Reflect.deleteProperty(message, LINK_TOKEN_FIELD);
+  Reflect.deleteProperty(message, SIGN_IN_TOKEN_FIELD);
   delete message._inside_marketing_source;
   delete message._inside_activation;
   const text = message.text;
@@ -148,7 +148,8 @@ export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
       observedAt,
     );
     if (access) {
-      const text = access.match[1]!;
+      // The pattern is anchored around one group, so the whole match is that group.
+      const [text] = access.match;
       const action: AccessAction = ["/access", "Мои доступы"].includes(text)
         ? "own"
         : ["/platform", "Открыть платформу"].includes(text)
@@ -161,12 +162,14 @@ export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
       return { kind: "access-action", value: access.contact, action };
     }
     const callback = update.callback_query;
+    const callbackAction =
+      callback && "data" in callback && typeof callback.data === "string"
+        ? accessCallbackAction(callback.data)
+        : undefined;
     if (
       callback &&
-      "data" in callback &&
-      typeof callback.data === "string" &&
-      /^access:(own|community|retry|help|platform)$/.test(callback.data) &&
-      callback.from.is_bot === false &&
+      callbackAction &&
+      !callback.from.is_bot &&
       callback.message?.chat.type === "private" &&
       callback.from.id === callback.message.chat.id &&
       callback.id.length <= 128
@@ -182,7 +185,7 @@ export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
             telegramUserId: user,
             privateChatId: user,
           },
-          action: callback.data.slice(7) as AccessAction,
+          action: callbackAction,
           callbackQueryId: callback.id,
         };
     }
@@ -270,18 +273,16 @@ export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
         readonly match: RegExpExecArray;
       }
     | undefined {
-    const text =
-      typeof update.message?.text === "string"
-        ? update.message.text.trim()
-        : "";
+    const message = update.message;
+    const text = typeof message?.text === "string" ? message.text.trim() : "";
     const match = pattern.exec(text);
-    if (!match) {
+    if (!match || !message) {
       return undefined;
     }
     const verified = this.privateStart(
       botIdentity,
       updateId,
-      { ...update, message: { ...update.message!, text: "/start" } },
+      { ...update, message: { ...message, text: "/start" } },
       observedAt,
     );
     return verified ? { contact: verified.contact, match } : undefined;
@@ -431,7 +432,7 @@ export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
       ...(isRecord(message._inside_activation) &&
       (message._inside_activation.code === null ||
         typeof message._inside_activation.code === "string")
-        ? { activationCode: message._inside_activation.code as string | null }
+        ? { activationCode: message._inside_activation.code }
         : {}),
       ...(linkToken ? { linkToken } : {}),
       ...(signInToken ? { signInToken } : {}),
@@ -541,8 +542,9 @@ function privateSignInDecision(
   const telegramUserId = telegramId(value.from.id);
   const privateChatId = telegramId(value.message.chat.id);
   const messageId = telegramId(value.message.message_id);
+  const requestRef = match?.[2];
   if (
-    !match ||
+    !requestRef ||
     !telegramUserId ||
     !privateChatId ||
     !messageId ||
@@ -554,9 +556,20 @@ function privateSignInDecision(
     telegramUserId,
     privateChatId,
     messageId,
-    requestRef: match[2]!,
-    decision: match[1] === "approve" ? "approve" : "deny",
+    requestRef,
+    decision: match?.[1] === "approve" ? "approve" : "deny",
   };
+}
+
+const ACCESS_ACTIONS: readonly AccessAction[] = [
+  "own",
+  "community",
+  "retry",
+  "help",
+  "platform",
+];
+function accessCallbackAction(data: string): AccessAction | undefined {
+  return ACCESS_ACTIONS.find((action) => data === `access:${action}`);
 }
 
 function telegramId(value: unknown): string | undefined {

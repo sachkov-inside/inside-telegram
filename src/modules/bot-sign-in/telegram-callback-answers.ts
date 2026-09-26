@@ -6,5 +6,7 @@ export interface TelegramCallbackAnswers {
 export const TELEGRAM_CALLBACK_ANSWERS = Symbol("TELEGRAM_CALLBACK_ANSWERS");
 
 export class DisabledTelegramCallbackAnswers implements TelegramCallbackAnswers {
-  async answer(): Promise<void> {}
+  answer(): Promise<void> {
+    return Promise.resolve();
+  }
 }

@@ -14,8 +14,8 @@ export interface AuthorAuthorization {
   ): Promise<"allowed" | "denied" | "unavailable">;
 }
 export class DisabledAuthorAuthorization implements AuthorAuthorization {
-  async authorize(): Promise<"unavailable"> {
-    return "unavailable";
+  authorize(): Promise<"unavailable"> {
+    return Promise.resolve("unavailable");
   }
 }
 

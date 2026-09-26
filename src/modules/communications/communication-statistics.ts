@@ -1,9 +1,14 @@
-import { deliveryOwnerPredicate } from "./communication-queries.js";
+import {
+  aggregateRow,
+  deliveryOwnerPredicate,
+  nextCursor,
+} from "./communication-queries.js";
 import { sql, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 import {
   CommunicationsError,
   type CommunicationsRequest,
+  requiredField,
 } from "./communications-contract.js";
 import { uuidCursor } from "./broadcasts.js";
 type Tx = Transaction<DatabaseSchema>;
@@ -109,7 +114,12 @@ export async function readEntries(
   bot: string,
   actor: string,
 ): Promise<EntriesResult> {
-  let query = entryQuery(tx, bot, actor, request.payload.contactId!);
+  let query = entryQuery(
+    tx,
+    bot,
+    actor,
+    requiredField(request.payload.contactId),
+  );
   if (request.payload.cursor) {
     let value: unknown;
     try {
@@ -278,22 +288,22 @@ export async function readStatistics(
       nextEntryCursor: history.nextCursor,
     });
   }
-  const total = totals.rows[0]!;
-  const hit = hits.rows[0]!;
+  const total = aggregateRow(totals);
+  const hit = aggregateRow(hits);
   return {
     statistics: {
       totalBotContacts: total.total,
       reachable: total.reachable,
       blocked: total.blocked,
       marketingOff: total.off,
-      uniqueParticipants: participants.rows[0]!.count,
-      deliveries: counts.rows[0]!,
+      uniqueParticipants: aggregateRow(participants).count,
+      deliveries: aggregateRow(counts),
       trackingHits: hit.hits,
       uniqueTokensWithHits: hit.tokens,
       knownAutomationHits: hit.automation,
       analyticsLagSeconds: hit.lag,
       contacts: page,
-      nextCursor: rows.length > 100 ? rows[99]!.contact_id : null,
+      nextCursor: nextCursor(rows, 100, (row) => row.contact_id),
     },
   };
 }

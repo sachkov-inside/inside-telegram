@@ -3,23 +3,23 @@ import { sql, type Transaction, type Selectable } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 import {
   CommunicationsError,
+  requiredField,
   type CommunicationsRequest,
   validateContent,
 } from "./communications-contract.js";
 import { lockContactRows, planDeliveries } from "./communication-state.js";
 import { cancelDelivery } from "./funnel-timeline.js";
-import type { BroadcastPart } from "./funnel-types.js";
+import { nextCursor } from "./communication-queries.js";
 
 type Broadcast = Selectable<DatabaseSchema["communication_broadcasts"]>;
-type Audience = NonNullable<CommunicationsRequest["payload"]["audience"]>;
 type Tx = Transaction<DatabaseSchema>;
 export function broadcastView(row: Broadcast) {
   return {
     broadcastId: row.broadcast_id,
     revision: row.revision,
     state: row.state,
-    parts: row.parts as BroadcastPart[],
-    audience: row.audience as Audience,
+    parts: row.parts,
+    audience: row.audience,
     scheduledAt: row.scheduled_at?.toISOString() ?? null,
     audienceSnapshotId: row.audience_snapshot_id,
     snapshotSize: row.snapshot_size,
@@ -53,13 +53,13 @@ export async function applyBroadcast(
     const rows = await query.orderBy("broadcast_id").limit(101).execute();
     return {
       broadcasts: rows.slice(0, 100).map(broadcastView),
-      nextCursor: rows.length > 100 ? rows[99]!.broadcast_id : null,
+      nextCursor: nextCursor(rows, 100, (row) => row.broadcast_id),
     };
   }
   let row = await tx
     .selectFrom("communication_broadcasts")
     .selectAll()
-    .where("broadcast_id", "=", payload.broadcastId!)
+    .where("broadcast_id", "=", requiredField(payload.broadcastId))
     .executeTakeFirst();
   if (row && (row.bot_identity !== bot || row.owner_account_ref !== actor))
     throw new CommunicationsError("not_found");
@@ -76,7 +76,7 @@ export async function applyBroadcast(
         !["draft", "scheduled", "paused"].includes(row.state))
     )
       throw new CommunicationsError("revision_conflict");
-    const parts = payload.parts!;
+    const parts = requiredField(payload.parts);
     if (new Set(parts.map((p) => p.partId)).size !== parts.length)
       throw new CommunicationsError("unsupported_content");
     parts.forEach((p, i) => {
@@ -90,7 +90,7 @@ export async function applyBroadcast(
       )
         throw new CommunicationsError("unsupported_content");
     });
-    const audience = payload.audience!;
+    const audience = requiredField(payload.audience);
     if (audience.kind === "funnels") {
       const ids = [...new Set(audience.funnelIds)];
       const owned = await tx
@@ -106,7 +106,7 @@ export async function applyBroadcast(
     row = await tx
       .insertInto("communication_broadcasts")
       .values({
-        broadcast_id: payload.broadcastId!,
+        broadcast_id: requiredField(payload.broadcastId),
         bot_identity: bot,
         owner_account_ref: actor,
         revision: expectedRevision + 1,
@@ -207,7 +207,7 @@ async function launchBroadcast(
   await sql`insert into communication_contacts(contact_id,bot_identity,telegram_user_id)
     select gen_random_uuid(),bot_identity,telegram_user_id from bot_contacts where bot_identity=${row.bot_identity}
     on conflict(bot_identity,telegram_user_id) do nothing`.execute(tx);
-  const audience = row.audience as Audience;
+  const audience = row.audience;
   // Shared row locks order the snapshot with a concurrent stop or block: either that change
   // commits first and the contact is left out, or it waits and then cancels the new delivery.
   // The first part is due at its own offset, so the dispatch queue order matches send time.
@@ -235,7 +235,7 @@ async function launchBroadcast(
       ),
     );
   const contacts = (await query.execute()).map((c) => c.contact_id);
-  const parts = row.parts as BroadcastPart[];
+  const parts = row.parts;
   const due = new Date(+now + (parts[0]?.sendAfterSeconds ?? 0) * 1000);
   await planDeliveries(
     tx,

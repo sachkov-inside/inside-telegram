@@ -224,9 +224,8 @@ export async function deferEffect(
 ): Promise<void> {
   const now = clock.now();
   const backoff =
-    RETRY_BACKOFF_MILLISECONDS[
-      Math.min(effect.retry_count, RETRY_BACKOFF_MILLISECONDS.length - 1)
-    ]!;
+    RETRY_BACKOFF_MILLISECONDS[effect.retry_count] ??
+    RETRY_BACKOFF_MILLISECONDS[2];
   await tx
     .updateTable("community_effects")
     .set({

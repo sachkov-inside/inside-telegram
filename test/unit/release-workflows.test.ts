@@ -33,8 +33,8 @@ function stepScript(workflow: string, name: string): string {
 
 /** Returns the block of one job, from its key to the next job. */
 function job(workflow: string, name: string): string {
-  const match = workflow.match(
-    new RegExp(`^  ${name}:\\n((?: {4}.*\\n|\\n)*)`, "m"),
+  const match = new RegExp(`^  ${name}:\\n((?: {4}.*\\n|\\n)*)`, "m").exec(
+    workflow,
   );
   if (!match?.[1]) throw new Error(`missing job: ${name}`);
   return match[1];

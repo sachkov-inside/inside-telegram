@@ -40,7 +40,7 @@ export function activationMessage(
   result: ActivationResult<ActivationResponse>,
 ): string {
   if (!result.ok) {
-    const messages = {
+    const messages: Partial<Record<string, string>> = {
       policy_paused:
         "Новые активации по этой ссылке приостановлены. Уже выданные права сохраняются.",
       identity_conflict:
@@ -51,9 +51,10 @@ export function activationMessage(
       revision_conflict:
         "Условия проверки изменились. Повторите проверку по исходной ссылке.",
     };
-    return result.error.code in messages
-      ? messages[result.error.code as keyof typeof messages]
-      : "Проверка пока недоступна. Повторите её позже; независимые покупки и права сохраняются.";
+    return (
+      messages[result.error.code] ??
+      "Проверка пока недоступна. Повторите её позже; независимые покупки и права сохраняются."
+    );
   }
   switch (result.value.state) {
     case "active":
@@ -70,7 +71,9 @@ export function activationMessage(
       return "Автоматическая проверка не подтвердила покупку. Обратитесь к владельцу; это не отменяет уже выданные права.";
     case "rejected":
       return "Автоматическая проверка не подтвердила покупку. Обратитесь к владельцу; это не отменяет уже выданные права.";
-    default:
+    case "checking":
+    case "needs_account":
+    case "unavailable":
       return "Проверка продолжается. Если аккаунт ещё не связан, завершите вход и связывание на платформе.";
   }
 }

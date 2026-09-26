@@ -47,7 +47,7 @@ const SENDER_RATE_NOTICE =
 interface UserRequest {
   readonly telegramUserId: string;
   readonly privateChatId: string;
-  readonly callbackQueryId?: string;
+  readonly callbackQueryId?: string | undefined;
 }
 
 @Injectable()

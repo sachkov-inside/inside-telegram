@@ -21,7 +21,7 @@ const request: PlatformEvidenceDeliveryRequest = {
 
 describe("HttpPlatformEvidenceAdapter", () => {
   it("authenticates, sends the exact versioned envelope with an idempotency key and never follows redirects", async () => {
-    const calls: Array<{ input: string; init: RequestInit }> = [];
+    const calls: { input: string; init: RequestInit }[] = [];
     const adapter = new HttpPlatformEvidenceAdapter(
       "https://platform.example.test/integrations/telegram/v1/membership-evidence",
       "synthetic_delivery_secret",

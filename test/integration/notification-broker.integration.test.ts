@@ -1,5 +1,9 @@
 import { reserveTelegramSlot } from "../../src/modules/outbound/telegram-transport-slots.js";
-import { createServer } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 import { NotificationWorker } from "../../src/operations/notification-worker.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import { systemClock } from "../../src/shared/clock.js";
@@ -204,7 +208,10 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
     for (const [i, c] of commands.entries())
       await seedNotificationRecipient(db, c, now, String(10001 + i));
     const authorizations: unknown[] = [];
-    const server = createServer(async (req, res) => {
+    const server = createServer((req, res) => {
+      void authorize(req, res);
+    });
+    async function authorize(req: IncomingMessage, res: ServerResponse) {
       const chunks: Buffer[] = [];
       for await (const chunk of req) chunks.push(Buffer.from(chunk));
       const request = JSON.parse(Buffer.concat(chunks).toString());
@@ -219,7 +226,7 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
           validUntil: new Date(Date.now() + 4900).toISOString(),
         }),
       );
-    });
+    }
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
     );

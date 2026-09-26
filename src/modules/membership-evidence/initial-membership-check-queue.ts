@@ -49,7 +49,7 @@ export class InitialMembershipCheckQueue {
       },
       {
         select: ["id", "telegram_identity_ref"],
-        prepare: async () => ({ diagnostic_code: null }),
+        prepare: () => Promise.resolve({ diagnostic_code: null }),
       },
     );
     if (!claimed) {

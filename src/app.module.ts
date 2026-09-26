@@ -128,10 +128,10 @@ export class AppModule {
                   config.activation.secret,
                 )
               : {
-                  async begin() {},
-                  async binding() {},
-                  async evidence() {},
-                  async own() {},
+                  begin: () => Promise.resolve(),
+                  binding: () => Promise.resolve(),
+                  evidence: () => Promise.resolve(),
+                  own: () => Promise.resolve(),
                 },
         },
         {

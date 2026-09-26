@@ -226,6 +226,10 @@ pnpm dev
 The example configuration binds locally, uses PostgreSQL on port `5433`, and keeps Telegram
 delivery disabled.
 
+Every entry point loads `.env`, or the file named by `ENV_FILE`, with Node's
+`process.loadEnvFile()`. Variables already in the environment win unless `ENV_FILE_OVERRIDE=true`;
+production reads its environment from Compose and has no such file.
+
 ## Current verification
 
 The full repository check uses a real PostgreSQL database:

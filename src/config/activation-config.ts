@@ -35,21 +35,30 @@ export function loadActivationConfig(
   }
   if (!Array.isArray(sources) || sources.length > 100)
     throw new Error("Invalid activation source registry");
+  const registry: readonly unknown[] = sources;
   const refs = new Set<string>();
-  for (const source of sources) {
+  const entries: ActivationSource[] = [];
+  for (const source of registry) {
+    const fields =
+      source && typeof source === "object"
+        ? new Map<string, unknown>(Object.entries(source))
+        : undefined;
+    const sourceRef = fields?.get("sourceRef");
+    const chatId = fields?.get("chatId");
+    const policy = fields?.get("policy");
+    const confirmed = fields?.get("confirmedIdentityRefs");
     if (
-      !source ||
-      typeof source !== "object" ||
-      typeof source.sourceRef !== "string" ||
-      source.sourceRef.length < 1 ||
-      source.sourceRef.length > 256 ||
-      refs.has(source.sourceRef) ||
-      typeof source.chatId !== "string" ||
-      !/^-?[1-9][0-9]{0,15}$/.test(source.chatId) ||
-      !Number.isSafeInteger(Number(source.chatId)) ||
-      source.chatId === canonicalChatId ||
-      !["whole_group", "confirmed_list"].includes(source.policy) ||
-      Object.keys(source).some(
+      !fields ||
+      typeof sourceRef !== "string" ||
+      sourceRef.length < 1 ||
+      sourceRef.length > 256 ||
+      refs.has(sourceRef) ||
+      typeof chatId !== "string" ||
+      !/^-?[1-9][0-9]{0,15}$/.test(chatId) ||
+      !Number.isSafeInteger(Number(chatId)) ||
+      chatId === canonicalChatId ||
+      (policy !== "whole_group" && policy !== "confirmed_list") ||
+      [...fields.keys()].some(
         (k) =>
           !["sourceRef", "chatId", "policy", "confirmedIdentityRefs"].includes(
             k,
@@ -57,25 +66,29 @@ export function loadActivationConfig(
       )
     )
       throw new Error("Invalid activation source registry entry");
-    if (
-      source.policy === "confirmed_list" &&
-      (!Array.isArray(source.confirmedIdentityRefs) ||
-        source.confirmedIdentityRefs.some(
-          (v: unknown) =>
-            typeof v !== "string" || v.length < 1 || v.length > 256,
-        ))
-    )
-      throw new Error(
-        "A confirmed_list source requires opaque confirmed identity references",
-      );
-    if (
-      source.policy === "whole_group" &&
-      source.confirmedIdentityRefs !== undefined
-    )
-      throw new Error("whole_group cannot silently ignore a confirmation list");
-    refs.add(source.sourceRef);
+    if (policy === "whole_group") {
+      if (confirmed !== undefined)
+        throw new Error(
+          "whole_group cannot silently ignore a confirmation list",
+        );
+      entries.push({ sourceRef, chatId, policy });
+    } else {
+      const confirmedIdentityRefs: readonly unknown[] | undefined =
+        Array.isArray(confirmed) ? confirmed : undefined;
+      if (
+        !confirmedIdentityRefs?.every(
+          (v): v is string =>
+            typeof v === "string" && v.length >= 1 && v.length <= 256,
+        )
+      )
+        throw new Error(
+          "A confirmed_list source requires opaque confirmed identity references",
+        );
+      entries.push({ sourceRef, chatId, policy, confirmedIdentityRefs });
+    }
+    refs.add(sourceRef);
   }
-  return { enabled: true, endpoint, secret, accountUrl, sources };
+  return { enabled: true, endpoint, secret, accountUrl, sources: entries };
 }
 function safeUrl(value: string | undefined): string {
   let url: URL;

@@ -14,8 +14,8 @@ import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 // Runtime never declares topology: its principal has no configure permissions.
 export class NotificationBroker {
-  private connection?: ChannelModel;
-  private publisher?: ConfirmChannel;
+  private connection: ChannelModel | undefined;
+  private publisher: ConfirmChannel | undefined;
   private consumers: Channel[] = [];
   private pending = new Set<Promise<void>>();
   private healthy = false;
@@ -79,9 +79,9 @@ export class NotificationBroker {
         {
           exchange: message.fields.exchange,
           routingKey: message.fields.routingKey,
-          contentType: message.properties.contentType,
-          type: message.properties.type,
-          messageId: message.properties.messageId,
+          contentType: text(message.properties.contentType),
+          type: text(message.properties.type),
+          messageId: text(message.properties.messageId),
           persistent: message.properties.deliveryMode === 2,
         },
         category,
@@ -144,4 +144,8 @@ export class NotificationBroker {
     await Promise.allSettled([...this.pending, this.publishTail]);
     if (connection) await connection.close().catch(() => undefined);
   }
+}
+// amqplib types message properties as any; the envelope accepts only strings.
+function text(value: unknown): string | undefined {
+  return typeof value === "string" ? value : undefined;
 }

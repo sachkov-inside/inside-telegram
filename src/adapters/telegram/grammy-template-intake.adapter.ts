@@ -26,7 +26,7 @@ export function translateTemplateIntake(
     : /^\/cancel(?:@[A-Za-z0-9_]+)?$/.test(text)
       ? "close"
       : "capture";
-  if (action === "capture" && /^\//.test(text)) return undefined;
+  if (action === "capture" && text.startsWith("/")) return undefined;
   return {
     botIdentity,
     updateId,
@@ -57,11 +57,11 @@ export function snapshot(message: Record<string, unknown>): unknown {
     "document",
   ] as const;
   const present = kinds.filter((kind) => message[kind] !== undefined);
-  if (present.length !== 1) return null;
-  const type = present[0]!;
+  const [type] = present;
+  if (present.length !== 1 || type === undefined) return null;
   let fileId: unknown;
   if (type !== "text") {
-    const media =
+    const media: unknown =
       type === "photo" && Array.isArray(message.photo)
         ? message.photo.at(-1)
         : message[type];

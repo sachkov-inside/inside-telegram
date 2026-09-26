@@ -19,17 +19,17 @@ export interface TelegramMembership {
 export const TELEGRAM_MEMBERSHIP = Symbol("TELEGRAM_MEMBERSHIP");
 
 export class DisabledTelegramMembership implements TelegramMembership {
-  async getBotChatMember(): Promise<TelegramChatMemberResult> {
-    return {
+  getBotChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve({
       diagnosticCode: "telegram_membership_disabled",
       kind: "unavailable",
-    };
+    });
   }
 
-  async getChatMember(): Promise<TelegramChatMemberResult> {
-    return {
+  getChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve({
       diagnosticCode: "telegram_membership_disabled",
       kind: "unavailable",
-    };
+    });
   }
 }

@@ -127,7 +127,7 @@ export class AuthorAdmin {
       if (
         !open &&
         !input.callbackData &&
-        (!session || (!close && /^\//.test(input.text)))
+        (!session || (!close && input.text.startsWith("/")))
       )
         return false;
       const link = await findPlatformLink(

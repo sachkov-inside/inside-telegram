@@ -63,7 +63,7 @@ const ruleId = randomUUID();
 function example(name: string): Record<string, unknown> {
   const fixture = fixtures.find((f) => f.name === name);
   if (!fixture) throw new Error(`Missing wire example ${name}`);
-  return structuredClone(fixture.value) as Record<string, unknown>;
+  return structuredClone(fixture.value);
 }
 function outcome(name: string, attemptId: unknown) {
   const fixture = example(name);

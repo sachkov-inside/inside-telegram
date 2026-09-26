@@ -11,7 +11,11 @@ import {
   reportCondition,
   reportFailure,
 } from "../../shared/failure-diagnostics.js";
-const validResponse = contractValidator("authorizationResponse");
+const validResponse = contractValidator<{
+  requestId: string;
+  status: "allowed" | "denied";
+  accountRef?: string;
+}>("authorizationResponse");
 export class HttpAuthorAuthorizationAdapter implements AuthorAuthorization {
   constructor(
     private readonly endpoint: string,
@@ -48,11 +52,7 @@ export class HttpAuthorAuthorizationAdapter implements AuthorAuthorization {
       }
       const body: unknown = await response.json();
       if (!validResponse(body)) return "unavailable";
-      const result = body as {
-        requestId: string;
-        status: "allowed" | "denied";
-        accountRef?: string;
-      };
+      const result = body;
       if (result.requestId !== requestId) return "unavailable";
       if (result.status === "denied") return "denied";
       return result.accountRef === subject.accountRef ? "allowed" : "denied";

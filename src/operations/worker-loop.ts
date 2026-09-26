@@ -15,7 +15,7 @@ export interface WorkerPacing {
  */
 export class WorkerLoop {
   private readonly controller = new AbortController();
-  private running?: Promise<void>;
+  private running: Promise<void> | undefined;
   private timer?: NodeJS.Timeout;
   private delayMs: number;
   private woken = false;

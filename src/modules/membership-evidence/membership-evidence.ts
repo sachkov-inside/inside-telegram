@@ -42,7 +42,12 @@ export function readStoredMembershipEvidence(
     "reasonCode" in value &&
     value.reasonCode === "provider_unavailable"
   ) {
-    return value as MembershipEvidence;
+    return {
+      contractVersion: MEMBERSHIP_EVIDENCE_CONTRACT_VERSION,
+      decision: "unavailable",
+      principalRef: value.principalRef,
+      reasonCode: "provider_unavailable",
+    };
   }
   if (
     (value.decision === "member" || value.decision === "not_member") &&
@@ -55,9 +60,22 @@ export function readStoredMembershipEvidence(
     "evidenceRef" in value &&
     typeof value.evidenceRef === "string" &&
     "evidenceVersion" in value &&
-    typeof value.evidenceVersion === "number"
+    typeof value.evidenceVersion === "number" &&
+    "reasonCode" in value &&
+    (value.reasonCode === "chat_member" ||
+      value.reasonCode === "chat_not_member")
   ) {
-    return value as MembershipEvidence;
+    return {
+      checkedAt: value.checkedAt,
+      contractVersion: MEMBERSHIP_EVIDENCE_CONTRACT_VERSION,
+      decision: value.decision,
+      evidenceRef: value.evidenceRef,
+      evidenceVersion: value.evidenceVersion,
+      principalRef: value.principalRef,
+      reasonCode: value.reasonCode,
+      telegramIdentityRef: value.telegramIdentityRef,
+      validUntil: value.validUntil,
+    };
   }
   throw new Error("Stored Membership Evidence envelope is invalid");
 }
