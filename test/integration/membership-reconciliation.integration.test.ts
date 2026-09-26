@@ -712,12 +712,12 @@ class ControlledTelegramMembership implements TelegramMembership {
 }
 
 class PausingTelegramMembership extends ControlledTelegramMembership {
-  private readonly pauses: Array<{
+  private readonly pauses: {
     readonly result: TelegramChatMemberResult;
     readonly resumed: Promise<void>;
     resume: () => void;
     signalStarted: () => void;
-  }> = [];
+  }[] = [];
 
   pauseNext(result: TelegramChatMemberResult): {
     readonly started: Promise<void>;

@@ -23,10 +23,10 @@ export interface PlatformEvidenceDelivery {
 export const PLATFORM_EVIDENCE_DELIVERY = Symbol("PLATFORM_EVIDENCE_DELIVERY");
 
 export class DisabledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
-  async deliver(): Promise<PlatformEvidenceDeliveryResult> {
-    return {
+  deliver(): Promise<PlatformEvidenceDeliveryResult> {
+    return Promise.resolve({
       diagnosticCode: "platform_evidence_delivery_disabled",
       kind: "retryable",
-    };
+    });
   }
 }

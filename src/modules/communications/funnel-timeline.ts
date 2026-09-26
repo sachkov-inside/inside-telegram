@@ -2,7 +2,7 @@ import { isDeepStrictEqual } from "node:util";
 import { sql, type Selectable, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 import { lockContactRows, planDelivery } from "./communication-state.js";
-import type { DeliveryPart, FunnelDraft, MessagePart } from "./funnel-types.js";
+import type { DeliveryPart, FunnelDraft } from "./funnel-types.js";
 
 type Delivery = Selectable<DatabaseSchema["communication_deliveries"]>;
 export function relativeDue(
@@ -21,7 +21,7 @@ export function terminal(parts: readonly DeliveryPart[]): boolean {
   );
 }
 export function started(delivery: Delivery): boolean {
-  return (delivery.parts as DeliveryPart[]).some(
+  return delivery.parts.some(
     (p) => p.attempts.length > 0 || p.state === "in_flight",
   );
 }
@@ -32,7 +32,7 @@ export async function cancelDelivery(
   reason: string,
 ): Promise<Delivery> {
   if (delivery.completed_at) return delivery;
-  const parts = delivery.parts as DeliveryPart[];
+  const parts = delivery.parts;
   for (const part of parts) {
     if (part.state === "pending" || part.state === "failed") {
       part.state =
@@ -61,7 +61,7 @@ export type PlanScope =
   { readonly contactId: string } | { readonly funnelId: string };
 const PLAN_BATCH = 500;
 type Enrollment = Selectable<DatabaseSchema["communication_enrollments"]> & {
-  published: unknown;
+  published: FunnelDraft | null;
   published_revision: number | null;
 };
 type StepDefinition = Pick<
@@ -133,7 +133,10 @@ async function replanEnrollment(
   definitions: readonly StepDefinition[],
   suppressMissed: boolean,
 ): Promise<void> {
-  const draft = enrollment.published as FunnelDraft;
+  const draft = enrollment.published;
+  const revision = enrollment.published_revision;
+  if (!draft || revision === null)
+    throw new Error("Only a published funnel is replanned");
   const history: Delivery[] = [];
   for (const delivery of stored)
     history.push(
@@ -152,9 +155,9 @@ async function replanEnrollment(
   let previous = new Date(
     Math.max(
       +initial.completed_at,
-      ...history
-        .filter((d) => d.kind === "step" && d.completed_at)
-        .map((d) => +d.completed_at!),
+      ...history.flatMap((d) =>
+        d.kind === "step" && d.completed_at ? [+d.completed_at] : [],
+      ),
     ),
   );
   for (const step of draft.steps) {
@@ -191,7 +194,7 @@ async function replanEnrollment(
         kind: "step",
         key: `step:${enrollment.enrollment_id}:${step.stepId}`,
         parts: step.parts,
-        revision: enrollment.published_revision!,
+        revision,
         now,
         dueAt: due,
       });
@@ -199,7 +202,7 @@ async function replanEnrollment(
     if (
       !old ||
       +old.due_at !== +due ||
-      old.published_revision !== enrollment.published_revision ||
+      old.published_revision !== revision ||
       !isDeepStrictEqual(old.snapshot, step.parts) ||
       suppressed
     ) {
@@ -208,7 +211,7 @@ async function replanEnrollment(
         .set({
           snapshot: JSON.stringify(step.parts),
           parts: JSON.stringify(parts),
-          published_revision: enrollment.published_revision!,
+          published_revision: revision,
           due_at: due,
           revision: (old?.revision ?? 1) + 1,
           completed_at: suppressed ? due : null,
@@ -234,8 +237,8 @@ export function deliveryView(r: Delivery) {
     broadcastId: r.broadcast_id,
     stepId: r.step_id,
     publishedRevision: r.published_revision,
-    snapshot: r.snapshot as MessagePart[],
-    parts: r.parts as DeliveryPart[],
+    snapshot: r.snapshot,
+    parts: r.parts,
     cancelRequested: r.cancel_requested,
     completedAt: r.completed_at?.toISOString() ?? null,
   };

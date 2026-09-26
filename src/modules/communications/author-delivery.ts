@@ -23,9 +23,9 @@ import {
 import {
   CommunicationsError,
   type CommunicationsRequest,
-  type TemplateContent,
+  requiredField,
 } from "./communications-contract.js";
-import { communicationLock } from "./communication-state.js";
+import { communicationLock, replayedResult } from "./communication-state.js";
 import {
   reserveTelegramSlot,
   deferTelegramSlot,
@@ -127,12 +127,12 @@ export class AuthorDelivery {
           !isDeepStrictEqual(prior.request, request)
         )
           throw new CommunicationsError("operation_conflict");
-        return prior.result as { testDeliveryId: string };
+        return replayedResult<{ testDeliveryId: string }>(prior);
       }
       const template = await tx
         .selectFrom("communication_templates")
         .selectAll()
-        .where("template_id", "=", request.payload.templateId!)
+        .where("template_id", "=", requiredField(request.payload.templateId))
         .where("bot_identity", "=", this.config.botIdentity)
         .where("owner_account_ref", "=", accountRef)
         .forShare()
@@ -155,7 +155,7 @@ export class AuthorDelivery {
         telegramIdentityRef: link.telegramIdentityRef,
         message: {
           chatId: link.telegramUserId,
-          content: template.content as TemplateContent,
+          content: template.content,
         },
       });
       await tx
@@ -262,7 +262,7 @@ export class AuthorDelivery {
               ))
             )
               return undefined;
-            const message = row.message as CommunicationMessage;
+            const message = row.message;
             outgoing = message;
             if (
               message.authorMenu &&
@@ -281,7 +281,7 @@ export class AuthorDelivery {
                 .executeTakeFirst();
               if (
                 previous?.state === "delivered" &&
-                (previous.message as CommunicationMessage)?.authorMenu &&
+                previous.message?.authorMenu &&
                 previous?.provider_message_id
               ) {
                 outgoing = {

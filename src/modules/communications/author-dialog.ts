@@ -159,8 +159,8 @@ export type AuthorPrompt =
 
 /** Where an accepted message goes: a broadcast or one block of a funnel. */
 export type MessageDestination = { expectedRevision: number } & (
-  | { kind: "broadcast"; id: string; partId?: string }
-  | { kind: "funnel"; id: string; target: string; partId?: string }
+  | { kind: "broadcast"; id: string; partId?: string | undefined }
+  | { kind: "funnel"; id: string; target: string; partId?: string | undefined }
 );
 
 const COMPOSER_PROMPTS = [
@@ -175,12 +175,12 @@ const COMPOSER_PROMPTS = [
 export interface ComposerState {
   destination: MessageDestination;
   sequence?: { lastOffset: number; firstEntry: boolean };
-  content?: TemplateContent;
-  prompt?: (typeof COMPOSER_PROMPTS)[number];
+  content?: TemplateContent | undefined;
+  prompt?: (typeof COMPOSER_PROMPTS)[number] | undefined;
   buttonTitle?: string;
   buttonUrl?: string;
-  query?: string;
-  libraryCursor?: string;
+  query?: string | undefined;
+  libraryCursor?: string | undefined;
 }
 
 const FUNNEL_PROMPTS = [
@@ -198,10 +198,10 @@ export interface AuthorFunnelState {
   dirty?: boolean;
   /** `entry`, `intro` or the ID of the selected funnel step. */
   target?: string;
-  replacePartId?: string;
-  prompt?: (typeof FUNNEL_PROMPTS)[number];
+  replacePartId?: string | undefined;
+  prompt?: (typeof FUNNEL_PROMPTS)[number] | undefined;
   sourceName?: string;
-  timingPartId?: string;
+  timingPartId?: string | undefined;
 }
 
 export type AuthorBroadcast = ReturnType<typeof broadcastView>;
@@ -216,16 +216,16 @@ export interface AuthorState {
   /** The actions of the latest menu's buttons, by position. */
   actions: AuthorAction[];
   freshMenu?: boolean;
-  batch?: "broadcast" | "funnel";
+  batch?: "broadcast" | "funnel" | undefined;
   menu?: AuthorMenu;
-  composing?: ComposerState;
-  broadcastName?: string;
-  libraryQuery?: string;
+  composing?: ComposerState | undefined;
+  broadcastName?: string | undefined;
+  libraryQuery?: string | undefined;
   funnelAuthor?: AuthorFunnelState;
   template?: TemplateSnapshot;
   broadcast?: AuthorBroadcast;
-  prompt?: AuthorPrompt;
-  replacePart?: { broadcastId: string; partId: string };
+  prompt?: AuthorPrompt | undefined;
+  replacePart?: { broadcastId: string; partId: string } | undefined;
 }
 
 export function emptyAuthorState(token: string): AuthorState {
@@ -364,14 +364,18 @@ function isAuthorState(value: unknown): value is AuthorState {
   );
 }
 
+function isAuthorActionKind(kind: string): kind is AuthorActionKind {
+  return Object.hasOwn(AUTHOR_ACTIONS, kind);
+}
+
 function isAuthorAction(value: unknown): value is AuthorAction {
   if (
     !isRecord(value) ||
     !isString(value.kind) ||
-    !Object.hasOwn(AUTHOR_ACTIONS, value.kind)
+    !isAuthorActionKind(value.kind)
   )
     return false;
-  const spec: PayloadSpec = AUTHOR_ACTIONS[value.kind as AuthorActionKind];
+  const spec: PayloadSpec = AUTHOR_ACTIONS[value.kind];
   return (
     matchesField(value.id, spec.id) &&
     (isChoice(spec.value)

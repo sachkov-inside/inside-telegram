@@ -69,7 +69,8 @@ export async function admitTelegramSlot(
   let selected = fairness.cursor;
   for (let n = 0; n < turns.length; n++) {
     selected = (fairness.cursor + n) % turns.length;
-    if (active.has(turns[selected]!)) break;
+    const turn = turns[selected];
+    if (turn && active.has(turn)) break;
   }
   if (turns[selected] !== purpose) return "bot_busy";
   const lanes = [

@@ -93,7 +93,7 @@ describe("WorkerLoop", () => {
   });
 
   it("reports a failed cycle and keeps running", async () => {
-    const outcomes: Array<() => Promise<boolean>> = [
+    const outcomes: (() => Promise<boolean>)[] = [
       () => Promise.reject(new RangeError("synthetic")),
       () => Promise.resolve(true),
     ];

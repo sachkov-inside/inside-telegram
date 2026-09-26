@@ -4,7 +4,7 @@ import type {
   EntryResponse,
   BroadcastPart,
 } from "./funnel-types.js";
-import { Ajv } from "ajv";
+import { Ajv, type ValidateFunction } from "ajv";
 import addFormats from "ajv-formats";
 import schema from "./contracts/inside-communications-v1/schema.json" with { type: "json" };
 
@@ -37,6 +37,9 @@ export interface TemplateSnapshot {
   readonly botIdentity: string;
   readonly content: TemplateContent;
 }
+export type BroadcastAudience =
+  | { readonly kind: "all" }
+  | { readonly kind: "funnels"; readonly funnelIds: readonly string[] };
 export interface CommunicationsRequest {
   readonly contractVersion: typeof COMMUNICATIONS_VERSION;
   readonly operation: string;
@@ -50,9 +53,7 @@ export interface CommunicationsRequest {
     readonly publishedRevision?: number;
     readonly duplicateRiskAccepted?: boolean;
     readonly broadcastId?: string;
-    readonly audience?:
-      | { readonly kind: "all" }
-      | { readonly kind: "funnels"; readonly funnelIds: readonly string[] };
+    readonly audience?: BroadcastAudience;
     readonly scheduledAt?: string | null;
     readonly token?: string;
     readonly eventId?: string;
@@ -90,21 +91,31 @@ export class CommunicationsError extends Error {
     this.name = "CommunicationsError";
   }
 }
+/** A payload field the request schema requires for the current operation. */
+export function requiredField<Value>(value: Value | undefined): Value {
+  if (value === undefined) throw new CommunicationsError("malformed");
+  return value;
+}
 const ajv = new Ajv({ strict: true });
 addFormats.default(ajv);
 ajv.addSchema(schema);
-export function contractValidator(definition: string) {
-  return ajv.compile({ $ref: `${schema.$id}#/definitions/${definition}` });
+/** Compiles one schema definition; `Shape` is the TypeScript type that definition describes. */
+export function contractValidator<Shape = unknown>(
+  definition: string,
+): ValidateFunction<Shape> {
+  return ajv.compile<Shape>({
+    $ref: `${schema.$id}#/definitions/${definition}`,
+  });
 }
-export const validRequest = contractValidator("request");
-const validContent = contractValidator("content");
+export const validRequest = contractValidator<CommunicationsRequest>("request");
+const validContent = contractValidator<TemplateContent>("content");
 
 export function validateContent(
   value: unknown,
 ): asserts value is TemplateContent {
   if (!validContent(value))
     throw new CommunicationsError("unsupported_content");
-  const content = value as TemplateContent;
+  const content = value;
   if (
     content.type === "text"
       ? !content.text || content.fileId !== undefined
@@ -184,10 +195,12 @@ function splitsSurrogate(text: string, index: number): boolean {
   return (
     index > 0 &&
     index < text.length &&
-    /[\uD800-\uDBFF]/.test(text[index - 1]!) &&
-    /[\uDC00-\uDFFF]/.test(text[index]!)
+    isHighSurrogate(text.charCodeAt(index - 1)) &&
+    isLowSurrogate(text.charCodeAt(index))
   );
 }
+const isHighSurrogate = (code: number) => code >= 0xd800 && code <= 0xdbff;
+const isLowSurrogate = (code: number) => code >= 0xdc00 && code <= 0xdfff;
 function assertSafeUrl(value: string, allowBareDomain = false): void {
   let url: URL;
   try {

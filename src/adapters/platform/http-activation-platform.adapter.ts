@@ -39,10 +39,9 @@ export class HttpActivationPlatform implements ActivationPlatform {
   ): Promise<ActivationResult<ActivationResponse> | undefined> {
     // PostgreSQL jsonb reorders keys. Keep the same wire bytes on initial send
     // and durable replay without changing any evidence values or references.
+    const entries: [string, unknown][] = Object.entries(input);
     const ordered = Object.fromEntries(
-      Object.keys(input)
-        .sort()
-        .map((key) => [key, input[key as keyof ActivationEvidence]]),
+      entries.sort(([a], [b]) => (a < b ? -1 : a > b ? 1 : 0)),
     );
     return this.post("evidence", ordered, validActivationResponse);
   }
@@ -58,7 +57,7 @@ export class HttpActivationPlatform implements ActivationPlatform {
   private async post<T>(
     path: string,
     input: unknown,
-    validate: ValidateFunction,
+    validate: ValidateFunction<T>,
   ): Promise<T | undefined> {
     try {
       const response = await this.fetcher(`${this.endpoint}/${path}`, {
@@ -94,7 +93,7 @@ export class HttpActivationPlatform implements ActivationPlatform {
         await reader.cancel();
       }
       const body: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
-      return validate(body) ? (body as T) : undefined;
+      return validate(body) ? body : undefined;
     } catch (error) {
       reportFailure("platform.activation", error);
       return;

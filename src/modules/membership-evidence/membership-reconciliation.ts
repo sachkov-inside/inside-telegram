@@ -196,11 +196,12 @@ async function claimNext(
     const leaseToken = randomUUID();
     const due = await claim(transaction, reconciliations, now, {
       select: ["due_at", "telegram_identity_ref"],
-      prepare: async () => ({
-        diagnostic_code: null,
-        lease_token: leaseToken,
-        updated_at: now,
-      }),
+      prepare: () =>
+        Promise.resolve({
+          diagnostic_code: null,
+          lease_token: leaseToken,
+          updated_at: now,
+        }),
     });
     if (!due) {
       return undefined;

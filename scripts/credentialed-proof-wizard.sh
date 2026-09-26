@@ -211,8 +211,8 @@ preflight() {
     warn "pnpm $expected_pnpm from package.json is required"
     exit 1
   fi
-  export DOTENV_CONFIG_PATH="$ENV_FILE"
-  export DOTENV_CONFIG_OVERRIDE=true
+  export ENV_FILE
+  export ENV_FILE_OVERRIDE=true
   if [[ "$PROOF_DRY_RUN" == "1" ]]; then
     return
   fi
@@ -471,7 +471,7 @@ write_env TELEGRAM_MEMBERSHIP_MODE live
 write_env TELEGRAM_WEBHOOK_SECRET "$TELEGRAM_WEBHOOK_SECRET"
 write_env WORKERS_ENABLED true
 if [[ "$PROOF_DRY_RUN" != "1" ]]; then
-  step "In the Telegram application terminal, export DOTENV_CONFIG_PATH='$ENV_FILE' and DOTENV_CONFIG_OVERRIDE=true, run pnpm db:migrate, then start or restart the application."
+  step "In the Telegram application terminal, export ENV_FILE='$ENV_FILE' and ENV_FILE_OVERRIDE=true, run pnpm db:migrate, then start or restart the application."
   step "Start or restart the temporary Platform consumer with the matching credentials shown in this scope."
   pause "Press Enter when both applications and the HTTPS endpoint are healthy"
 fi

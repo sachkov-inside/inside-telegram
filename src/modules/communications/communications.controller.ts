@@ -19,7 +19,6 @@ import { Communications } from "./communications.js";
 import {
   COMMUNICATIONS_VERSION,
   CommunicationsError,
-  type CommunicationsRequest,
   validRequest,
 } from "./communications-contract.js";
 
@@ -46,21 +45,17 @@ export class CommunicationsController {
       return {
         contractVersion: COMMUNICATIONS_VERSION,
         status: "ok",
-        ...((body as CommunicationsRequest).operation.startsWith("templates.")
-          ? (body as CommunicationsRequest).operation === "templates.list"
-            ? await this.communications.list(body as CommunicationsRequest)
-            : (body as CommunicationsRequest).operation === "templates.testSend"
-              ? await this.authorDelivery.testSend(
-                  body as CommunicationsRequest,
-                )
+        ...(body.operation.startsWith("templates.")
+          ? body.operation === "templates.list"
+            ? await this.communications.list(body)
+            : body.operation === "templates.testSend"
+              ? await this.authorDelivery.testSend(body)
               : {
-                  template: await this.communications.execute(
-                    body as CommunicationsRequest,
-                  ),
+                  template: await this.communications.execute(body),
                 }
-          : (body as CommunicationsRequest).operation.startsWith("tracking.")
-            ? await this.tracking.execute(body as CommunicationsRequest)
-            : await this.funnels.execute(body as CommunicationsRequest)),
+          : body.operation.startsWith("tracking.")
+            ? await this.tracking.execute(body)
+            : await this.funnels.execute(body)),
       };
     } catch (error) {
       if (!(error instanceof CommunicationsError)) throw error;

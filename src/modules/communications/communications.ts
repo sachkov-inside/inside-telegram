@@ -24,10 +24,12 @@ import {
 import {
   CommunicationsError,
   type CommunicationsRequest,
+  requiredField,
   type TemplateSnapshot,
-  type TemplateContent,
   validateContent,
 } from "./communications-contract.js";
+import { nextCursor } from "./communication-queries.js";
+import { replayedResult } from "./communication-state.js";
 
 @Injectable()
 export class Communications {
@@ -41,7 +43,7 @@ export class Communications {
   async list(
     request: CommunicationsRequest,
     transaction?: Transaction<DatabaseSchema>,
-    options: { search?: string; limit?: number } = {},
+    options: { search?: string | undefined; limit?: number } = {},
   ) {
     if (!("accountRef" in request.actor))
       throw new CommunicationsError("forbidden");
@@ -87,9 +89,9 @@ export class Communications {
         templateId: row.template_id,
         revision: row.revision,
         botIdentity: row.bot_identity,
-        content: row.content as TemplateContent,
+        content: row.content,
       })),
-      nextCursor: rows.length > limit ? rows[limit - 1]!.template_id : null,
+      nextCursor: nextCursor(rows, limit, (row) => row.template_id),
     };
   }
 
@@ -106,7 +108,7 @@ export class Communications {
       request.operation !== "templates.read"
     )
       throw new CommunicationsError("not_implemented");
-    const templateId = request.payload.templateId!;
+    const templateId = requiredField(request.payload.templateId);
     if (request.operation === "templates.save")
       validateContent(request.payload.content);
     const work = async (tx: Transaction<DatabaseSchema>) => {
@@ -126,7 +128,7 @@ export class Communications {
           !isDeepStrictEqual(prior.request, request)
         )
           throw new CommunicationsError("operation_conflict");
-        return prior.result as TemplateSnapshot;
+        return replayedResult<TemplateSnapshot>(prior);
       }
       await lock(tx, `communications-template:${templateId}`);
       const existing = await tx
@@ -146,7 +148,7 @@ export class Communications {
           templateId,
           revision: existing.revision,
           botIdentity: existing.bot_identity,
-          content: existing.content as TemplateContent,
+          content: existing.content,
         };
       }
       if ((existing?.revision ?? 0) !== request.expectedRevision)
@@ -156,7 +158,7 @@ export class Communications {
         templateId,
         revision: (existing?.revision ?? 0) + 1,
         botIdentity: this.config.botIdentity,
-        content: request.payload.content!,
+        content: requiredField(request.payload.content),
       };
       await tx
         .insertInto("communication_templates")

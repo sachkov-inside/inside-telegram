@@ -39,7 +39,7 @@ export class GrammyCommunityChatAdapter implements TelegramCommunityChat {
   private readonly api: CommunityApi;
 
   constructor(token: string, api?: CommunityApi) {
-    this.api = api ?? (new Api(token, { timeoutSeconds: 10 }) as CommunityApi);
+    this.api = api ?? new Api(token, { timeoutSeconds: 10 });
   }
 
   async observeMember(

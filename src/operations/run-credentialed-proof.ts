@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../config/load-environment.js";
 
 import { createDatabase } from "../database/create-database.js";
 import {

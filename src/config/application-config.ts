@@ -39,23 +39,23 @@ export const DEFAULT_SENDER_RATE: SenderRate = Object.freeze({
 });
 
 export interface ApplicationConfig {
-  readonly activation?: ActivationConfig;
-  readonly notifications?: NotificationConfig;
+  readonly activation?: ActivationConfig | undefined;
+  readonly notifications?: NotificationConfig | undefined;
   readonly botIdentity: string;
-  readonly botToken?: string;
+  readonly botToken?: string | undefined;
   readonly canonicalChatId: string;
   readonly communityMode: CommunityMode;
-  readonly communityContractVersion?: CommunityVersion;
-  readonly communityRemovalsEnabled?: boolean;
+  readonly communityContractVersion?: CommunityVersion | undefined;
+  readonly communityRemovalsEnabled?: boolean | undefined;
   /** The Tribute bot whose own removals are expiry, not moderation. */
-  readonly communityTributeBotTelegramUserId?: string;
-  readonly communityIntegrationSecret?: string;
-  readonly communityDispatchUrl?: string;
-  readonly communityDispatchSecret?: string;
+  readonly communityTributeBotTelegramUserId?: string | undefined;
+  readonly communityIntegrationSecret?: string | undefined;
+  readonly communityDispatchUrl?: string | undefined;
+  readonly communityDispatchSecret?: string | undefined;
   readonly communityReconciliationCadenceMilliseconds: number;
   readonly communityTexts: CommunityTexts;
   /** Authenticates Platform calls to the communications API; absent keeps that API closed. */
-  readonly communicationsSecret?: string;
+  readonly communicationsSecret?: string | undefined;
   readonly databaseUrl: string;
   readonly deliveryMode: DeliveryMode;
   readonly marketingEnabled: boolean;
@@ -69,19 +69,19 @@ export interface ApplicationConfig {
   readonly membershipCheckRetentionDays: number;
   readonly membershipMode: MembershipMode;
   readonly membershipReconciliationCadenceMilliseconds: number;
-  readonly platformEvidenceDeliverySecret?: string;
-  readonly platformEvidenceDeliveryUrl?: string;
-  readonly platformAuthorAuthorizationUrl?: string;
-  readonly platformAuthorContentValidationUrl?: string;
-  readonly platformAuthorAuthorizationSecret?: string;
+  readonly platformEvidenceDeliverySecret?: string | undefined;
+  readonly platformEvidenceDeliveryUrl?: string | undefined;
+  readonly platformAuthorAuthorizationUrl?: string | undefined;
+  readonly platformAuthorContentValidationUrl?: string | undefined;
+  readonly platformAuthorAuthorizationSecret?: string | undefined;
   readonly platformIntegrationSecret: string;
-  readonly platformTrackingRedirectUrl?: string;
-  readonly platformTrackingTargetPrefixes?: readonly string[];
+  readonly platformTrackingRedirectUrl?: string | undefined;
+  readonly platformTrackingTargetPrefixes?: readonly string[] | undefined;
   readonly port: number;
   /** Absent means `DEFAULT_SENDER_RATE`. */
-  readonly senderRate?: SenderRate;
-  readonly signInEnabled?: boolean;
-  readonly signInIntegrationSecret?: string;
+  readonly senderRate?: SenderRate | undefined;
+  readonly signInEnabled?: boolean | undefined;
+  readonly signInIntegrationSecret?: string | undefined;
   readonly webhookSecret: string;
   readonly welcomeText: string;
   readonly workersEnabled: boolean;
@@ -340,10 +340,10 @@ export function loadApplicationConfig(
       !Array.isArray(prefixes) ||
       !prefixes.length ||
       prefixes.length > 20 ||
-      prefixes.some((p) => typeof p !== "string")
+      !prefixes.every((p): p is string => typeof p === "string")
     )
       throw new Error("Invalid tracking target prefixes");
-    platformTrackingTargetPrefixes = prefixes as string[];
+    platformTrackingTargetPrefixes = prefixes;
     for (const value of [
       platformTrackingRedirectUrl,
       ...platformTrackingTargetPrefixes,
@@ -372,14 +372,9 @@ export function loadApplicationConfig(
       throw new Error(
         "Tracking target prefixes require normalized non-root paths ending in slash",
       );
-    platformTrackingRedirectUrl = new URL(
-      platformTrackingRedirectUrl,
-    ).toString();
-    if (
-      platformTrackingTargetPrefixes.some((p) =>
-        platformTrackingRedirectUrl!.startsWith(p),
-      )
-    )
+    const redirectUrl = new URL(platformTrackingRedirectUrl).toString();
+    platformTrackingRedirectUrl = redirectUrl;
+    if (platformTrackingTargetPrefixes.some((p) => redirectUrl.startsWith(p)))
       throw new Error("Tracking redirect cannot be a tracking destination");
   }
   const activation = loadActivationConfig(environment, canonicalChatId);

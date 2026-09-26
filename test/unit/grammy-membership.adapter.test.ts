@@ -41,7 +41,7 @@ describe("GrammyMembershipAdapter", () => {
 });
 
 class ControlledTelegramApi {
-  readonly requests: Array<{ chatId: number; userId: number }> = [];
+  readonly requests: { chatId: number; userId: number }[] = [];
 
   async getMe() {
     return { id: 99 };

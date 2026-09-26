@@ -6,8 +6,8 @@ const compose = readFileSync("infra/production/compose.yaml", "utf8");
 
 /** Returns one top-level service block of the production Compose file. */
 function service(name: string): string {
-  const match = compose.match(
-    new RegExp(`^  ${name}:\\n((?:    .*\\n|\\n)*)`, "m"),
+  const match = new RegExp(`^  ${name}:\\n((?:    .*\\n|\\n)*)`, "m").exec(
+    compose,
   );
   if (!match?.[1]) throw new Error(`Compose service ${name} is missing`);
   return match[1];

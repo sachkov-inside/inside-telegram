@@ -34,12 +34,7 @@ import {
   schedulerLock,
   tryContactLock,
 } from "./communication-state.js";
-import type {
-  FunnelDraft,
-  MessagePart,
-  BroadcastPart,
-  DeliveryPart,
-} from "./funnel-types.js";
+import type { DeliveryPart } from "./funnel-types.js";
 import { reportFailure } from "../../shared/failure-diagnostics.js";
 const REPLY_KINDS = ["intro", "entry", "fallback"] as const;
 const BACKLOG_KINDS = ["step", "broadcast"] as const;
@@ -165,14 +160,19 @@ export class FunnelScheduler {
           .where("locked_at", "<=", new Date(now.getTime() - STALE_CLAIM_MS))
           .executeTakeFirst();
         if (!delivery) continue;
-        const parts = delivery.parts as DeliveryPart[];
+        const parts = delivery.parts;
         const part = parts.find((p) => p.state === "in_flight");
+        // A claim writes attempt_id and locked_at together with the in-flight part; the query
+        // selects only locked rows, so the attempt is recorded whenever the part is.
+        const { attempt_id: attemptId, locked_at: lockedAt } = delivery;
         if (part) {
           part.state = "unknown";
           part.diagnosticCode = "worker_lost";
+        }
+        if (part && attemptId !== null && lockedAt !== null) {
           part.attempts.push({
-            attemptId: delivery.attempt_id!,
-            attemptedAt: delivery.locked_at!.toISOString(),
+            attemptId,
+            attemptedAt: lockedAt.toISOString(),
             outcome: "unknown",
             diagnosticCode: "worker_lost",
             duplicateRiskAccepted: false,
@@ -372,8 +372,9 @@ export class FunnelScheduler {
     if (admission === "bot_busy") return { kind: "capacity_busy" };
     if (admission === "chat_busy") return { kind: "released" };
     const attemptId = randomUUID();
-    const parts = delivery.parts as DeliveryPart[];
-    parts.find((p) => p.partId === part.partId)!.state = "in_flight";
+    const parts = delivery.parts;
+    // nextPart returns the element of delivery.parts, so this marks the persisted part.
+    part.state = "in_flight";
     await tx
       .updateTable("communication_deliveries")
       .set({
@@ -384,9 +385,10 @@ export class FunnelScheduler {
       })
       .where("delivery_id", "=", delivery.delivery_id)
       .execute();
-    const content = (delivery.snapshot as MessagePart[]).find(
+    const content = delivery.snapshot.find(
       (p) => p.partId === part.partId,
-    )!.content;
+    )?.content;
+    if (!content) throw new Error("Delivery part has no snapshot content");
     return {
       kind: "claimed",
       claim: {
@@ -411,7 +413,7 @@ export class FunnelScheduler {
     delivery: DueDelivery,
     now: Date,
   ): Promise<DeliveryPart | undefined> {
-    const part = (delivery.parts as DeliveryPart[]).find(
+    const part = delivery.parts.find(
       (p) => !["sent", "skipped", "cancelled", "suppressed"].includes(p.state),
     );
     if (!part || part.state !== "pending" || part.attempts.length >= 90)
@@ -423,9 +425,8 @@ export class FunnelScheduler {
         .where("broadcast_id", "=", delivery.broadcast_id)
         .executeTakeFirstOrThrow();
       const offset =
-        (delivery.snapshot as BroadcastPart[]).find(
-          (p) => p.partId === part.partId,
-        )?.sendAfterSeconds ?? 0;
+        delivery.snapshot.find((p) => p.partId === part.partId)
+          ?.sendAfterSeconds ?? 0;
       if (
         !broadcast.launched_at ||
         +broadcast.launched_at + offset * 1000 > +now
@@ -440,7 +441,8 @@ export class FunnelScheduler {
         .forShare()
         .executeTakeFirstOrThrow();
       if (delivery.kind === "step" && !started(delivery)) {
-        const draft = funnel.published as FunnelDraft;
+        const draft = funnel.published;
+        if (!draft) return undefined;
         const history = await tx
           .selectFrom("communication_deliveries")
           .selectAll()
@@ -486,7 +488,7 @@ export class FunnelScheduler {
         .forUpdate()
         .executeTakeFirstOrThrow();
       if (delivery.attempt_id !== attemptId) return;
-      const parts = delivery.parts as DeliveryPart[];
+      const parts = delivery.parts;
       const part = parts.find(
         (p) =>
           p.state === "in_flight" ||
@@ -549,9 +551,8 @@ export class FunnelScheduler {
             !["sent", "skipped", "cancelled", "suppressed"].includes(p.state),
         );
         const offset =
-          (delivery.snapshot as BroadcastPart[]).find(
-            (p) => p.partId === next?.partId,
-          )?.sendAfterSeconds ?? 0;
+          delivery.snapshot.find((p) => p.partId === next?.partId)
+            ?.sendAfterSeconds ?? 0;
         const b = await tx
           .selectFrom("communication_broadcasts")
           .select("launched_at")

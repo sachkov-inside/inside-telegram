@@ -24,6 +24,7 @@ import {
   type Category,
   type DeliveryEnvelope,
   type DispatchRequest,
+  echoesRequest,
   type DispatchResponse,
   type NotificationCommand,
   type NotificationResult,
@@ -227,9 +228,7 @@ export class NotificationProvider {
       }
       if (
         !permit ||
-        !Object.entries(request).every(
-          ([k, v]) => permit[k as keyof DispatchRequest] === v,
-        ) ||
+        !echoesRequest(permit, request) ||
         permit.status === "error"
       ) {
         await this.retry(tx, current, "source_unavailable", null);
@@ -461,7 +460,7 @@ export class NotificationProvider {
       return { state: "failed", reason: "retry_exhausted", attemptRef };
     const next = new Date(
       this.clock.now().getTime() +
-        Math.max(minimumDelay, [1000, 5000, 30000][row.retry_count]!),
+        Math.max(minimumDelay, [1000, 5000, 30000][row.retry_count] ?? 30000),
     );
     if (next.getTime() >= Date.parse(row.command.notAfter))
       return { state: "suppressed", reason: "expired" };
