@@ -35,8 +35,6 @@ export interface ActivationTables {
     lease_until: Timestamp | null;
     attempts: number;
     diagnostic_code: string | null;
-    /** Groups the attempts one ordinary `/start` scheduled; null for an explicit code. */
-    ground_check_id: string | null;
     /** When Platform first granted this ground; never cleared by a later retry. */
     confirmed_at: Timestamp | null;
   };
@@ -54,7 +52,7 @@ export interface ActivationTables {
     resolution: "confirmed" | "owner" | null;
   };
 }
-/** What one known ground returned; codes and states only, never source payload. */
+/** What one checked ground returned; codes and states only, never source payload. */
 export interface GroundOutcome {
   readonly code: string;
   readonly outcome: string;

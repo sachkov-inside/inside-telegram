@@ -32,8 +32,6 @@ import {
   accountPrompt,
   activationMenu,
   activationMessage,
-  GROUND_CHECK_UNAVAILABLE,
-  NO_KNOWN_GROUND,
   OWNER_REVIEW,
   ownAccessText,
 } from "./activation-view.js";
@@ -104,79 +102,16 @@ export class SubscriptionActivation {
         .execute();
       await tx
         .insertInto("activation_attempts")
-        .values(newAttempt(contact, identity, code, now, null))
-        // An explicit owner link answers for its own rule, outside any known-ground group.
+        .values(newAttempt(contact, identity, code, now))
         .onConflict((c) =>
-          c.columns(["bot_identity", "telegram_user_id", "code"]).doUpdateSet({
-            due_at: now,
-            // A group still waiting for this ground keeps it, so the group can still answer.
-            ground_check_id: sql<
-              string | null
-            >`case when activation_attempts.state in ('rejected', 'pending_review', 'completed') then null else activation_attempts.ground_check_id end`,
-          }),
+          c
+            .columns(["bot_identity", "telegram_user_id", "code"])
+            .doUpdateSet({ due_at: now }),
         )
         .execute();
     });
-    // Only the link's own rule starts again; a known-ground group keeps its own answer.
+    // Only the link's own rule starts again; the person's other checks keep their answers.
     await this.action(contact, "retry", code);
-  }
-
-  /**
-   * An ordinary `/start` of a linked identity checks every configured known ground as one group.
-   * Platform chooses the rights; the person hears one outcome when the group finishes.
-   */
-  async checkKnownGrounds(contact: VerifiedPrivateStart): Promise<void> {
-    const config = this.config.activation;
-    if (!config?.enabled || config.startCodes.length === 0) return;
-    const identity = await this.db
-      .transaction()
-      .execute((tx) =>
-        reserveTelegramIdentity(
-          tx,
-          contact.botIdentity,
-          contact.telegramUserId,
-        ),
-      );
-    const lookup = await this.platform.binding(identity);
-    // Rights need an Account; an ordinary start never prompts for linking or reports a failure.
-    if (
-      !lookup?.ok ||
-      lookup.value.state !== "linked" ||
-      lookup.value.binding.identityRef !== identity
-    )
-      return;
-    const now = this.clock.now();
-    const groundCheckId = randomUUID();
-    await this.db.transaction().execute(async (tx) => {
-      const rows = await tx
-        .selectFrom("activation_attempts")
-        .selectAll()
-        .where("bot_identity", "=", contact.botIdentity)
-        .where("telegram_user_id", "=", contact.telegramUserId)
-        .where("code", "in", config.startCodes)
-        .forUpdate()
-        .execute();
-      // Rights for a confirmed ground are granted once, and an owner's decision is final for the
-      // automatic check; repeating it would only queue the person again.
-      if (rows.some((row) => row.confirmed_at !== null)) return;
-      const decided = await tx
-        .selectFrom("activation_review_requests")
-        .select("review_id")
-        .where("bot_identity", "=", contact.botIdentity)
-        .where("telegram_user_id", "=", contact.telegramUserId)
-        .where("resolution", "=", "owner")
-        .executeTakeFirst();
-      if (decided) return;
-      for (const code of config.startCodes) {
-        const row = rows.find((candidate) => candidate.code === code);
-        if (row) await reschedule(tx, row, now, groundCheckId);
-        else
-          await tx
-            .insertInto("activation_attempts")
-            .values(newAttempt(contact, identity, code, now, groundCheckId))
-            .execute();
-      }
-    });
   }
 
   /** `onlyCode` limits a retry to one rule, as an owner link does. */
@@ -248,17 +183,8 @@ export class SubscriptionActivation {
           .where("telegram_user_id", "=", contact.telegramUserId);
         if (onlyCode !== undefined) query = query.where("code", "=", onlyCode);
         const rows = await query.forUpdate().execute();
-        // A retried known-ground group answers once again, under a new group. A retry for one
-        // rule leaves its attempt in whatever group it belongs to.
-        const groundCheckId = onlyCode === undefined ? randomUUID() : null;
         const now = this.clock.now();
-        for (const row of rows)
-          await reschedule(
-            tx,
-            row,
-            now,
-            row.ground_check_id ? groundCheckId : null,
-          );
+        for (const row of rows) await reschedule(tx, row, now);
       });
       await this.reply(
         contact,
@@ -598,7 +524,7 @@ export class SubscriptionActivation {
         })
         .where("attempt_id", "=", attempt.attempt_id)
         .where("lease_token", "=", attempt.lease_token)
-        .returning(["attempt_id", "ground_check_id", "evidence"])
+        .returning(["attempt_id", "evidence"])
         .executeTakeFirst();
       if (!stored) return;
       if (confirmed)
@@ -613,23 +539,6 @@ export class SubscriptionActivation {
           .where("telegram_user_id", "=", attempt.telegram_user_id)
           .where("resolved_at", "is", null)
           .execute();
-      if (stored.ground_check_id) {
-        // Every confirmation of one group is the same news: rights are there, join the chat.
-        if (confirmed)
-          await this.replies.enqueue(
-            {
-              ...this.delivery(
-                this.contact(attempt),
-                activationMessage(result),
-              ),
-              sourceKey: `${groundCheckKey(stored.ground_check_id)}:confirmed`,
-              ...this.menu(),
-            },
-            tx,
-          );
-        else await this.finishGroundCheck(tx, attempt, stored.ground_check_id);
-        return;
-      }
       // An owner link answers for its own rule; an unconfirmed ground also goes to the owner.
       const review =
         !retry &&
@@ -666,76 +575,6 @@ export class SubscriptionActivation {
         tx,
       );
     });
-  }
-  /**
-   * A known-ground group stays silent about each unconfirmed ground. When every ground has
-   * finished without a confirmation, the person hears one answer and the owner gets a request.
-   */
-  private async finishGroundCheck(
-    tx: Transaction<DatabaseSchema>,
-    attempt: Attempt,
-    groundCheckId: string,
-  ): Promise<void> {
-    // Serializes the group's last two finishers so exactly one of them sees every ground done.
-    await sql`select pg_advisory_xact_lock(hashtextextended(${groundCheckKey(groundCheckId)}, 0))`.execute(
-      tx,
-    );
-    const grounds = await tx
-      .selectFrom("activation_attempts")
-      .select(["code", "state", "result", "diagnostic_code", "evidence"])
-      .where("bot_identity", "=", attempt.bot_identity)
-      .where("ground_check_id", "=", groundCheckId)
-      .orderBy("code")
-      .execute();
-    if (
-      grounds.some(
-        (ground) => !["rejected", "pending_review"].includes(ground.state),
-      ) ||
-      (await this.hasConfirmedGround(tx, attempt))
-    )
-      return;
-    // A paused or missing rule is the owner's setup, not a person to review.
-    if (
-      !grounds.some(
-        (ground) => ground.result && unconfirmedGround(ground.result),
-      )
-    ) {
-      await this.replies.enqueue(
-        {
-          ...this.delivery(this.contact(attempt), GROUND_CHECK_UNAVAILABLE),
-          sourceKey: groundCheckKey(groundCheckId),
-          ...this.menu(),
-        },
-        tx,
-      );
-      return;
-    }
-    await this.requestReview(
-      tx,
-      attempt,
-      grounds.map((ground) => ({
-        code: ground.code,
-        outcome: ground.result
-          ? outcomeOf(ground.result)
-          : (ground.diagnostic_code ?? "unknown"),
-      })),
-      grounds.find((ground) => ground.evidence)?.evidence?.accountRef,
-    );
-    // A Tribute ground Platform holds in a nonactive state is shown as it is, not as missing.
-    const held = grounds.find(
-      (ground) => ground.result?.ok && ground.result.value.enrollment,
-    )?.result;
-    await this.replies.enqueue(
-      {
-        ...this.delivery(
-          this.contact(attempt),
-          held ? `${activationMessage(held)} ${OWNER_REVIEW}` : NO_KNOWN_GROUND,
-        ),
-        sourceKey: groundCheckKey(groundCheckId),
-        ...this.menu(),
-      },
-      tx,
-    );
   }
   /** A person with any confirmed ground has rights; a missing other ground is no news for them. */
   private async hasConfirmedGround(
@@ -857,10 +696,6 @@ export class SubscriptionActivation {
   }
 }
 
-function groundCheckKey(groundCheckId: string): string {
-  return `activation-ground-check:${groundCheckId}`;
-}
-
 const CONFIRMED_STATES: readonly ActivationState[] = [
   "active",
   "already_active",
@@ -887,13 +722,12 @@ function outcomeOf(result: ActivationResult<ActivationResponse>): string {
   return result.ok ? result.value.state : result.error.code;
 }
 
-/** A new attempt due now; `groundCheckId` joins it to an ordinary start's group. */
+/** A new attempt due now. */
 function newAttempt(
   contact: VerifiedPrivateStart,
   identityRef: string,
   code: string,
   now: Date,
-  groundCheckId: string | null,
 ) {
   return {
     attempt_id: randomUUID(),
@@ -913,43 +747,33 @@ function newAttempt(
     lease_until: null,
     attempts: 0,
     diagnostic_code: null,
-    ground_check_id: groundCheckId,
     confirmed_at: null,
   };
 }
 
 /**
- * Schedules an existing attempt again, joining it to `groundCheckId` when one is given. A leased
- * attempt keeps running and only joins the group; a known negative result starts a fresh attempt,
- * while an uncertain evidence write stays for its exact replay.
+ * Schedules an existing attempt again. A leased attempt keeps running; a known negative result
+ * starts a fresh attempt, while an uncertain evidence write stays for its exact replay.
  */
 async function reschedule(
   tx: Transaction<DatabaseSchema>,
   row: Attempt,
   now: Date,
-  groundCheckId: string | null,
 ): Promise<void> {
-  const group = groundCheckId ? { ground_check_id: groundCheckId } : {};
-  const leased = row.lease_until !== null && row.lease_until > now;
-  if (leased && !groundCheckId) return;
+  if (row.lease_until !== null && row.lease_until > now) return;
   const fresh =
     row.result !== null &&
     ["rejected", "pending_review", "retry"].includes(row.state);
   await tx
     .updateTable("activation_attempts")
-    .set(
-      leased
-        ? group
-        : {
-            ...group,
-            state: "pending",
-            expires_at: new Date(now.getTime() + RETENTION),
-            due_at: now,
-            ...(fresh
-              ? { attempt_id: randomUUID(), evidence: null, result: null }
-              : {}),
-          },
-    )
+    .set({
+      state: "pending",
+      expires_at: new Date(now.getTime() + RETENTION),
+      due_at: now,
+      ...(fresh
+        ? { attempt_id: randomUUID(), evidence: null, result: null }
+        : {}),
+    })
     .where("attempt_id", "=", row.attempt_id)
     .execute();
 }

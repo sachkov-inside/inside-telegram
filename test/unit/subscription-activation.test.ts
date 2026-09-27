@@ -131,38 +131,6 @@ describe("activation ingress and separate source proof", () => {
       decision: "unavailable",
     });
   });
-  it("reads the known-ground codes an ordinary /start checks", () => {
-    const env = {
-      TELEGRAM_ACTIVATION_ENABLED: "true",
-      PLATFORM_ACTIVATION_URL: "https://platform.example/activation",
-      PLATFORM_ACCOUNT_URL: "https://platform.example/account",
-      PLATFORM_ACTIVATION_SECRET: "a".repeat(32),
-    };
-    expect(loadActivationConfig(env, "-1")?.startCodes).toEqual([]);
-    expect(
-      loadActivationConfig(
-        {
-          ...env,
-          TELEGRAM_ACTIVATION_START_CODES: '["course64","tribute_2024"]',
-        },
-        "-1",
-      )?.startCodes,
-    ).toEqual(["course64", "tribute_2024"]);
-    for (const invalid of [
-      "course",
-      "{}",
-      '["course","course"]',
-      '[""]',
-      JSON.stringify(Array.from({ length: 11 }, (_, i) => `code${i}`)),
-      JSON.stringify(["x".repeat(41)]),
-    ])
-      expect(() =>
-        loadActivationConfig(
-          { ...env, TELEGRAM_ACTIVATION_START_CODES: invalid },
-          "-1",
-        ),
-      ).toThrow("TELEGRAM_ACTIVATION_START_CODES");
-  });
   it("rejects canonical source aliases and short credentials", () => {
     const env = {
       TELEGRAM_ACTIVATION_ENABLED: "true",

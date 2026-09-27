@@ -35,11 +35,19 @@ services:
     profiles: [operations]
     restart: "no"
 
-  # Owner review queue of unconfirmed known grounds: run --rm -T activation-review --list
+  # Owner review queue of unconfirmed owner-link grounds: run --rm -T activation-review --list
   activation-review:
     <<: *runtime
     entrypoint: [node, dist/operations/activation-review-cli.js]
     networks: [database]
+    profiles: [operations]
+    restart: "no"
+
+  # Owner's button in a course group: run --rm -T activation-announcement --preview <sourceRef> <code>
+  activation-announcement:
+    <<: *runtime
+    entrypoint: [node, dist/operations/activation-announcement-cli.js]
+    networks: [egress]
     profiles: [operations]
     restart: "no"
 

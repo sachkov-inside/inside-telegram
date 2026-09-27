@@ -2,7 +2,7 @@ import type { Database } from "../../database/database.js";
 import type { Clock } from "../../shared/clock.js";
 import type { GroundOutcome } from "./activation-storage.js";
 
-/** One person whose known grounds confirmed nothing, waiting for the owner's decision. */
+/** One person whose owner link confirmed no ground, waiting for the owner's decision. */
 export interface ActivationReview {
   readonly reviewId: string;
   readonly botIdentity: string;
