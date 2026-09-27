@@ -31,6 +31,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "proof:course:provider": "tsx test/local/course-activation-provider.ts",
     "owner:community-restriction": "tsx src/operations/community-restriction-cli.ts",
+    "owner:activation-review": "tsx src/operations/activation-review-cli.ts",
     "proof:course:browser": "tsx test/local/course-activation-browser.ts",
     "proof:course:existing": "node test/local/course-existing-browser.mjs"
   },

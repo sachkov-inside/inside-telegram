@@ -35,5 +35,26 @@ export interface ActivationTables {
     lease_until: Timestamp | null;
     attempts: number;
     diagnostic_code: string | null;
+    /** Groups the attempts one ordinary `/start` scheduled; null for an explicit code. */
+    ground_check_id: string | null;
   };
+  activation_review_requests: {
+    review_id: string;
+    bot_identity: string;
+    telegram_user_id: string;
+    identity_ref: string;
+    account_ref: string | null;
+    ground_check_id: string;
+    /** Written as JSON text: node-postgres would send a bare array as a PostgreSQL array. */
+    outcomes: ColumnType<readonly GroundOutcome[], string, string>;
+    requested_at: Timestamp;
+    updated_at: Timestamp;
+    resolved_at: Timestamp | null;
+    resolution: "confirmed" | "owner" | null;
+  };
+}
+/** What one known ground returned; codes and states only, never source payload. */
+export interface GroundOutcome {
+  readonly code: string;
+  readonly outcome: string;
 }

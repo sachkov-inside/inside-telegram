@@ -99,6 +99,15 @@ Worker не начинает новую проверку по истёкшему
 источник, срок назначения, отдельные benefit terms и отсутствие списаний для nonpaid назначения.
 Команды и callback не несут доверенных прав: состояние перечитывается на каждом обращении.
 
+## Обычный `/start`
+
+Обычный `/start` связанной TelegramIdentity использует тот же протокол без изменений контракта:
+для каждого кода из `TELEGRAM_ACTIVATION_START_CODES` создаётся та же durable попытка, что и для
+`/start a_<code>`, с теми же `begin`, `binding`, evidence и replay. Попытки одного `/start`
+объединены в группу только внутри Telegram, чтобы человек получил один итог. Без привязки попытки не
+создаются. Поведение и очередь разбора — в
+[runbook](../operations/course-activation.md#подтверждение-статуса-прежних-участников).
+
 ## Community v2
 
 `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2` явно включает v2.

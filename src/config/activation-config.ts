@@ -11,6 +11,8 @@ export interface ActivationConfig {
   readonly secret: string;
   readonly accountUrl: string;
   readonly sources: readonly ActivationSource[];
+  /** Published codes whose rules an ordinary `/start` checks as known grounds. */
+  readonly startCodes: readonly string[];
 }
 export function loadActivationConfig(
   env: NodeJS.ProcessEnv,
@@ -88,7 +90,35 @@ export function loadActivationConfig(
     }
     refs.add(sourceRef);
   }
-  return { enabled: true, endpoint, secret, accountUrl, sources: entries };
+  return {
+    enabled: true,
+    endpoint,
+    secret,
+    accountUrl,
+    sources: entries,
+    startCodes: loadStartCodes(env.TELEGRAM_ACTIVATION_START_CODES),
+  };
+}
+function loadStartCodes(value: string | undefined): readonly string[] {
+  let codes: unknown;
+  try {
+    codes = JSON.parse(value ?? "[]");
+  } catch {
+    throw new Error("Invalid TELEGRAM_ACTIVATION_START_CODES");
+  }
+  const list: readonly unknown[] = Array.isArray(codes) ? codes : [null];
+  if (
+    list.length > 10 ||
+    new Set(list).size !== list.length ||
+    !list.every(
+      (code): code is string =>
+        typeof code === "string" && /^[A-Za-z0-9_-]{1,40}$/.test(code),
+    )
+  )
+    throw new Error(
+      "TELEGRAM_ACTIVATION_START_CODES must list up to 10 distinct activation codes without the a_ prefix",
+    );
+  return list;
 }
 function safeUrl(value: string | undefined): string {
   let url: URL;

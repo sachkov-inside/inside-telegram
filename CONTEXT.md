@@ -106,6 +106,16 @@ A durable private Telegram request to check a Platform course rule and continue 
 Account linking.
 _Avoid_: Grant, login credential
 
+**Known Ground Check**:
+The group of Course Activation Attempts one ordinary `/start` of a linked identity schedules, one per
+configured activation code. The person hears one outcome for the whole group.
+_Avoid_: Reconciliation, owner link, grant
+
+**Activation Review Request**:
+The owner's queue entry for a person whose Known Ground Check confirmed no ground. It records the
+outcomes; the owner's decision is a Platform Direct Right, never a Telegram grant.
+_Avoid_: Support ticket, rejection, pending_review
+
 **Activation Source**:
 An owner-configured course group and participant policy, addressed by an opaque sourceRef. Its
 bounded proof is separate from the Canonical Membership Chat and MembershipEvidence.

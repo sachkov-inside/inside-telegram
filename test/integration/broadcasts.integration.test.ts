@@ -37,6 +37,12 @@ import type {
 } from "../../src/modules/communications/funnel-types.js";
 import { CLOCK } from "../../src/shared/clock.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
+import { StartResponseDeliveryProcessor } from "../../src/modules/outbound/start-response-delivery-processor.js";
+import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
+import {
+  privateContactabilityUpdate,
+  privateStartUpdate,
+} from "../support/synthetic-telegram-updates.js";
 
 import {
   TELEGRAM_MESSAGES,
@@ -382,6 +388,58 @@ describe("broadcast audience and lifecycle", () => {
         )
       ).statusCode,
     ).toBe(409);
+  });
+  it("reaches everyone who ran /start through the bot, except /stop without /resume and blocked contacts", async () => {
+    let update = 700;
+    async function telegram(payload: object) {
+      const response = await app.inject({
+        method: "POST",
+        url: "/webhooks/telegram",
+        headers: { "x-telegram-bot-api-secret-token": config.webhookSecret },
+        payload,
+      });
+      expect(response.statusCode).toBe(202);
+      await app.get(TelegramUpdateProcessor).processAvailable();
+    }
+    // The bot answers each command first; its later messages wait for those answers.
+    async function settle() {
+      for (let second = 0; second < 5; second++) {
+        now = new Date(now.getTime() + 1000);
+        await app.get(StartResponseDeliveryProcessor).processAvailable(50, now);
+        await scheduler.processAvailable();
+      }
+    }
+    const say = (user: number, text: string) =>
+      telegram(privateStartUpdate(++update, user, { text }));
+    const reached = () =>
+      sent
+        .filter(
+          (m) => m.content.type === "text" && m.content.text === "broadcast",
+        )
+        .map((m) => m.chatId)
+        .sort();
+    await setup();
+    await say(51, "/start");
+    await say(52, "/start");
+    await say(52, "/stop");
+    await say(53, "/start");
+    await say(53, "/stop");
+    await say(53, "/resume");
+    await say(54, "/start");
+    await telegram(privateContactabilityUpdate(++update, 54, "kicked"));
+    await settle();
+    const { result } = await launch();
+    expect(result.snapshotSize).toBe(2);
+    await settle();
+    expect(reached()).toEqual(["51", "53"]);
+    // /resume after a launch does not add the contact to that launch's snapshot.
+    await say(52, "/resume");
+    await settle();
+    expect(reached()).toEqual(["51", "53"]);
+    // The next broadcast the owner launches reaches the returned contact as well.
+    await launch();
+    await settle();
+    expect(reached()).toEqual(["51", "51", "52", "53", "53"]);
   });
   it("suppresses delayed retry permanently across stop/resume; a new broadcast can include the contact", async () => {
     await oldContact();

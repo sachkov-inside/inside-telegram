@@ -14,6 +14,9 @@ const enrollmentStates = {
   suspended_source:
     "Источник Tribute завершён, доступ по нему приостановлен. Обратитесь к владельцу для подтверждения нового периода. Повторная проверка и вступление в группу не восстанавливают это основание",
 };
+/** The one answer to a known-ground check that confirmed nothing; the owner reviews it. */
+export const NO_KNOWN_GROUND =
+  "Мы не нашли подтверждения прежней покупки курса или подписки Tribute для этого Telegram. Запрос передан владельцу: он проверит его вручную. Если вы покупали курс с другого аккаунта Telegram, нажмите «Нужна помощь». Уже выданные права сохраняются.";
 export function activationMenu(accountUrl: string): readonly TelegramButton[] {
   return [
     { text: "Открыть платформу", url: accountUrl },
@@ -59,7 +62,7 @@ export function activationMessage(
   switch (result.value.state) {
     case "active":
     case "already_active":
-      return "Назначение тарифа подтверждено. Откройте «Мои доступы», чтобы увидеть текущий состав, источник и срок.";
+      return "Назначение тарифа подтверждено. Чтобы вступить в общий чат Inside, нажмите «Вступить в сообщество» — бот пришлёт личную ссылку. Текущий состав, источник и срок — в «Мои доступы».";
     case "pending_review":
       if (
         result.value.enrollment &&
