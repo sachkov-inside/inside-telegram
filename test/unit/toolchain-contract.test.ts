@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
-import { record } from "../support/json.js";
+import { jsonRecord, record } from "../support/json.js";
 
 // The shared base mirrors Platform's tsconfig.base.json; a project config may add its runtime
 // options but never weakens this strictness.
@@ -35,17 +35,13 @@ interface Override {
 }
 
 function json(path: string): Record<string, unknown> {
-  const value: unknown = JSON.parse(readFileSync(path, "utf8"));
-  if (typeof value !== "object" || value === null)
-    throw new Error(`${path} is not an object`);
-  return Object.fromEntries(Object.entries(value));
+  return jsonRecord(readFileSync(path, "utf8"));
 }
 
 function compilerOptions(config: Record<string, unknown>) {
-  const options = config.compilerOptions;
-  return typeof options === "object" && options !== null
-    ? Object.fromEntries(Object.entries(options))
-    : {};
+  return config.compilerOptions === undefined
+    ? {}
+    : record(config.compilerOptions);
 }
 
 /** Why a project tsconfig breaks the shared base contract. */
@@ -92,10 +88,18 @@ function ignoredBy(config: Record<string, unknown>, file: string): string[] {
   return list.filter(
     (pattern): pattern is string =>
       typeof pattern === "string" &&
-      (pattern.endsWith("/**")
-        ? file.startsWith(pattern.slice(0, -2))
-        : matches(pattern, file)),
+      gitignoreGlobs(pattern).some((glob) => matches(glob, file)),
   );
+}
+
+/**
+ * Globs an ignore pattern covers under gitignore rules: a pattern without an inner slash matches
+ * at any depth, and a matched directory excludes everything below it.
+ */
+function gitignoreGlobs(pattern: string): string[] {
+  const path = pattern.replace(/\/$/, "");
+  const anchored = path.includes("/") ? path.replace(/^\//, "") : `**/${path}`;
+  return [anchored, `${anchored}/**`];
 }
 
 /** Rules whose level for `file` differs from their level for application code. */
@@ -122,7 +126,9 @@ function matches(pattern: string, file: string): boolean {
           /\{([^}]*)\}/g,
           (_, list: string) => `(?:${list.split(",").join("|")})`,
         )
-        .replace(/\*/g, "[^/]*"),
+        .replace(/\*\*/g, "\0")
+        .replace(/\*/g, "[^/]*")
+        .replace(/\0/g, ".*"),
     )
     .join("(?:.*/)?");
   return new RegExp(`^${expression}$`).test(file);
@@ -208,12 +214,26 @@ describe("toolchain contract", () => {
     expect(
       rulesDifferingFromApplication(overrides, "test/unit/example.test.ts"),
     ).toEqual(["typescript/require-await"]);
+  });
+
+  it("detects tests excluded from linting", () => {
     expect(
       ignoredBy(
-        { ignorePatterns: ["dist/**", "test/**"] },
+        {
+          ignorePatterns: [
+            "dist/**",
+            "test/architecture/fixtures/**",
+            "test/**",
+            "test",
+            "test/",
+            "unit",
+            "*.test.ts",
+            "**/unit/**",
+          ],
+        },
         "test/unit/example.test.ts",
       ),
-    ).toEqual(["test/**"]);
+    ).toEqual(["test/**", "test", "test/", "unit", "*.test.ts", "**/unit/**"]);
   });
 
   it("detects a production rule turned off for application code", () => {
