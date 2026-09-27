@@ -214,20 +214,22 @@ describe("IdentityLinkRecovery", () => {
   });
 });
 
-async function conflictingLinkFixture(): Promise<{
+function conflictingLinkFixture(): Promise<{
   sourceAccountRef: string;
   sourceLinkTransactionRef: string;
   targetLinkTransactionRef: string;
   telegramIdentityRef: string;
 }> {
-  return conflictingLinkFixtureFor({
-    sourceAccountRef: "principal-ref-source",
-    sourceReturnCorrelation: "source-return",
-    sourceToken: "source-token",
-    targetReturnCorrelation: "target-return",
-    targetToken: "target-token",
-    telegramUserId: "42",
-  });
+  return Promise.resolve(
+    conflictingLinkFixtureFor({
+      sourceAccountRef: "principal-ref-source",
+      sourceReturnCorrelation: "source-return",
+      sourceToken: "source-token",
+      targetReturnCorrelation: "target-return",
+      targetToken: "target-token",
+      telegramUserId: "42",
+    }),
+  );
 }
 
 async function conflictingLinkFixtureFor(options: {

@@ -5,14 +5,19 @@ import { HttpNotificationAuthorization } from "../../src/adapters/platform/http-
 import {
   parseNotification,
   digest,
+  notificationValidator,
   type DispatchRequest,
   type NotificationCommand,
 } from "../../src/modules/notifications/notification-contract.js";
 import { loadNotificationConfig } from "../../src/config/notification-config.js";
 import fixtures from "../../docs/contracts/notifications-v1/fixtures.json" with { type: "json" };
 import manifest from "../../docs/contracts/notifications-v1/manifest.json" with { type: "json" };
-const c = fixtures.find((f) => f.name === "subscription-telegram")!
-  .value as NotificationCommand;
+import { required } from "../support/required.js";
+import { conforming, requestBody } from "../support/json.js";
+const c = conforming(
+  required(fixtures.find((f) => f.name === "subscription-telegram")).value,
+  notificationValidator<NotificationCommand>("telegramDelivery"),
+);
 const envelope = {
   exchange: "inside.notifications.telegram.v1",
   routingKey: "subscription",
@@ -121,14 +126,16 @@ describe("HTTP notification dispatch authorization", () => {
       const client = new HttpNotificationAuthorization(
         "https://platform.example/internal/notifications/dispatch/authorize",
         "synthetic",
-        async (_url, options) => {
+        (_url, options) => {
           expect(options?.redirect).toBe("error");
           expect(options?.signal).toBeDefined();
-          expect(JSON.parse(String(options?.body))).toEqual(request);
-          return new Response(JSON.stringify(body), {
-            status,
-            headers: { "content-type": "application/json" },
-          });
+          expect(JSON.parse(requestBody(options))).toEqual(request);
+          return Promise.resolve(
+            new Response(JSON.stringify(body), {
+              status,
+              headers: { "content-type": "application/json" },
+            }),
+          );
         },
       );
       expect(Boolean(await client.authorize(request))).toBe(valid);

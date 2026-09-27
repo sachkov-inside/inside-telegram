@@ -48,6 +48,8 @@ import {
   TELEGRAM_MESSAGES,
   type TelegramDeliveryResult,
 } from "../../src/modules/outbound/telegram-messages.js";
+import type { CommunicationsBody } from "../support/communications-body.js";
+import { required } from "../support/required.js";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL required");
 const database = createDatabase(databaseUrl);
@@ -71,20 +73,25 @@ const clock = { now: () => new Date(now) };
 const sent: CommunicationMessage[] = [];
 const transport = {
   send: vi.fn(
-    async (message: CommunicationMessage): Promise<TelegramDeliveryResult> => {
+    (message: CommunicationMessage): Promise<TelegramDeliveryResult> => {
       sent.push(message);
-      return { kind: "delivered", providerMessageId: "synthetic-message" };
+      return Promise.resolve({
+        kind: "delivered",
+        providerMessageId: "synthetic-message",
+      });
     },
   ),
 };
 const authorization = {
-  authorize: vi.fn(async () => "allowed"),
+  authorize: vi.fn(() => Promise.resolve("allowed")),
 };
 const contentValidation = {
-  validate: vi.fn(async (): Promise<AuthorContentValidationResult> => ({
-    status: "ok",
-    targetErrors: [],
-  })),
+  validate: vi.fn((): Promise<AuthorContentValidationResult> =>
+    Promise.resolve({
+      status: "ok",
+      targetErrors: [],
+    }),
+  ),
 };
 let app: NestFastifyApplication;
 let funnels: Funnels;
@@ -106,10 +113,11 @@ beforeAll(async () => {
     .useValue(transport)
     .overrideProvider(TELEGRAM_MESSAGES)
     .useValue({
-      sendText: async () => ({
-        kind: "delivered",
-        providerMessageId: "123",
-      }),
+      sendText: () =>
+        Promise.resolve({
+          kind: "delivered",
+          providerMessageId: "123",
+        }),
     })
     .compile();
   app = module.createNestApplication<NestFastifyApplication>(
@@ -179,7 +187,7 @@ function command(
     payload,
   };
 }
-async function http(
+function http(
   request: CommunicationsRequest,
   secret = config.communicationsSecret,
 ) {
@@ -211,11 +219,11 @@ async function start(updateId = "1", source?: string, user = "42") {
   await app.get(BotContacts).observeStart(value, "none");
   await entry.enter(value, source);
 }
-async function tick(seconds = 1) {
+function tick(seconds = 1) {
   now = new Date(now.getTime() + seconds * 1000);
   return scheduler.processAvailable();
 }
-async function deliveries() {
+function deliveries() {
   return database
     .selectFrom("communication_deliveries")
     .selectAll()
@@ -230,9 +238,11 @@ describe("funnel author contract", () => {
     const responses = await Promise.all([http(publish), http(publish)]);
     for (const res of responses) {
       expect(res.statusCode).toBe(200);
-      expect(responseValidator(res.json())).toBe(true);
+      expect(responseValidator(res.json<CommunicationsBody>())).toBe(true);
     }
-    expect(responses[0].json()).toEqual(responses[1].json());
+    expect(responses[0].json<CommunicationsBody>()).toEqual(
+      responses[1].json<CommunicationsBody>(),
+    );
     const changed = {
       ...value,
       name: "edited",
@@ -243,7 +253,9 @@ describe("funnel author contract", () => {
       http(command("funnels.save", changed, 3)),
     ]);
     expect(races.map((r) => r.statusCode).sort()).toEqual([200, 409]);
-    expect((await http(publish)).json()).toEqual(responses[0].json());
+    expect((await http(publish)).json<CommunicationsBody>()).toEqual(
+      responses[0].json<CommunicationsBody>(),
+    );
     const persisted = await database
       .selectFrom("communication_publications")
       .select("snapshot")
@@ -269,7 +281,10 @@ describe("funnel author contract", () => {
         await http(
           command(
             "funnels.save",
-            { ...value, steps: [value.steps[0]!, value.steps[0]!] },
+            {
+              ...value,
+              steps: [required(value.steps[0]), required(value.steps[0])],
+            },
             2,
           ),
         )
@@ -317,10 +332,10 @@ describe("durable marketing entry and scheduling", () => {
     const second = { sourceId: randomUUID(), code: "m_second", name: "second" };
     await setup({ ...value, sources: [...value.sources, second] });
     await Promise.all([
-      start("1", value.sources[0]!.code),
+      start("1", required(value.sources[0]).code),
       start("2", second.code),
     ]);
-    await start("1", value.sources[0]!.code);
+    await start("1", required(value.sources[0]).code);
     expect(
       await database.selectFrom("communication_entries").selectAll().execute(),
     ).toHaveLength(2);
@@ -341,7 +356,7 @@ describe("durable marketing entry and scheduling", () => {
       "general:entry",
       "general:entry",
     ]);
-    await start("3", value.sources[0]!.code);
+    await start("3", required(value.sources[0]).code);
     await tick();
     expect(sent.filter((m) => m.content.text === "general:entry")).toHaveLength(
       3,
@@ -386,7 +401,9 @@ describe("durable marketing entry and scheduling", () => {
       2,
     );
     expect(
-      (await deliveries()).filter((d) => d.step_id === a.steps[0]!.stepId),
+      (await deliveries()).filter(
+        (d) => d.step_id === required(a.steps[0]).stepId,
+      ),
     ).toHaveLength(1);
   });
   it("waits for all parts, preserves confirmed parts on 429 and never retries unknown", async () => {
@@ -534,9 +551,11 @@ describe("durable marketing entry and scheduling", () => {
     await setup();
     await start();
     // A persisted claim can outlive its worker without gaining automatic permission to send again.
-    const pending = (await deliveries()).find((d) => d.kind === "intro")!;
+    const pending = required(
+      (await deliveries()).find((d) => d.kind === "intro"),
+    );
     const parts = pending.parts;
-    parts[0]!.state = "in_flight";
+    required(parts[0]).state = "in_flight";
     await database
       .updateTable("communication_deliveries")
       .set({
@@ -549,7 +568,9 @@ describe("durable marketing entry and scheduling", () => {
     await tick(61);
     expect(sent).toHaveLength(0);
     expect(
-      (await deliveries()).find((d) => d.kind === "intro")!.parts[0]!.state,
+      required(
+        required((await deliveries()).find((d) => d.kind === "intro")).parts[0],
+      ).state,
     ).toBe("unknown");
   });
 });
@@ -563,10 +584,10 @@ describe("external dispatch crash boundaries", () => {
       entered = resolve;
     });
     let finish!: (result: TelegramDeliveryResult) => void;
-    transport.send.mockImplementationOnce(async (message) => {
+    transport.send.mockImplementationOnce((message) => {
       sent.push(message);
       entered();
-      return new Promise((resolve) => {
+      return new Promise<TelegramDeliveryResult>((resolve) => {
         finish = resolve;
       });
     });
@@ -579,9 +600,11 @@ describe("external dispatch crash boundaries", () => {
     expect(sent).toHaveLength(1);
     finish({ kind: "delivered", providerMessageId: "123" });
     await running;
-    const intro = (await deliveries()).find((d) => d.kind === "intro")!;
+    const intro = required(
+      (await deliveries()).find((d) => d.kind === "intro"),
+    );
     expect(intro.completed_at).not.toBeNull();
-    expect(intro.parts[0]!.attempts.map((a) => a.outcome)).toEqual([
+    expect(required(intro.parts[0]).attempts.map((a) => a.outcome)).toEqual([
       "unknown",
       "sent",
     ]);
@@ -662,14 +685,14 @@ describe("external dispatch crash boundaries", () => {
     const request = command("deliveries.read", {});
     const res = await http(request);
     expect(res.statusCode).toBe(200);
-    expect(responseValidator(res.json())).toBe(true);
-    expect(res.json().deliveries).toHaveLength(3);
+    expect(responseValidator(res.json<CommunicationsBody>())).toBe(true);
+    expect(res.json<CommunicationsBody>().deliveries).toHaveLength(3);
     const other = await http({
       ...request,
       operationId: randomUUID(),
       actor: { accountRef: "other" },
     });
-    expect(other.json().deliveries).toEqual([]);
+    expect(other.json<CommunicationsBody>().deliveries).toEqual([]);
   });
 });
 
@@ -677,9 +700,11 @@ describe("recovery and completion serialization", () => {
   it("does not overwrite a confirmed part when stale recovery overlaps record", async () => {
     await setup();
     await start();
-    const pending = (await deliveries()).find((d) => d.kind === "intro")!;
+    const pending = required(
+      (await deliveries()).find((d) => d.kind === "intro"),
+    );
     const parts = pending.parts;
-    parts[0]!.state = "in_flight";
+    required(parts[0]).state = "in_flight";
     const attemptId = randomUUID();
     await database
       .updateTable("communication_deliveries")
@@ -742,7 +767,7 @@ describe("recovery and completion serialization", () => {
           }>`select count(*) from pg_stat_activity where datname=current_database() and wait_event='advisory'`.execute(
             database,
           );
-          expect(Number(waiting.rows[0]!.count)).toBeGreaterThan(0);
+          expect(Number(required(waiting.rows[0]).count)).toBeGreaterThan(0);
         },
         { timeout: 1500, interval: 10 },
       );
@@ -750,12 +775,12 @@ describe("recovery and completion serialization", () => {
       release();
       await Promise.all([recovery, completing]);
     }
-    const saved = (await deliveries()).find(
-      (d) => d.delivery_id === pending.delivery_id,
-    )!;
-    expect(saved.parts[0]!.state).toBe("sent");
+    const saved = required(
+      (await deliveries()).find((d) => d.delivery_id === pending.delivery_id),
+    );
+    expect(required(saved.parts[0]).state).toBe("sent");
     expect(saved.completed_at).not.toBeNull();
-    expect(saved.parts[0]!.attempts.map((a) => a.outcome)).toEqual([
+    expect(required(saved.parts[0]).attempts.map((a) => a.outcome)).toEqual([
       "unknown",
       "sent",
     ]);
@@ -763,19 +788,21 @@ describe("recovery and completion serialization", () => {
   it("filters delivery history by its exact ID instead of returning unrelated deliveries", async () => {
     await setup();
     await start();
-    const initial = (await deliveries()).find((d) => d.kind === "intro")!;
+    const initial = required(
+      (await deliveries()).find((d) => d.kind === "intro"),
+    );
     const response = await http(
       command("deliveries.read", { deliveryId: initial.delivery_id }),
     );
     expect(
       response
-        .json()
+        .json<CommunicationsBody>()
         .deliveries.map((d: { deliveryId: string }) => d.deliveryId),
     ).toEqual([initial.delivery_id]);
     expect(
       (
         await http(command("deliveries.read", { broadcastId: randomUUID() }))
-      ).json().deliveries,
+      ).json<CommunicationsBody>().deliveries,
     ).toEqual([]);
     expect(
       (await http(command("deliveries.read", { cursor: "-".repeat(36) })))
@@ -828,8 +855,12 @@ async function resolve(
   action: "retry" | "skip",
   duplicateRiskAccepted = false,
 ) {
-  const d = (await deliveries()).find((d) => d.delivery_id === deliveryId)!;
-  const p = d.parts.find((p) => ["unknown", "failed"].includes(p.state))!;
+  const d = required(
+    (await deliveries()).find((d) => d.delivery_id === deliveryId),
+  );
+  const p = required(
+    d.parts.find((p) => ["unknown", "failed"].includes(p.state)),
+  );
   return http(
     command(
       "delivery.resolve",
@@ -898,8 +929,8 @@ describe("published audience updates and subscriber preferences #29", () => {
       ...value,
       steps: [
         inserted,
-        { ...value.steps[0]!, parts: [part("edited")] },
-        value.steps[1]!,
+        { ...required(value.steps[0]), parts: [part("edited")] },
+        required(value.steps[1]),
       ],
     });
     await tick(5);
@@ -910,7 +941,7 @@ describe("published audience updates and subscriber preferences #29", () => {
     expect(sent.at(-1)?.content.text).toBe("edited");
     await publish({
       ...value,
-      steps: [value.steps[1]!, inserted, value.steps[0]!],
+      steps: [required(value.steps[1]), inserted, required(value.steps[0])],
     });
     await tick(9);
     expect(sent.at(-1)?.content.text).toBe("edited");
@@ -921,12 +952,14 @@ describe("published audience updates and subscriber preferences #29", () => {
   });
   it("deletes pending, preserves terminal history and rollback restores only unattempted deletion", async () => {
     const value = await initialComplete();
-    await publish({ ...value, steps: [value.steps[1]!] });
-    const deleted = (await deliveries()).find(
-      (d) => d.step_id === value.steps[0]!.stepId,
-    )!;
+    await publish({ ...value, steps: [required(value.steps[1])] });
+    const deleted = required(
+      (await deliveries()).find(
+        (d) => d.step_id === required(value.steps[0]).stepId,
+      ),
+    );
     expect(deleted.completed_at).toEqual(now);
-    expect(deleted.parts[0]!.state).toBe("cancelled");
+    expect(required(deleted.parts[0]).state).toBe("cancelled");
     const res = await http(
       command(
         "funnels.rollback",
@@ -935,16 +968,18 @@ describe("published audience updates and subscriber preferences #29", () => {
       ),
     );
     expect(res.statusCode).toBe(200);
-    expect(responseValidator(res.json())).toBe(true);
+    expect(responseValidator(res.json<CommunicationsBody>())).toBe(true);
     await tick(10);
     expect(sent.at(-1)?.content.text).toBe("general:step1");
     await tick(10);
     expect(sent.at(-1)?.content.text).toBe("general:step2");
-    const first = (await deliveries()).find(
-      (d) => d.step_id === value.steps[0]!.stepId,
-    )!;
+    const first = required(
+      (await deliveries()).find(
+        (d) => d.step_id === required(value.steps[0]).stepId,
+      ),
+    );
     expect(first.delivery_id).toBe(deleted.delivery_id);
-    expect(first.parts[0]!.state).toBe("sent");
+    expect(required(first.parts[0]).state).toBe("sent");
   });
   it("finishes partial cancellation at the terminal timestamp, never before unknown resolution", async () => {
     const value = draft();
@@ -959,21 +994,24 @@ describe("published audience updates and subscriber preferences #29", () => {
       },
     };
     const first = {
-      ...value.steps[0]!,
+      ...required(value.steps[0]),
       parts: [circle, part("text"), part("tail")],
     };
-    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    await initialComplete({
+      ...value,
+      steps: [first, required(value.steps[1])],
+    });
     await tick(10);
     transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
     await tick();
-    const before = (await deliveries()).find(
-      (d) => d.step_id === first.stepId,
-    )!;
-    const evidence = before.parts[1]!.attempts;
-    await publish({ ...value, steps: [value.steps[1]!] });
-    const cancelled = (await deliveries()).find(
-      (d) => d.step_id === first.stepId,
-    )!;
+    const before = required(
+      (await deliveries()).find((d) => d.step_id === first.stepId),
+    );
+    const evidence = required(before.parts[1]).attempts;
+    await publish({ ...value, steps: [required(value.steps[1])] });
+    const cancelled = required(
+      (await deliveries()).find((d) => d.step_id === first.stepId),
+    );
     expect(cancelled.cancel_requested).toBe(true);
     expect(cancelled.completed_at).toBeNull();
     expect(cancelled.parts.map((p) => p.state)).toEqual([
@@ -988,11 +1026,11 @@ describe("published audience updates and subscriber preferences #29", () => {
     );
     const skipped = await resolve(before.delivery_id, "skip");
     expect(skipped.statusCode).toBe(200);
-    expect(responseValidator(skipped.json())).toBe(true);
-    const resolved = (await deliveries()).find(
-      (d) => d.delivery_id === before.delivery_id,
-    )!;
-    expect(resolved.parts[1]!.attempts).toEqual(evidence);
+    expect(responseValidator(skipped.json<CommunicationsBody>())).toBe(true);
+    const resolved = required(
+      (await deliveries()).find((d) => d.delivery_id === before.delivery_id),
+    );
+    expect(required(resolved.parts[1]).attempts).toEqual(evidence);
     expect(resolved.completed_at).toEqual(now);
     await tick(9);
     expect(sent.at(-1)?.content.type).toBe("video_note");
@@ -1003,13 +1041,13 @@ describe("published audience updates and subscriber preferences #29", () => {
     await initialComplete();
     transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
     await tick(10);
-    const d = (await deliveries()).find((d) => d.kind === "step")!;
+    const d = required((await deliveries()).find((d) => d.kind === "step"));
     expect((await resolve(d.delivery_id, "retry")).statusCode).toBe(409);
     const request = command(
       "delivery.resolve",
       {
         deliveryId: d.delivery_id,
-        partId: d.parts[0]!.partId,
+        partId: required(d.parts[0]).partId,
         action: "retry",
         duplicateRiskAccepted: true,
       },
@@ -1017,13 +1055,17 @@ describe("published audience updates and subscriber preferences #29", () => {
     );
     const responses = await Promise.all([http(request), http(request)]);
     expect(responses.map((r) => r.statusCode)).toEqual([200, 200]);
-    expect(responses[0].json()).toEqual(responses[1].json());
+    expect(responses[0].json<CommunicationsBody>()).toEqual(
+      responses[1].json<CommunicationsBody>(),
+    );
     await tick();
-    const sentPart = (await deliveries()).find(
-      (x) => x.delivery_id === d.delivery_id,
-    )!.parts[0]!;
-    expect(sentPart.attempts[0]!.outcome).toBe("unknown");
-    expect(sentPart.attempts[1]!.duplicateRiskAccepted).toBe(true);
+    const sentPart = required(
+      required(
+        (await deliveries()).find((x) => x.delivery_id === d.delivery_id),
+      ).parts[0],
+    );
+    expect(required(sentPart.attempts[0]).outcome).toBe("unknown");
+    expect(required(sentPart.attempts[1]).duplicateRiskAccepted).toBe(true);
     authorization.authorize.mockResolvedValueOnce("denied");
     expect((await http(request)).statusCode).toBe(403);
   });
@@ -1035,13 +1077,17 @@ describe("published audience updates and subscriber preferences #29", () => {
       await preference(false, "10");
       now = new Date("2030-01-01T00:00:16Z");
       await preference(true, "11");
-      const first = (await deliveries()).find(
-        (d) => d.step_id === value.steps[0]!.stepId,
-      )!;
-      expect(first.parts[0]!.state).toBe("suppressed");
-      const second = (await deliveries()).find(
-        (d) => d.step_id === value.steps[1]!.stepId,
-      )!;
+      const first = required(
+        (await deliveries()).find(
+          (d) => d.step_id === required(value.steps[0]).stepId,
+        ),
+      );
+      expect(required(first.parts[0]).state).toBe("suppressed");
+      const second = required(
+        (await deliveries()).find(
+          (d) => d.step_id === required(value.steps[1]).stepId,
+        ),
+      );
       expect(second.due_at).toEqual(new Date("2030-01-01T00:00:21Z"));
       await tick(4);
       expect(sent.some((m) => m.content.text.includes("step"))).toBe(false);
@@ -1072,9 +1118,11 @@ describe("published audience updates and subscriber preferences #29", () => {
       ).marketing_enabled,
     ).toBe(false);
     await preference(true, "12");
-    const pending = (await deliveries()).find(
-      (d) => d.step_id === a.steps[0]!.stepId,
-    )!;
+    const pending = required(
+      (await deliveries()).find(
+        (d) => d.step_id === required(a.steps[0]).stepId,
+      ),
+    );
     expect(pending.due_at).toEqual(new Date("2030-01-01T00:00:11Z"));
     expect(
       await database
@@ -1094,17 +1142,20 @@ describe("published audience updates and subscriber preferences #29", () => {
     };
     await publish({
       ...value,
-      steps: [inserted, value.steps[1]!, value.steps[0]!],
+      steps: [inserted, required(value.steps[1]), required(value.steps[0])],
     });
     now = new Date(+now + 25000);
     await preference(true, "11");
-    const added = (await deliveries()).find(
-      (d) => d.step_id === inserted.stepId,
-    )!;
-    expect(added.parts[0]!.state).toBe("suppressed");
+    const added = required(
+      (await deliveries()).find((d) => d.step_id === inserted.stepId),
+    );
+    expect(required(added.parts[0]).state).toBe("suppressed");
     expect(
-      (await deliveries()).find((d) => d.step_id === value.steps[1]!.stepId)!
-        .due_at,
+      required(
+        (await deliveries()).find(
+          (d) => d.step_id === required(value.steps[1]).stepId,
+        ),
+      ).due_at,
     ).toEqual(new Date("2030-01-01T00:02:11Z"));
     const rollback = await http(
       command(
@@ -1136,8 +1187,13 @@ describe("published audience updates and subscriber preferences #29", () => {
       updateId: "11",
     });
     expect(
-      (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId)!
-        .parts[0]!.state,
+      required(
+        required(
+          (await deliveries()).find(
+            (d) => d.step_id === required(value.steps[0]).stepId,
+          ),
+        ).parts[0],
+      ).state,
     ).toBe("suppressed");
     await funnels.execute(
       command(
@@ -1174,16 +1230,19 @@ describe("preference and publication crash/race boundaries #29", () => {
   it("serializes publish and stop against an in-flight multipart dispatch, then settles partial cancellation", async () => {
     const value = draft();
     const first = {
-      ...value.steps[0]!,
+      ...required(value.steps[0]),
       parts: [part("first"), part("must cancel")],
     };
-    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    await initialComplete({
+      ...value,
+      steps: [first, required(value.steps[1])],
+    });
     let release!: (result: TelegramDeliveryResult) => void;
     let claimed!: () => void;
     const claimReady = new Promise<void>((r) => {
       claimed = r;
     });
-    transport.send.mockImplementationOnce(async (message) => {
+    transport.send.mockImplementationOnce((message) => {
       sent.push(message);
       claimed();
       return new Promise<TelegramDeliveryResult>((r) => {
@@ -1195,11 +1254,11 @@ describe("preference and publication crash/race boundaries #29", () => {
     await claimReady;
     await Promise.all([
       preference(false, "10"),
-      publish({ ...value, steps: [value.steps[1]!] }),
+      publish({ ...value, steps: [required(value.steps[1])] }),
     ]);
-    const inFlight = (await deliveries()).find(
-      (d) => d.step_id === first.stepId,
-    )!;
+    const inFlight = required(
+      (await deliveries()).find((d) => d.step_id === first.stepId),
+    );
     expect(inFlight.cancel_requested).toBe(true);
     expect(inFlight.completed_at).toBeNull();
     expect(inFlight.parts.map((p) => p.state)).toEqual([
@@ -1209,9 +1268,9 @@ describe("preference and publication crash/race boundaries #29", () => {
     now = new Date(+now + 3000);
     release({ kind: "delivered", providerMessageId: "synthetic" });
     await dispatch;
-    const terminal = (await deliveries()).find(
-      (d) => d.step_id === first.stepId,
-    )!;
+    const terminal = required(
+      (await deliveries()).find((d) => d.step_id === first.stepId),
+    );
     expect(terminal.completed_at).toEqual(now);
     expect(terminal.parts.map((p) => p.state)).toEqual(["sent", "cancelled"]);
     await tick(100);
@@ -1255,7 +1314,7 @@ describe("preference and publication crash/race boundaries #29", () => {
       .where("source_key", "like", "marketing-preference:%")
       .execute();
     expect(receipt).toHaveLength(1);
-    expect(receipt[0]!.message_text).toContain("/resume");
+    expect(required(receipt[0]).message_text).toContain("/resume");
     const disabled = new MarketingEntry(
       database,
       { ...config, marketingEnabled: false },
@@ -1298,41 +1357,42 @@ describe("preference and publication crash/race boundaries #29", () => {
   it("preserves a frozen started snapshot through edits and accepts late evidence for the exact unknown attempt", async () => {
     const value = draft();
     const first = {
-      ...value.steps[0]!,
+      ...required(value.steps[0]),
       parts: [part("frozen one"), part("frozen two")],
     };
-    await initialComplete({ ...value, steps: [first, value.steps[1]!] });
+    await initialComplete({
+      ...value,
+      steps: [first, required(value.steps[1])],
+    });
     await tick(10);
     await publish({
       ...value,
       steps: [
         { ...first, parts: [part("new one"), part("new two")] },
-        value.steps[1]!,
+        required(value.steps[1]),
       ],
     });
     transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
     await tick();
-    const unknown = (await deliveries()).find(
-      (d) => d.step_id === first.stepId,
-    )!;
+    const unknown = required(
+      (await deliveries()).find((d) => d.step_id === first.stepId),
+    );
     expect(unknown.attempt_id).not.toBeNull();
     await tick(100);
     const calls = transport.send.mock.calls.length;
-    await scheduler.record(unknown.delivery_id, unknown.attempt_id!, {
+    await scheduler.record(unknown.delivery_id, required(unknown.attempt_id), {
       kind: "delivered",
       providerMessageId: "late",
     });
-    await scheduler.record(unknown.delivery_id, unknown.attempt_id!, {
+    await scheduler.record(unknown.delivery_id, required(unknown.attempt_id), {
       kind: "delivered",
       providerMessageId: "late",
     });
-    const settled = (await deliveries()).find(
-      (d) => d.step_id === first.stepId,
-    )!;
-    expect((settled.snapshot as MessagePart[])[1]!.content.text).toBe(
-      "frozen two",
+    const settled = required(
+      (await deliveries()).find((d) => d.step_id === first.stepId),
     );
-    expect(settled.parts[1]!.attempts.map((a) => a.outcome)).toEqual([
+    expect(required(settled.snapshot[1]).content.text).toBe("frozen two");
+    expect(required(settled.parts[1]).attempts.map((a) => a.outcome)).toEqual([
       "unknown",
       "sent",
     ]);
@@ -1362,7 +1422,9 @@ it("keeps first-entry intro suppressed when the subscriber stopped before enroll
   expect(sent.at(-1)?.content.text).toBe("general:step1");
   expect(sent.some((m) => m.content.text === "intro")).toBe(false);
   expect(
-    (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId),
+    (await deliveries()).find(
+      (d) => d.step_id === required(value.steps[0]).stepId,
+    ),
   ).toBeDefined();
 });
 
@@ -1383,8 +1445,8 @@ describe("publication preview #34", () => {
     const edited = {
       ...value,
       steps: [
-        value.steps[1]!,
-        { ...value.steps[0]!, parts: [part("edited A")] },
+        required(value.steps[1]),
+        { ...required(value.steps[0]), parts: [part("edited A")] },
         added,
       ],
     };
@@ -1402,12 +1464,15 @@ describe("publication preview #34", () => {
       command("funnels.preview", { funnelId: value.funnelId }, 3),
     );
     expect(response.statusCode).toBe(200);
-    expect(responseValidator(response.json())).toBe(true);
-    expect(response.json().preview).toMatchObject({
+    expect(responseValidator(response.json<CommunicationsBody>())).toBe(true);
+    expect(response.json<CommunicationsBody>().preview).toMatchObject({
       revision: 3,
       addedStepIds: [added.stepId],
-      editedStepIds: [value.steps[0]!.stepId],
-      reorderedStepIds: [value.steps[1]!.stepId, value.steps[0]!.stepId],
+      editedStepIds: [required(value.steps[0]).stepId],
+      reorderedStepIds: [
+        required(value.steps[1]).stepId,
+        required(value.steps[0]).stepId,
+      ],
       deletedStepIds: [],
       eligibleContacts: 1,
       completedParticipantsReceivingNewSteps: 1,
@@ -1430,7 +1495,7 @@ describe("publication preview #34", () => {
     const stopped = await http(
       command("funnels.preview", { funnelId: value.funnelId }, 3),
     );
-    expect(stopped.json().preview).toMatchObject({
+    expect(stopped.json<CommunicationsBody>().preview).toMatchObject({
       eligibleContacts: 0,
       completedParticipantsReceivingNewSteps: 0,
     });
@@ -1442,7 +1507,7 @@ describe("publication preview #34", () => {
     for (let i = 0; i < 30; i++) await tick(1);
     const edited = {
       ...value,
-      steps: [{ ...value.steps[0]!, parts: [part("edit")] }],
+      steps: [{ ...required(value.steps[0]), parts: [part("edit")] }],
     };
     await funnels.execute(command("funnels.save", edited, 2));
     expect(
@@ -1462,11 +1527,11 @@ describe("publication preview #34", () => {
     const result = await http(
       command("funnels.preview", { funnelId: value.funnelId }, 3),
     );
-    expect(result.json().preview).toMatchObject({
+    expect(result.json<CommunicationsBody>().preview).toMatchObject({
       eligibleContacts: 0,
       completedParticipantsReceivingNewSteps: 0,
       addedStepIds: [],
-      deletedStepIds: [value.steps[1]!.stepId],
+      deletedStepIds: [required(value.steps[1]).stepId],
     });
   });
 });
@@ -1476,7 +1541,7 @@ it("preview does not call a removed unknown lane completed", async () => {
   await tick(10);
   transport.send.mockResolvedValueOnce({ kind: "transport_unknown" });
   await tick(10);
-  const withoutUnknown = { ...value, steps: [value.steps[0]!] };
+  const withoutUnknown = { ...value, steps: [required(value.steps[0])] };
   await publish(withoutUnknown);
   const added = { stepId: randomUUID(), delaySeconds: 10, parts: [part("C")] };
   await funnels.execute(
@@ -1490,7 +1555,7 @@ it("preview does not call a removed unknown lane completed", async () => {
     command("funnels.preview", { funnelId: value.funnelId }, 5),
   );
   expect(response.statusCode).toBe(200);
-  expect(response.json().preview).toMatchObject({
+  expect(response.json<CommunicationsBody>().preview).toMatchObject({
     eligibleContacts: 1,
     completedParticipantsReceivingNewSteps: 0,
   });
@@ -1538,7 +1603,9 @@ describe("entry-anchored funnel schedule", () => {
       ),
     );
     expect(archived.statusCode).toBe(200);
-    expect(archived.json().funnel.lifecycle).toBe("archived");
+    expect(archived.json<CommunicationsBody>().funnel.lifecycle).toBe(
+      "archived",
+    );
     const restored = await http(
       command(
         "funnels.lifecycle",
@@ -1547,7 +1614,7 @@ describe("entry-anchored funnel schedule", () => {
       ),
     );
     expect(restored.statusCode).toBe(200);
-    expect(restored.json().funnel).toMatchObject({
+    expect(restored.json<CommunicationsBody>().funnel).toMatchObject({
       lifecycle: "draft",
       publishedRevision: null,
     });
@@ -1631,7 +1698,7 @@ describe("historical rollback content validation", () => {
       });
       const success = await http(rollback);
       expect(success.statusCode).toBe(200);
-      expect(success.json()).toMatchObject({
+      expect(success.json<CommunicationsBody>()).toMatchObject({
         funnel: {
           revision: 5,
           publishedRevision: 5,
@@ -1641,7 +1708,9 @@ describe("historical rollback content validation", () => {
       contentValidation.validate
         .mockClear()
         .mockResolvedValue({ status: "unavailable" });
-      expect((await http(rollback)).json()).toEqual(success.json());
+      expect((await http(rollback)).json<CommunicationsBody>()).toEqual(
+        success.json<CommunicationsBody>(),
+      );
       expect(contentValidation.validate).not.toHaveBeenCalled();
       expect(
         (await http({ ...rollback, operationId: randomUUID() })).statusCode,

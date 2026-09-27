@@ -11,6 +11,7 @@ import {
   MalformedLinkRequestError,
 } from "../../src/modules/identity-linking/identity-linking.js";
 import { InMemoryIdentityLinkingAdapter } from "../../src/modules/identity-linking/in-memory-identity-linking.adapter.js";
+import { anyString } from "../support/matchers.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -55,7 +56,7 @@ describe("IdentityLinking", () => {
 
     expect(challenge).toEqual({
       expiresAt: new Date("2030-01-01T00:10:00.000Z"),
-      linkTransactionRef: expect.any(String),
+      linkTransactionRef: anyString(),
       returnCorrelation: "return-ref-a",
       status: "pending",
     });
@@ -89,7 +90,7 @@ describe("IdentityLinking", () => {
       linkTransactionRef: challenge.linkTransactionRef,
       returnCorrelation: "return-ref-a",
       status: "linked",
-      telegramIdentityRef: expect.any(String),
+      telegramIdentityRef: anyString(),
     });
     await expect(
       linking.confirm({
@@ -135,7 +136,7 @@ describe("IdentityLinking", () => {
       telegramIdentityRef:
         firstLink.status === "linked"
           ? firstLink.telegramIdentityRef
-          : expect.any(String),
+          : anyString(),
     });
     await expect(
       linking.confirm({
@@ -245,7 +246,7 @@ describe("IdentityLinking", () => {
     ).resolves.toMatchObject({ status: "expired" });
     const links = await database
       .selectFrom("platform_links")
-      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .select(({ fn }) => fn.countAll<string>().as("count"))
       .executeTakeFirstOrThrow();
     expect(Number(links.count)).toBe(0);
   });
@@ -311,7 +312,7 @@ describe("IdentityLinking", () => {
 
     const links = await database
       .selectFrom("platform_links")
-      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .select(({ fn }) => fn.countAll<string>().as("count"))
       .executeTakeFirstOrThrow();
     expect(Number(links.count)).toBe(2);
   });
@@ -349,7 +350,7 @@ describe("IdentityLinking", () => {
     ).resolves.toMatchObject({
       contractVersion: "inside.identity-linking.v1",
       status: "linked",
-      telegramIdentityRef: expect.any(String),
+      telegramIdentityRef: anyString(),
     });
   });
 });

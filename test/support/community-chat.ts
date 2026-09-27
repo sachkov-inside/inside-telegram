@@ -28,66 +28,62 @@ export class FakeCommunityChat implements TelegramCommunityChat {
   };
   mutation: CommunityCallOutcome = { kind: "succeeded" };
 
-  async readCapability(): Promise<CommunityCapability> {
-    return this.capability;
+  readCapability(): Promise<CommunityCapability> {
+    return Promise.resolve(this.capability);
   }
 
-  async observeMember(): Promise<CommunityObservation> {
-    return this.membership === "unavailable"
-      ? { kind: "unavailable", diagnosticCode: "telegram_api_unavailable" }
-      : { kind: "observed", state: this.membership };
+  observeMember(): Promise<CommunityObservation> {
+    return Promise.resolve(
+      this.membership === "unavailable"
+        ? { kind: "unavailable", diagnosticCode: "telegram_api_unavailable" }
+        : { kind: "observed", state: this.membership },
+    );
   }
 
-  async unbanMember(
-    _chatId: string,
-    user: string,
-  ): Promise<CommunityCallOutcome> {
+  unbanMember(_chatId: string, user: string): Promise<CommunityCallOutcome> {
     this.calls.push({ method: "unban", user });
     if (this.mutation.kind === "succeeded" && this.membership === "banned")
       this.membership = "not_member";
-    return this.mutation;
+    return Promise.resolve(this.mutation);
   }
 
-  async createJoinRequestLink(
+  createJoinRequestLink(
     _chatId: string,
     expiresAt: Date,
   ): Promise<CommunityInviteOutcome> {
     this.calls.push({ method: "create_invite", expiresAt });
-    return this.invite;
+    return Promise.resolve(this.invite);
   }
 
-  async approveJoinRequest(
+  approveJoinRequest(
     _chatId: string,
     user: string,
   ): Promise<CommunityCallOutcome> {
     this.calls.push({ method: "approve", user });
     if (this.mutation.kind === "succeeded") this.membership = "member";
-    return this.mutation;
+    return Promise.resolve(this.mutation);
   }
 
-  async declineJoinRequest(
+  declineJoinRequest(
     _chatId: string,
     user: string,
   ): Promise<CommunityCallOutcome> {
     this.calls.push({ method: "decline", user });
-    return { kind: "succeeded" };
+    return Promise.resolve({ kind: "succeeded" });
   }
 
-  async banMember(
-    _chatId: string,
-    user: string,
-  ): Promise<CommunityCallOutcome> {
+  banMember(_chatId: string, user: string): Promise<CommunityCallOutcome> {
     this.calls.push({ method: "ban", user });
     if (this.mutation.kind === "succeeded") this.membership = "banned";
-    return this.mutation;
+    return Promise.resolve(this.mutation);
   }
 
-  async revokeInviteLink(
+  revokeInviteLink(
     _chatId: string,
     inviteLink: string,
   ): Promise<CommunityCallOutcome> {
     this.calls.push({ method: "revoke_link", inviteLink });
-    return this.mutation;
+    return Promise.resolve(this.mutation);
   }
 
   reset(): void {

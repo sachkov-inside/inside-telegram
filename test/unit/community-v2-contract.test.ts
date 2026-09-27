@@ -34,7 +34,10 @@ describe("portable v2 runtime corpus", () => {
     )
       it(fixture.name, () => {
         const run = () =>
-          assertCommunityResult(fixture.value as unknown as CommunityResult);
+          assertCommunityResult(
+            // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- invalid fixtures must reach the runtime contract check.
+            fixture.value as unknown as CommunityResult,
+          );
         if (fixture.valid) expect(run).not.toThrow();
         else expect(run).toThrow();
       });

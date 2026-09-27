@@ -14,13 +14,13 @@ describe("external reads", () => {
     const result = await transactionWithExternalReads(
       database.asDatabase(),
       async () => {
-        const first = await externalRead("a", async () => {
+        const first = await externalRead("a", () => {
           calls.push(`load a open=${database.open}`);
-          return 1;
+          return Promise.resolve(1);
         });
-        const second = await externalRead("b", async () => {
+        const second = await externalRead("b", () => {
           calls.push(`load b open=${database.open}`);
-          return 2;
+          return Promise.resolve(2);
         });
         return first + second;
       },
@@ -33,16 +33,16 @@ describe("external reads", () => {
   });
 
   it("calls the service directly outside a managed transaction", async () => {
-    await expect(externalRead("a", async () => "direct")).resolves.toBe(
-      "direct",
-    );
+    await expect(
+      externalRead("a", () => Promise.resolve("direct")),
+    ).resolves.toBe("direct");
   });
 
   it("does not hide a failure of the work", async () => {
     const database = new RecordingDatabase();
     await expect(
-      transactionWithExternalReads(database.asDatabase(), async () => {
-        throw new RangeError("synthetic");
+      transactionWithExternalReads(database.asDatabase(), () => {
+        return Promise.reject(new RangeError("synthetic"));
       }),
     ).rejects.toThrow(RangeError);
     expect(database.transactions).toBe(1);
@@ -68,6 +68,7 @@ class RecordingDatabase {
         this.open = false;
       }
     };
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a partial Kysely double: externalRead only opens transactions.
     return { transaction: () => ({ execute }) } as unknown as Database;
   }
 }

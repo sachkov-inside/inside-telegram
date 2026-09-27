@@ -42,6 +42,8 @@ import {
   TELEGRAM_MESSAGES,
   type TelegramDeliveryResult,
 } from "../../src/modules/outbound/telegram-messages.js";
+import type { CommunicationsBody } from "../support/communications-body.js";
+import { required } from "../support/required.js";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL required");
 const database = createDatabase(databaseUrl);
@@ -69,14 +71,17 @@ const clock = { now: () => new Date(now) };
 const sent: CommunicationMessage[] = [];
 const transport = {
   send: vi.fn(
-    async (message: CommunicationMessage): Promise<TelegramDeliveryResult> => {
+    (message: CommunicationMessage): Promise<TelegramDeliveryResult> => {
       sent.push(message);
-      return { kind: "delivered", providerMessageId: "synthetic-message" };
+      return Promise.resolve({
+        kind: "delivered",
+        providerMessageId: "synthetic-message",
+      });
     },
   ),
 };
 const authorization = {
-  authorize: vi.fn(async () => "allowed"),
+  authorize: vi.fn(() => Promise.resolve("allowed")),
 };
 let app: NestFastifyApplication;
 let funnels: Funnels;
@@ -96,10 +101,11 @@ beforeAll(async () => {
     .useValue(transport)
     .overrideProvider(TELEGRAM_MESSAGES)
     .useValue({
-      sendText: async () => ({
-        kind: "delivered",
-        providerMessageId: "123",
-      }),
+      sendText: () =>
+        Promise.resolve({
+          kind: "delivered",
+          providerMessageId: "123",
+        }),
     })
     .compile();
   app = module.createNestApplication<NestFastifyApplication>(
@@ -167,7 +173,7 @@ function command(
     payload,
   };
 }
-async function http(
+function http(
   request: CommunicationsRequest,
   secret = config.communicationsSecret,
 ) {
@@ -199,7 +205,7 @@ async function start(updateId = "1", source?: string, user = "42") {
   await app.get(BotContacts).observeStart(value, "none");
   await entry.enter(value, source);
 }
-async function tick(seconds = 1) {
+function tick(seconds = 1) {
   now = new Date(now.getTime() + seconds * 1000);
   return scheduler.processAvailable();
 }
@@ -223,10 +229,14 @@ async function launch(value = broadcast()) {
   );
   const launched = await http(request);
   expect(launched.statusCode).toBe(200);
-  expect(responseValidator(launched.json())).toBe(true);
-  return { value, request, result: launched.json().broadcast };
+  expect(responseValidator(launched.json<CommunicationsBody>())).toBe(true);
+  return {
+    value,
+    request,
+    result: launched.json<CommunicationsBody>().broadcast,
+  };
 }
-async function broadcastDeliveries(id: string) {
+function broadcastDeliveries(id: string) {
   return database
     .selectFrom("communication_deliveries")
     .selectAll()
@@ -268,8 +278,8 @@ describe("broadcast audience and lifecycle", () => {
     await funnels.execute(
       command("funnels.publish", { funnelId: b.funnelId }, 1),
     );
-    await start("1", a.sources[0]!.code);
-    await start("2", b.sources[0]!.code);
+    await start("1", required(a.sources[0]).code);
+    await start("2", required(b.sources[0]).code);
     const { value, request, result } = await launch(
       broadcast([part("broadcast")], new Date(+now + 60_000).toISOString(), {
         kind: "funnels",
@@ -278,7 +288,7 @@ describe("broadcast audience and lifecycle", () => {
     );
     expect(result.state).toBe("scheduled");
     expect(result.audienceSnapshotId).toBeNull();
-    await start("3", a.sources[0]!.code, "43");
+    await start("3", required(a.sources[0]).code, "43");
     await scheduler.processAvailable(0);
     expect(await broadcastDeliveries(value.broadcastId)).toHaveLength(0);
     now = new Date(+now + 60_000);
@@ -288,10 +298,12 @@ describe("broadcast audience and lifecycle", () => {
     ]);
     const recipients = await broadcastDeliveries(value.broadcastId);
     expect(recipients).toHaveLength(2);
-    expect((await http(request)).json().broadcast).toEqual(result);
+    expect((await http(request)).json<CommunicationsBody>().broadcast).toEqual(
+      result,
+    );
     const current = (
       await http(command("broadcasts.read", { broadcastId: value.broadcastId }))
-    ).json().broadcast;
+    ).json<CommunicationsBody>().broadcast;
     expect(current.snapshotSize).toBe(2);
     await http(
       command(
@@ -300,7 +312,7 @@ describe("broadcast audience and lifecycle", () => {
         current.revision,
       ),
     );
-    await start("4", a.sources[0]!.code, "44");
+    await start("4", required(a.sources[0]).code, "44");
     await http(
       command(
         "broadcasts.lifecycle",
@@ -341,8 +353,12 @@ describe("broadcast audience and lifecycle", () => {
       1,
     );
     const responses = await Promise.all([http(request), http(request)]);
-    expect(responses[0].json()).toEqual(responses[1].json());
-    expect(responses[0].json().broadcast.snapshotSize).toBe(1);
+    expect(responses[0].json<CommunicationsBody>()).toEqual(
+      responses[1].json<CommunicationsBody>(),
+    );
+    expect(responses[0].json<CommunicationsBody>().broadcast.snapshotSize).toBe(
+      1,
+    );
     expect(
       await database
         .selectFrom("communication_enrollments")
@@ -353,7 +369,7 @@ describe("broadcast audience and lifecycle", () => {
     expect(sent.map((m) => m.chatId)).toEqual(["42"]);
     const current = (
       await http(command("broadcasts.read", { broadcastId: value.broadcastId }))
-    ).json().broadcast;
+    ).json<CommunicationsBody>().broadcast;
     expect(current.state).toBe("completed");
     expect(
       (
@@ -381,7 +397,7 @@ describe("broadcast audience and lifecycle", () => {
     now = new Date(+now + 61_000);
     await scheduler.processAvailable();
     const [delivery] = await broadcastDeliveries(value.broadcastId);
-    expect(delivery!.parts).toMatchObject([
+    expect(required(delivery).parts).toMatchObject([
       {
         state: "suppressed",
         diagnosticCode: "marketing_unavailable",
@@ -392,7 +408,7 @@ describe("broadcast audience and lifecycle", () => {
     const next = await launch();
     await tick(1);
     expect(
-      (await broadcastDeliveries(next.value.broadcastId))[0]!.parts,
+      required((await broadcastDeliveries(next.value.broadcastId))[0]).parts,
     ).toMatchObject([{ state: "sent" }]);
   });
   it("serializes stop versus launch and two dispatchers", async () => {
@@ -434,23 +450,23 @@ describe("broadcast audience and lifecycle", () => {
     release({ kind: "transport_unknown" });
     await sending;
     let [delivery] = await broadcastDeliveries(value.broadcastId);
-    expect(delivery!.parts).toMatchObject([
+    expect(required(delivery).parts).toMatchObject([
       { state: "unknown" },
       { state: "suppressed" },
     ]);
-    expect(delivery!.completed_at).toBeNull();
+    expect(required(delivery).completed_at).toBeNull();
     expect(
       (
         await http(
           command(
             "delivery.resolve",
             {
-              deliveryId: delivery!.delivery_id,
-              partId: value.parts[0]!.partId,
+              deliveryId: required(delivery).delivery_id,
+              partId: required(value.parts[0]).partId,
               action: "retry",
               duplicateRiskAccepted: true,
             },
-            delivery!.revision,
+            required(delivery).revision,
           ),
         )
       ).statusCode,
@@ -459,24 +475,24 @@ describe("broadcast audience and lifecycle", () => {
       command(
         "delivery.resolve",
         {
-          deliveryId: delivery!.delivery_id,
-          partId: value.parts[0]!.partId,
+          deliveryId: required(delivery).delivery_id,
+          partId: required(value.parts[0]).partId,
           action: "skip",
           duplicateRiskAccepted: false,
         },
-        delivery!.revision,
+        required(delivery).revision,
       ),
     );
     expect(result.statusCode).toBe(200);
     await tick(120);
     [delivery] = await broadcastDeliveries(value.broadcastId);
-    expect(delivery!.completed_at).not.toBeNull();
+    expect(required(delivery).completed_at).not.toBeNull();
     expect(transport.send).toHaveBeenCalledTimes(1);
     const history = await http(
       command("deliveries.read", { broadcastId: value.broadcastId }),
     );
-    expect(responseValidator(history.json())).toBe(true);
-    expect(history.json().deliveries).toHaveLength(1);
+    expect(responseValidator(history.json<CommunicationsBody>())).toBe(true);
+    expect(history.json<CommunicationsBody>().deliveries).toHaveLength(1);
   });
   it("cancel waits for already claimed result and never launches another part or recipient", async () => {
     await oldContact();
@@ -506,11 +522,11 @@ describe("broadcast audience and lifecycle", () => {
     release({ kind: "delivered", providerMessageId: "test" });
     await sending;
     expect(
-      (await broadcastDeliveries(value.broadcastId))[0]!.parts,
+      required((await broadcastDeliveries(value.broadcastId))[0]).parts,
     ).toMatchObject([{ state: "sent" }, { state: "cancelled" }]);
     const current = (
       await http(command("broadcasts.read", { broadcastId: value.broadcastId }))
-    ).json().broadcast;
+    ).json<CommunicationsBody>().broadcast;
     expect(
       (
         await http(
@@ -534,7 +550,7 @@ describe("broadcast audience and lifecycle", () => {
     await oldContact();
     await tick(60);
     expect(
-      (await broadcastDeliveries(value.broadcastId))[0]!.parts,
+      required((await broadcastDeliveries(value.broadcastId))[0]).parts,
     ).toMatchObject([
       { state: "suppressed", attempts: [{ outcome: "api_rejected" }] },
       { state: "suppressed" },
@@ -570,11 +586,15 @@ describe("communication analytics and tracking", () => {
     });
     await scheduler.processAvailable();
     await tick(2);
-    const first = transport.send.mock.calls[0]![0].content.buttons;
-    const second = transport.send.mock.calls[1]![0].content.buttons;
+    const first = required(transport.send.mock.calls[0])[0].content.buttons;
+    const second = required(transport.send.mock.calls[1])[0].content.buttons;
     expect(first).toEqual(second);
-    expect(first[1]!.url).toBe("https://other.example/materials/example");
-    const token = new URL(first[0]!.url).searchParams.get("token")!;
+    expect(required(first[1]).url).toBe(
+      "https://other.example/materials/example",
+    );
+    const token = required(
+      new URL(required(first[0]).url).searchParams.get("token"),
+    );
     expect(token).toMatch(/^[A-Za-z0-9_-]{43}$/);
     const tracking = (
       operation: string,
@@ -584,7 +604,7 @@ describe("communication analytics and tracking", () => {
       actor: { serviceRef: "platform-tracking" as const },
     });
     const resolve = tracking("tracking.resolve", { token });
-    expect((await http(resolve)).json().safeUrl).toBe(
+    expect((await http(resolve)).json<CommunicationsBody>().safeUrl).toBe(
       "https://platform.example/materials/example",
     );
     expect((await http(resolve, "wrong")).statusCode).toBe(401);
@@ -605,10 +625,9 @@ describe("communication analytics and tracking", () => {
       http(event),
       http({ ...event, operationId: randomUUID() }),
     ]);
-    expect(races.map((r) => r.json().outcome).sort()).toEqual([
-      "duplicate",
-      "recorded",
-    ]);
+    expect(
+      races.map((r) => r.json<CommunicationsBody>().outcome).sort(),
+    ).toEqual(["duplicate", "recorded"]);
     expect(
       (
         await http({
@@ -642,8 +661,8 @@ describe("communication analytics and tracking", () => {
       command("statistics.read", { broadcastId: value.broadcastId }),
     );
     expect(stats.statusCode).toBe(200);
-    expect(responseValidator(stats.json())).toBe(true);
-    expect(stats.json().statistics).toMatchObject({
+    expect(responseValidator(stats.json<CommunicationsBody>())).toBe(true);
+    expect(stats.json<CommunicationsBody>().statistics).toMatchObject({
       totalBotContacts: 1,
       trackingHits: 2,
       uniqueTokensWithHits: 1,
@@ -661,38 +680,41 @@ describe("communication analytics and tracking", () => {
   });
   it("keeps webhook duplicates separate from deliberate entries and pages complete source history", async () => {
     const value = await setup();
-    await start("1", value.sources[0]!.code);
-    await start("1", value.sources[0]!.code);
-    await start("2", value.sources[0]!.code);
+    await start("1", required(value.sources[0]).code);
+    await start("1", required(value.sources[0]).code);
+    await start("2", required(value.sources[0]).code);
     await start("3");
     let stats = (
       await http(command("statistics.read", { funnelId: value.funnelId }))
-    ).json().statistics;
+    ).json<CommunicationsBody>().statistics;
     expect(stats.uniqueParticipants).toBe(1);
-    expect(stats.contacts[0].entries).toHaveLength(3);
-    expect(stats.contacts[0].firstSourceId).toBe(value.sources[0]!.sourceId);
-    expect(stats.contacts[0].latestSourceId).toBeNull();
+    expect(required(stats.contacts[0]).entries).toHaveLength(3);
+    expect(required(stats.contacts[0]).firstSourceId).toBe(
+      required(value.sources[0]).sourceId,
+    );
+    expect(required(stats.contacts[0]).latestSourceId).toBeNull();
     await seedEntryPage(4, 104, value);
     const response = await http(command("statistics.read", {}));
-    expect(responseValidator(response.json())).toBe(true);
-    stats = response.json().statistics;
-    expect(stats.contacts[0].entries).toHaveLength(100);
-    expect(stats.contacts[0].nextEntryCursor).not.toBeNull();
+    expect(responseValidator(response.json<CommunicationsBody>())).toBe(true);
+    stats = response.json<CommunicationsBody>().statistics;
+    const contact = required(stats.contacts[0]);
+    expect(contact.entries).toHaveLength(100);
+    expect(contact.nextEntryCursor).not.toBeNull();
     const page = await http(
       command("entries.read", {
-        contactId: stats.contacts[0].contactId,
-        cursor: stats.contacts[0].nextEntryCursor,
+        contactId: contact.contactId,
+        cursor: required(contact.nextEntryCursor),
       }),
     );
     expect(page.statusCode).toBe(200);
-    expect(responseValidator(page.json())).toBe(true);
-    expect(page.json().entries).toHaveLength(4);
-    expect(page.json().nextCursor).toBeNull();
+    expect(responseValidator(page.json<CommunicationsBody>())).toBe(true);
+    expect(page.json<CommunicationsBody>().entries).toHaveLength(4);
+    expect(page.json<CommunicationsBody>().nextCursor).toBeNull();
     expect(
       (
         await http(
           command("entries.read", {
-            contactId: stats.contacts[0].contactId,
+            contactId: contact.contactId,
             cursor: "bad",
           }),
         )
@@ -715,12 +737,14 @@ describe("communication analytics and tracking", () => {
         actor: foreign,
       });
       expect(
-        op === "deliveries.read" ? res.json().deliveries : res.statusCode,
+        op === "deliveries.read"
+          ? res.json<CommunicationsBody>().deliveries
+          : res.statusCode,
       ).toEqual(op === "deliveries.read" ? [] : 404);
     }
     const list = await http(command("broadcasts.list", {}));
-    expect(responseValidator(list.json())).toBe(true);
-    expect(list.json().broadcasts).toHaveLength(1);
+    expect(responseValidator(list.json<CommunicationsBody>())).toBe(true);
+    expect(list.json<CommunicationsBody>().broadcasts).toHaveLength(1);
   });
 });
 
@@ -755,8 +779,12 @@ describe("broadcast crash boundaries", () => {
     expect(row.audience_snapshot_id).toBeNull();
     expect(row.state).toBe("draft");
     const responses = await Promise.all([http(request), http(request)]);
-    expect(responses[0].json()).toEqual(responses[1].json());
-    expect(responses[0].json().broadcast.snapshotSize).toBe(2);
+    expect(responses[0].json<CommunicationsBody>()).toEqual(
+      responses[1].json<CommunicationsBody>(),
+    );
+    expect(responses[0].json<CommunicationsBody>().broadcast.snapshotSize).toBe(
+      2,
+    );
   });
   it("keeps sent after lost acknowledgement and never retries an external effect whose result rolled back", async () => {
     await oldContact();
@@ -794,7 +822,7 @@ describe("broadcast crash boundaries", () => {
     await tick(120);
     await tick(120);
     expect(
-      (await broadcastDeliveries(value.broadcastId))[0]!.parts,
+      required((await broadcastDeliveries(value.broadcastId))[0]).parts,
     ).toMatchObject([
       { state: "unknown", attempts: [{ diagnosticCode: "worker_lost" }] },
     ]);
@@ -843,26 +871,30 @@ describe("broadcast crash boundaries", () => {
 
 it("orders first/latest and continuation by entry time when a later Telegram update ID is lower", async () => {
   const value = await setup();
-  await start("100", value.sources[0]!.code);
+  await start("100", required(value.sources[0]).code);
   await seedEntryPage(101, 200, value);
-  const initial = (await http(command("statistics.read", {}))).json().statistics
-    .contacts[0];
+  const initial = required(
+    (await http(command("statistics.read", {}))).json<CommunicationsBody>()
+      .statistics.contacts[0],
+  );
   now = new Date(+now + 8 * 24 * 60 * 60 * 1000);
   await start("1");
-  const current = (await http(command("statistics.read", {}))).json().statistics
-    .contacts[0];
-  expect(current.firstSourceId).toBe(value.sources[0]!.sourceId);
+  const current = required(
+    (await http(command("statistics.read", {}))).json<CommunicationsBody>()
+      .statistics.contacts[0],
+  );
+  expect(current.firstSourceId).toBe(required(value.sources[0]).sourceId);
   expect(current.latestSourceId).toBeNull();
   const page = (
     await http(
       command("entries.read", {
         contactId: initial.contactId,
-        cursor: initial.nextEntryCursor,
+        cursor: required(initial.nextEntryCursor),
       }),
     )
-  ).json();
+  ).json<CommunicationsBody>();
   expect(page.entries).toHaveLength(2);
-  expect(page.entries[1].sourceId).toBeNull();
+  expect(required(page.entries[1]).sourceId).toBeNull();
 });
 
 async function seedEntryPage(first: number, last: number, funnel: FunnelDraft) {
@@ -879,8 +911,8 @@ async function seedEntryPage(first: number, last: number, funnel: FunnelDraft) {
         update_id: String(first + offset),
         contact_id: contact.contact_id,
         funnel_id: funnel.funnelId,
-        source_id: funnel.sources[0]!.sourceId,
-        source_code: funnel.sources[0]!.code,
+        source_id: required(funnel.sources[0]).sourceId,
+        source_code: required(funnel.sources[0]).code,
         entered_at: clock.now(),
         outcome: "entered",
       })),
@@ -909,7 +941,7 @@ describe("broadcast elapsed schedule", () => {
         await http(
           command("broadcasts.read", { broadcastId: value.broadcastId }),
         )
-      ).json().broadcast;
+      ).json<CommunicationsBody>().broadcast;
     let current = await read();
     expect(
       (
@@ -962,7 +994,7 @@ describe("broadcast elapsed schedule", () => {
     expect(sent).toHaveLength(1);
     const current = (
       await http(command("broadcasts.read", { broadcastId: value.broadcastId }))
-    ).json().broadcast;
+    ).json<CommunicationsBody>().broadcast;
     expect(
       (
         await http(

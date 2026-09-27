@@ -11,14 +11,16 @@ import { createDatabase } from "../../src/database/create-database.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
 import {
   CommunityProvider,
+  type CommunityHandled,
   type CommunityJoinRequest,
 } from "../../src/modules/community/community-provider.js";
-import type {
-  CommunityResult,
-  CommunitySetCommand,
-  DispatchAuthorizationRequest,
-  DispatchAuthorizationResponse,
-  DispatchDenialReason,
+import {
+  parseCommunityRequest,
+  type CommunityResult,
+  type CommunitySetCommand,
+  type DispatchAuthorizationRequest,
+  type DispatchAuthorizationResponse,
+  type DispatchDenialReason,
 } from "../../src/modules/community/community-contract.js";
 import fixtures from "../../docs/contracts/billing-v1/fixtures.json" with { type: "json" };
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
@@ -29,10 +31,12 @@ import {
   seedCommunityBinding,
   unlinkCommunityBinding,
 } from "../support/community-binding.js";
+import { required } from "../support/required.js";
+import { conforming } from "../support/json.js";
 
 const CHAT = "-1000000000000";
-const db = createDatabase(process.env.DATABASE_URL!);
-const other = createDatabase(process.env.DATABASE_URL!);
+const db = createDatabase(required(process.env.DATABASE_URL));
+const other = createDatabase(required(process.env.DATABASE_URL));
 const clock = {
   value: new Date("2026-09-08T09:00:00Z"),
   now() {
@@ -45,9 +49,9 @@ let decide: (
   request: DispatchAuthorizationRequest,
 ) => DispatchAuthorizationResponse | undefined = allow;
 const authorization = {
-  async authorize(request: DispatchAuthorizationRequest) {
+  authorize(request: DispatchAuthorizationRequest) {
     authorizations.push(request);
-    return decide(request);
+    return Promise.resolve(decide(request));
   },
 };
 
@@ -94,7 +98,7 @@ const unavailable = (
 
 /** Each subject owns a bot identity so one worker sweep never sees another test. */
 const provider = (
-  who: Subject = { bot: "inside" } as Subject,
+  who: Pick<Subject, "bot"> = { bot: "inside" },
   connection = db,
 ) =>
   new CommunityProvider(connection, who.bot, CHAT, clock, authorization, chat, {
@@ -102,9 +106,13 @@ const provider = (
   });
 
 function fixture(name: string): CommunitySetCommand {
-  return structuredClone(
-    fixtures.find((entry) => entry.name === name)!.value,
-  ) as CommunitySetCommand;
+  return conforming(
+    structuredClone(
+      required(fixtures.find((entry) => entry.name === name)).value,
+    ),
+    (value): value is CommunitySetCommand =>
+      parseCommunityRequest(value).kind === "set",
+  );
 }
 
 interface Subject {
@@ -145,6 +153,12 @@ function command(
   };
 }
 
+function resultOf({ body }: CommunityHandled): CommunityResult {
+  if (body?.operation !== "entitlement.result")
+    throw new Error("Expected an entitlement result");
+  return body;
+}
+
 async function drain(who: Subject, times = 8): Promise<void> {
   const p = provider(who);
   for (let index = 0; index < times; index += 1) await p.processDueEffects();
@@ -159,10 +173,10 @@ async function result(
     operation: "entitlement.status",
     operationId,
   });
-  return handled.body as CommunityResult;
+  return resultOf(handled);
 }
 
-async function desiredState(who: Subject) {
+function desiredState(who: Subject) {
   return db
     .selectFrom("community_desired_states")
     .selectAll()
@@ -171,7 +185,7 @@ async function desiredState(who: Subject) {
     .executeTakeFirstOrThrow();
 }
 
-async function effects(who: Subject) {
+function effects(who: Subject) {
   return db
     .selectFrom("community_effects")
     .selectAll()
@@ -239,8 +253,8 @@ describe("community entitlement inbox", () => {
     expect((await provider(who).handle(revoke)).status).toBe(200);
     const replay = await provider(who).handle(grant);
 
-    expect((replay.body as CommunityResult).status).toBe("superseded");
-    expect((replay.body as CommunityResult).entitlementRevision).toBe(1);
+    expect(resultOf(replay).status).toBe("superseded");
+    expect(resultOf(replay).entitlementRevision).toBe(1);
     const state = await desiredState(who);
     expect(Number(state.entitlement_revision)).toBe(2);
     expect(state.access).toEqual({ kind: "denied" });
@@ -1171,7 +1185,7 @@ describe("handing the link over in the private chat", () => {
     marketingEnabled: false,
     botIdentity,
     canonicalChatId: CHAT,
-    databaseUrl: process.env.DATABASE_URL!,
+    databaseUrl: required(process.env.DATABASE_URL),
     deliveryMode: "disabled",
     evidenceDeliveryMode: "disabled",
     host: "127.0.0.1",
@@ -1227,7 +1241,7 @@ describe("handing the link over in the private chat", () => {
     await context.get(TelegramUpdateProcessor).processAvailable();
   }
 
-  async function replies(who: Subject) {
+  function replies(who: Subject) {
     return db
       .selectFrom("start_response_deliveries")
       .select(["message_text", "private_chat_id", "state"])

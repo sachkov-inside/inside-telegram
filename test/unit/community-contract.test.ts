@@ -11,9 +11,14 @@ import {
 } from "../../src/modules/community/community-contract.js";
 import { digest } from "../../src/security/payload-digest.js";
 import fixtures from "../../docs/contracts/billing-v1/fixtures.json" with { type: "json" };
+import { required } from "../support/required.js";
+import { conforming } from "../support/json.js";
 
-const grant = fixtures.find((f) => f.name === "finite-community-grant")!
-  .value as CommunitySetCommand;
+const grant = conforming(
+  required(fixtures.find((f) => f.name === "finite-community-grant")).value,
+  (value): value is CommunitySetCommand =>
+    parseCommunityRequest(value).kind === "set",
+);
 
 it("runtime schema is byte-identical to the approved corpus", () => {
   expect(readFileSync("src/modules/community/contracts/schema.json")).toEqual(

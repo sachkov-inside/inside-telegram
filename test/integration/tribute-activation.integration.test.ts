@@ -15,11 +15,15 @@ import { SubscriptionActivation } from "../../src/modules/subscription-activatio
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import {
   ACTIVATION_VERSION,
+  activationValidator,
   type ActivationBinding,
   type ActivationEvidence,
 } from "../../src/modules/subscription-activation/activation-contract.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 import fixtures from "../../docs/contracts/subscription-activation-v1/fixtures.json" with { type: "json" };
+import { required } from "../support/required.js";
+import { anyString } from "../support/matchers.js";
+import { conforming, jsonRecord, record } from "../support/json.js";
 
 // This HTTP authority returns controlled wire examples; it does not simulate or prove
 // Platform's registry/grant policy. Real Telegram AppModule, HTTP codec and PG own the assertions.
@@ -43,7 +47,9 @@ provider.addContentTypeParser(
       if (request.url.endsWith("/evidence")) evidenceBodies.push(String(body));
       done(null, JSON.parse(String(body)));
     } catch (error) {
-      done(error as Error);
+      done(
+        error instanceof Error ? error : new Error("Unreadable request body"),
+      );
     }
   },
 );
@@ -60,6 +66,11 @@ let app: NestFastifyApplication;
 let db: Database;
 let worker: SubscriptionActivation;
 const ruleId = randomUUID();
+const validEvidence = activationValidator<ActivationEvidence>("evidence");
+/** The evidence body Platform received at `index`, checked against the contract. */
+function evidence(index: number): ActivationEvidence {
+  return conforming(JSON.parse(required(evidenceBodies[index])), validEvidence);
+}
 function example(name: string): Record<string, unknown> {
   const fixture = fixtures.find((f) => f.name === name);
   if (!fixture) throw new Error(`Missing wire example ${name}`);
@@ -70,7 +81,7 @@ function outcome(name: string, attemptId: unknown) {
   return {
     ...fixture,
     value: {
-      ...(fixture.value as Record<string, unknown>),
+      ...record(fixture.value),
       attemptId,
       ...(outcomeState ? { state: outcomeState } : {}),
     },
@@ -78,7 +89,7 @@ function outcome(name: string, attemptId: unknown) {
 }
 provider.post<{ Params: { operation: string }; Body: Record<string, unknown> }>(
   "/activation/:operation",
-  async (request, reply) => {
+  (request, reply) => {
     expect(request.headers.authorization).toBe(`Bearer ${"t".repeat(32)}`);
     reply.header("cache-control", "private, no-store");
     const body = request.body;
@@ -86,18 +97,20 @@ provider.post<{ Params: { operation: string }; Body: Record<string, unknown> }>(
     requests.push({ path, body: structuredClone(body) });
     if (path === "binding") {
       const binding = bindings.get(String(body.identityRef));
-      return {
+      return Promise.resolve({
         ok: true,
         value: {
           contractVersion: ACTIVATION_VERSION,
           ...(binding ? { state: "linked", binding } : { state: "unlinked" }),
         },
-      };
+      });
     }
     if (path === "attempts") {
       if (beginPending)
-        return outcome("tribute-nonpaid-pending-review", body.attemptId);
-      return {
+        return Promise.resolve(
+          outcome("tribute-nonpaid-pending-review", body.attemptId),
+        );
+      return Promise.resolve({
         ok: true,
         value: {
           contractVersion: ACTIVATION_VERSION,
@@ -114,7 +127,7 @@ provider.post<{ Params: { operation: string }; Body: Record<string, unknown> }>(
             ...(mode === undefined ? {} : { verificationMode: mode }),
           },
         },
-      };
+      });
     }
     if (path === "evidence") {
       const key = String(body.evidenceRef);
@@ -125,11 +138,11 @@ provider.post<{ Params: { operation: string }; Body: Record<string, unknown> }>(
       }
       if (loseResponse) {
         loseResponse = false;
-        return reply.code(503).send({ ok: false });
+        return Promise.resolve(reply.code(503).send({ ok: false }));
       }
-      return result;
+      return Promise.resolve(result);
     }
-    throw new Error(`Unexpected HTTP operation ${path}`);
+    return Promise.reject(new Error(`Unexpected HTTP operation ${path}`));
   },
 );
 beforeAll(async () => {
@@ -161,14 +174,20 @@ beforeAll(async () => {
     .useValue(clock)
     .overrideProvider(SourceGroupProof)
     .useValue(
-      new SourceGroupProof(config.activation!.sources, {
-        async getBotChatMember() {
+      new SourceGroupProof(required(config.activation).sources, {
+        getBotChatMember() {
           sourceCalls++;
-          return { kind: "observed", value: { status: "administrator" } };
+          return Promise.resolve({
+            kind: "observed",
+            value: { status: "administrator" },
+          });
         },
-        async getChatMember() {
+        getChatMember() {
           sourceCalls++;
-          return { kind: "observed", value: { status: "member" } };
+          return Promise.resolve({
+            kind: "observed",
+            value: { status: "member" },
+          });
         },
       }),
     )
@@ -218,7 +237,7 @@ async function start(recipient: number) {
   expect(response.statusCode).toBe(202);
   await app.get(TelegramUpdateProcessor).processAvailable();
 }
-async function row(recipient: number) {
+function row(recipient: number) {
   return db
     .selectFrom("activation_attempts")
     .selectAll()
@@ -239,7 +258,7 @@ async function linked() {
   bindings.set(attempt.identity_ref, binding);
   return { recipient, binding };
 }
-async function messages(recipient: number) {
+function messages(recipient: number) {
   return db
     .selectFrom("start_response_deliveries")
     .select("message_text")
@@ -273,12 +292,12 @@ describe("Tribute registry consumer with real HTTP and PostgreSQL", () => {
     await worker.processAvailable();
     expect(evidenceBodies).toHaveLength(1);
     expect(sourceCalls).toBe(0);
-    const proof = JSON.parse(evidenceBodies[0]!) as ActivationEvidence;
+    const proof = evidence(0);
     expect(proof).toEqual({
       contractVersion: ACTIVATION_VERSION,
       audience: "inside.platform.subscription-activation",
       attemptId: attempt.attempt_id,
-      evidenceRef: expect.any(String),
+      evidenceRef: anyString(),
       sourceRef: "tribute-approved-roster",
       ruleId,
       ruleRevision: 7,
@@ -302,7 +321,7 @@ describe("Tribute registry consumer with real HTTP and PostgreSQL", () => {
       const second = await linked();
       await worker.processAvailable();
       expect(first.binding.identityRef).not.toBe(second.binding.identityRef);
-      expect(evidenceBodies.map((s) => JSON.parse(s).identityRef)).toEqual([
+      expect(evidenceBodies.map((s) => jsonRecord(s).identityRef)).toEqual([
         first.binding.identityRef,
         second.binding.identityRef,
       ]);
@@ -318,7 +337,7 @@ describe("Tribute registry consumer with real HTTP and PostgreSQL", () => {
   it("retries a known pending response with fresh binding/evidence and preserves the confirmed period returned by HTTP", async () => {
     const { recipient, binding } = await linked();
     await worker.processAvailable();
-    const first = JSON.parse(evidenceBodies[0]!) as ActivationEvidence;
+    const first = evidence(0);
     advance();
     await worker.processAvailable();
     expect(evidenceBodies).toHaveLength(1);
@@ -327,7 +346,7 @@ describe("Tribute registry consumer with real HTTP and PostgreSQL", () => {
     replyFixture = "tribute-confirmed-period-active";
     await start(recipient);
     await worker.processAvailable();
-    const second = JSON.parse(evidenceBodies[1]!) as ActivationEvidence;
+    const second = evidence(1);
     expect(second).toMatchObject(updated);
     expect(second.evidenceRef).not.toBe(first.evidenceRef);
     expect((await row(recipient)).result).toEqual(
@@ -406,7 +425,7 @@ describe("Tribute registry consumer with real HTTP and PostgreSQL", () => {
       await linked();
       await worker.processAvailable();
       expect(sourceCalls).toBe(2);
-      expect(JSON.parse(evidenceBodies[0]!).decision).toBe("member");
+      expect(evidence(0).decision).toBe("member");
     },
   );
   it("rejects unknown mode before membership or evidence", async () => {
@@ -450,13 +469,13 @@ describe("Tribute registry consumer with real HTTP and PostgreSQL", () => {
     outcomeState = "unavailable";
     const { recipient, binding } = await linked();
     await worker.processAvailable();
-    const first = JSON.parse(evidenceBodies[0]!) as ActivationEvidence;
+    const first = evidence(0);
     bindings.set(binding.identityRef, { ...binding, linkRevision: 6 });
     outcomeState = undefined;
     replyFixture = "tribute-confirmed-period-active";
     await start(recipient);
     await worker.processAvailable();
-    const second = JSON.parse(evidenceBodies[1]!) as ActivationEvidence;
+    const second = evidence(1);
     expect(second.linkRevision).toBe(6);
     expect(second.evidenceRef).not.toBe(first.evidenceRef);
     expect((await row(recipient)).state).toBe("completed");

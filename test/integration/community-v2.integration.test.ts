@@ -14,7 +14,8 @@ import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-res
 import { digest } from "../../src/security/payload-digest.js";
 import { seedCommunityBinding } from "../support/community-binding.js";
 import { FakeCommunityChat } from "../support/community-chat.js";
-const db = createDatabase(process.env.DATABASE_URL!);
+import { required } from "../support/required.js";
+const db = createDatabase(required(process.env.DATABASE_URL));
 beforeAll(async () => {
   await migrateToLatest(db);
 });
@@ -46,12 +47,12 @@ async function stand(
   const commands = new Map<string, CommunitySetCommand>();
   const requests: DispatchAuthorizationRequest[] = [];
   const auth = {
-    async authorize(
+    authorize(
       request: DispatchAuthorizationRequest,
     ): Promise<DispatchAuthorizationResponse> {
       requests.push(request);
-      const command = commands.get(request.dispatchId)!;
-      return {
+      const command = required(commands.get(request.dispatchId));
+      return Promise.resolve({
         contractVersion: "inside.billing-dispatch.v1",
         operation: "dispatch.result",
         operationId: request.operationId,
@@ -68,7 +69,7 @@ async function stand(
                 ).toISOString(),
               }
             : { status: "denied", reason: "payload_conflict" },
-      };
+      });
     },
   };
   const provider = () =>
@@ -145,8 +146,8 @@ describe("community v2 exact target, moderation and durable effects", () => {
       "-1000000000000",
       s.clock,
       {
-        async authorize() {
-          return;
+        authorize() {
+          return Promise.resolve(undefined);
         },
       },
       s.chat,
@@ -530,23 +531,23 @@ describe("community v2 exact target, moderation and durable effects", () => {
     await s.provider().processDueEffects();
     s.clock.now = originalNow;
     expect(actualExpiry).toBeDefined();
-    s.clock.value = new Date(actualExpiry!.getTime() - 1);
+    s.clock.value = new Date(required(actualExpiry).getTime() - 1);
     await s.provider().processDueEffects();
     expect(s.chat.count("create_invite")).toBe(1);
   });
   it("waits for the persisted invite horizon after throw or process death", async () => {
     const s = await stand();
-    s.chat.createJoinRequestLink = async () => {
+    s.chat.createJoinRequestLink = () => {
       s.chat.calls.push({ method: "create_invite", expiresAt: s.clock.now() });
-      throw new Error("response lost");
+      return Promise.reject(new Error("response lost"));
     };
     await s.set();
     await s.provider().processDueEffects();
     await s.provider().processDueEffects();
     expect(s.chat.count("create_invite")).toBe(1);
-    expect((await s.row()).invite_expires_at!.getTime()).toBeGreaterThan(
-      s.clock.now().getTime(),
-    );
+    expect(
+      required((await s.row()).invite_expires_at).getTime(),
+    ).toBeGreaterThan(s.clock.now().getTime());
     s.clock.value = new Date(s.clock.now().getTime() + 60_000);
     await s.provider().processDueEffects();
     expect(s.chat.count("create_invite")).toBe(1);
@@ -568,7 +569,7 @@ describe("community v2 exact target, moderation and durable effects", () => {
     await s.provider().acceptJoinRequest({
       ...request,
       updateId: "2",
-      inviteLink: (await s.row()).invite_link!,
+      inviteLink: required((await s.row()).invite_link),
     });
     s.clock.value = new Date(s.clock.now().getTime() + 600_001);
     await s.provider().processDueEffects();
@@ -588,7 +589,7 @@ describe("community v2 exact target, moderation and durable effects", () => {
       telegramUserId: s.user,
       requestedAt: s.clock.now(),
       updateId: "3",
-      inviteLink: (await s.row()).invite_link!,
+      inviteLink: required((await s.row()).invite_link),
     });
     await s.provider().processDueEffects();
     expect(s.chat.count("approve")).toBe(1);
@@ -627,7 +628,7 @@ describe("community v2 removal by the configured Tribute bot", () => {
         .where("source_key", "like", "community-readmission:%")
         .execute()
     ).map((row) => ({
-      chat: String(row.private_chat_id),
+      chat: row.private_chat_id,
       text: row.message_text,
     }));
   const advance = (s: Stand, milliseconds: number) => {

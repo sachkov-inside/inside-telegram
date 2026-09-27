@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
+import { record } from "../support/json.js";
 
 // The shared base mirrors Platform's tsconfig.base.json; a project config may add its runtime
 // options but never weakens this strictness.
@@ -20,8 +21,7 @@ const SHARED_STRICTNESS = [
   "isolatedModules",
 ] as const;
 
-// Rules that keep promise handling and non-null claims honest in production code. Tests keep a
-// narrower set until #107: issue #84 scoped the fixes to src/, so test/** turns some rules off.
+// Rules that keep promise handling and non-null claims honest in production code.
 const PRODUCTION_RULES = [
   "typescript/no-floating-promises",
   "typescript/no-misused-promises",
@@ -62,17 +62,40 @@ function baseViolations(
   ];
 }
 
-/** Rules from PRODUCTION_RULES that do not apply as errors to `file`. */
-function missingProductionRules(
+/** Rule levels the overrides give `file`, later overrides winning. */
+function appliedRules(
   overrides: readonly Override[],
   file: string,
-): string[] {
+): Map<string, unknown> {
   const applied = new Map<string, unknown>();
   for (const override of overrides)
     if (override.files.some((pattern) => matches(pattern, file)))
       for (const [rule, level] of Object.entries(override.rules))
         applied.set(rule, level);
+  return applied;
+}
+
+/** Rules from PRODUCTION_RULES that do not apply as errors to `file`. */
+function missingProductionRules(
+  overrides: readonly Override[],
+  file: string,
+): string[] {
+  const applied = appliedRules(overrides, file);
   return PRODUCTION_RULES.filter((rule) => applied.get(rule) !== "error");
+}
+
+/** Rules whose level for `file` differs from their level for application code. */
+function rulesDifferingFromApplication(
+  overrides: readonly Override[],
+  file: string,
+): string[] {
+  const application = appliedRules(overrides, "src/main.ts");
+  const applied = appliedRules(overrides, file);
+  return [...new Set([...application.keys(), ...applied.keys()])].filter(
+    (rule) =>
+      JSON.stringify(applied.get(rule)) !==
+      JSON.stringify(application.get(rule)),
+  );
 }
 
 function matches(pattern: string, file: string): boolean {
@@ -144,9 +167,30 @@ describe("toolchain contract", () => {
       "scripts/platform-conformance-provider.ts",
     ])
       expect(missingProductionRules(overrides, file), file).toEqual([]);
+  });
+
+  it("lints tests with the same rules as application code", () => {
+    const overrides = overridesOf(json(".oxlintrc.json"));
+    for (const file of [
+      "test/unit/toolchain-contract.test.ts",
+      "test/integration/funnels.integration.test.ts",
+      "test/support/community-chat.ts",
+      "test/local/course-activation-provider.ts",
+    ])
+      expect(rulesDifferingFromApplication(overrides, file), file).toEqual([]);
+  });
+
+  it("detects a rule turned off for tests", () => {
+    const overrides = [
+      ...overridesOf(json(".oxlintrc.json")),
+      {
+        files: ["test/**/*.ts"],
+        rules: { "typescript/require-await": "off" },
+      },
+    ];
     expect(
-      missingProductionRules(overrides, "test/unit/example.test.ts"),
-    ).toEqual(["typescript/no-non-null-assertion"]);
+      rulesDifferingFromApplication(overrides, "test/unit/example.test.ts"),
+    ).toEqual(["typescript/require-await"]);
   });
 
   it("detects a production rule turned off for application code", () => {
@@ -164,10 +208,10 @@ describe("toolchain contract", () => {
 
   it("lints with oxlint alone", () => {
     const manifest = json("package.json");
-    const scripts = new Map(Object.entries(Object(manifest.scripts)));
+    const scripts = new Map(Object.entries(record(manifest.scripts)));
     const dependencies = Object.keys({
-      ...Object(manifest.dependencies),
-      ...Object(manifest.devDependencies),
+      ...record(manifest.dependencies),
+      ...record(manifest.devDependencies),
     });
     expect(scripts.get("lint")).toBe(
       "oxlint --deny-warnings --report-unused-disable-directives .",

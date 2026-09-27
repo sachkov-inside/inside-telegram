@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { HttpAuthorContentValidationAdapter } from "../../src/adapters/platform/http-author-content-validation.adapter.js";
 import { contractValidator } from "../../src/modules/communications/communications-contract.js";
+import { jsonRecord, requestBody } from "../support/json.js";
 const subject = {
   kind: "telegram" as const,
   accountRef: "synthetic-author",
@@ -30,28 +31,26 @@ describe("Platform content snapshot validation seam", () => {
         reason: "not_found",
       },
     ];
-    const fetcher = vi.fn<typeof fetch>(async (url, init) => {
+    const fetcher = vi.fn<typeof fetch>((url, init) => {
       expect(url).toBe(endpoint);
       expect(init?.headers).toEqual({
         authorization: "Bearer synthetic-secret",
         "content-type": "application/json",
       });
       expect(init?.redirect).toBe("error");
-      const request = JSON.parse(String(init?.body)) as {
-        requestId: string;
-        subject: unknown;
-        parts: unknown;
-      };
+      const request = jsonRecord(requestBody(init));
       expect(contractValidator("contentValidationRequest")(request)).toBe(true);
       expect(request.subject).toEqual(subject);
       expect(request.parts).toEqual(parts);
-      return Response.json({
-        contractVersion: "inside-communications-v1",
-        requestId: request.requestId,
-        status: "ok",
-        accountRef: subject.accountRef,
-        targetErrors,
-      });
+      return Promise.resolve(
+        Response.json({
+          contractVersion: "inside-communications-v1",
+          requestId: request.requestId,
+          status: "ok",
+          accountRef: subject.accountRef,
+          targetErrors,
+        }),
+      );
     });
     expect(
       await new HttpAuthorContentValidationAdapter(
@@ -71,25 +70,30 @@ describe("Platform content snapshot validation seam", () => {
       "redirect",
       "version",
     ]) {
-      const fetcher = vi.fn<typeof fetch>(async (_url, init) => {
-        if (mode === "unavailable") throw new Error("synthetic-secret");
-        if (mode === "redirect") return new Response(null, { status: 302 });
-        const request = JSON.parse(String(init?.body)) as { requestId: string };
-        return Response.json({
-          contractVersion:
-            mode === "version" ? "v0" : "inside-communications-v1",
-          requestId:
-            mode === "stale"
-              ? "33333333-3333-4333-8333-333333333333"
-              : request.requestId,
-          status: mode === "denied" ? "denied" : "ok",
-          ...(mode === "denied"
-            ? {}
-            : {
-                accountRef: mode === "forged" ? "foreign" : subject.accountRef,
-                ...(mode === "missing-errors" ? {} : { targetErrors: [] }),
-              }),
-        });
+      const fetcher = vi.fn<typeof fetch>((_url, init) => {
+        if (mode === "unavailable")
+          return Promise.reject(new Error("synthetic-secret"));
+        if (mode === "redirect")
+          return Promise.resolve(new Response(null, { status: 302 }));
+        const request = jsonRecord(requestBody(init));
+        return Promise.resolve(
+          Response.json({
+            contractVersion:
+              mode === "version" ? "v0" : "inside-communications-v1",
+            requestId:
+              mode === "stale"
+                ? "33333333-3333-4333-8333-333333333333"
+                : request.requestId,
+            status: mode === "denied" ? "denied" : "ok",
+            ...(mode === "denied"
+              ? {}
+              : {
+                  accountRef:
+                    mode === "forged" ? "foreign" : subject.accountRef,
+                  ...(mode === "missing-errors" ? {} : { targetErrors: [] }),
+                }),
+          }),
+        );
       });
       expect(
         (

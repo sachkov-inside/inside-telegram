@@ -10,6 +10,7 @@ import {
   type DurableQueue,
 } from "../../src/database/durable-queue.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
+import { required } from "../support/required.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -83,7 +84,7 @@ describe("durable queue", () => {
 
     expect(current?.attempt).toBe(2);
     expect(
-      await settle(database, queue, abandoned!, {
+      await settle(database, queue, required(abandoned), {
         state: "processed",
         locked_at: null,
       }),
@@ -91,13 +92,13 @@ describe("durable queue", () => {
     expect(await row("1")).toMatchObject({ state: "processing" });
 
     expect(
-      await settle(database, queue, current!, {
+      await settle(database, queue, required(current), {
         state: "processed",
         locked_at: null,
       }),
     ).toBe(true);
     expect(
-      await settle(database, queue, current!, {
+      await settle(database, queue, required(current), {
         state: "failed",
         locked_at: null,
       }),
@@ -124,7 +125,7 @@ describe("durable queue", () => {
 
     const declined = await claimNext(database, queue, start, expired, {
       select: ["update_id"],
-      prepare: async () => undefined,
+      prepare: () => Promise.resolve(undefined),
     });
 
     expect(declined).toBeUndefined();
@@ -146,7 +147,7 @@ describe("durable queue", () => {
     expect(other?.row.update_id).toBe("3");
     expect(await claimLane(start)).toBeUndefined();
 
-    await settle(database, lanes, first!, {
+    await settle(database, lanes, required(first), {
       state: "processed",
       locked_at: null,
     });
@@ -171,7 +172,9 @@ describe("durable queue", () => {
       Array.from({ length: 4 }, () => claimLane(start)),
     );
 
-    expect(claims.filter(Boolean).map((c) => c!.row.update_id)).toEqual(["1"]);
+    expect(
+      claims.filter(Boolean).map((c) => required(c).row.update_id),
+    ).toEqual(["1"]);
   });
 
   it("backs off exponentially up to the queue maximum", () => {

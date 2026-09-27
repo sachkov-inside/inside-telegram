@@ -12,6 +12,8 @@ import type {
 } from "../../src/modules/communications/author-turn.js";
 import type { TemplateContent } from "../../src/modules/communications/communications-contract.js";
 import type { FunnelSnapshot } from "../../src/modules/communications/funnel-types.js";
+import { required } from "../support/required.js";
+import { anyString } from "../support/matchers.js";
 
 const now = new Date("2030-01-01T09:00:00.000Z");
 
@@ -88,7 +90,7 @@ class Dialog {
   click(label: string) {
     const button = this.menu?.buttons.find((b) => b.text === label);
     expect(button, `${label}: ${this.labels().join(", ")}`).toBeDefined();
-    return this.send({ kind: "callback", data: button!.callbackData });
+    return this.send({ kind: "callback", data: required(button).callbackData });
   }
 
   write(value: string, content: unknown = text(value)) {
@@ -107,8 +109,17 @@ class Dialog {
   query<Kind extends AuthorEffect["kind"]>(kind: Kind) {
     const last = this.effects.at(-1);
     expect(last?.kind).toBe(kind);
-    return last as Extract<AuthorEffect, { kind: Kind }>;
+    if (!last || !isEffect(last, kind))
+      throw new Error(`The last transition did not end with ${kind}`);
+    return last;
   }
+}
+
+function isEffect<Kind extends AuthorEffect["kind"]>(
+  effect: AuthorEffect,
+  kind: Kind,
+): effect is Extract<AuthorEffect, { kind: Kind }> {
+  return effect.kind === kind;
 }
 
 describe("main menu", () => {
@@ -124,7 +135,7 @@ describe("main menu", () => {
     });
     expect(dialog.labels()).toEqual(["Рассылки", "Воронки", "Статистика"]);
     expect(dialog.state.broadcast).toBeUndefined();
-    expect(dialog.menu!.buttons[0]!.callbackData).toBe(
+    expect(required(required(dialog.menu).buttons[0]).callbackData).toBe(
       `author:${dialog.state.token}:0`,
     );
     expect(dialog.state.actions).toEqual([
@@ -152,7 +163,7 @@ describe("main menu", () => {
       },
     });
 
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Статистика сообщений\nОтправлено: 3\nОжидает: 1\nПропущено: 0\nОшибки: 0\nНеизвестный результат: 0",
     );
     expect(() =>
@@ -172,7 +183,7 @@ describe("main menu", () => {
       kind: "retain-funnel-draft",
       funnelAuthor: edited,
     });
-    expect(dialog.menu!.text).toBe("Админка коммуникаций");
+    expect(required(dialog.menu).text).toBe("Админка коммуникаций");
     expect(dialog.state.funnelAuthor).toBeUndefined();
   });
 
@@ -182,7 +193,7 @@ describe("main menu", () => {
       broadcast: broadcast(),
     }).write("привет");
 
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Выберите «Рассылки» или «Воронки», чтобы добавить сообщения.",
     );
     expect(dialog.state.broadcast).toBeUndefined();
@@ -197,7 +208,7 @@ describe("main menu", () => {
         ...emptyAuthorState("menu"),
         broadcast: broadcast(),
       }).send({ kind: "failed", during });
-      expect(dialog.menu!.text).toContain(message);
+      expect(required(dialog.menu).text).toContain(message);
       expect(dialog.labels()).toEqual(["Рассылки", "Воронки", "Статистика"]);
       expect(dialog.state.broadcast).toBeUndefined();
     }
@@ -211,7 +222,7 @@ describe("stale menu", () => {
       broadcast: broadcast(),
     }).send({ kind: "callback", data: "author:older:0" });
 
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Это меню уже устарело. Незавершённое сообщение сохранено, если вы начали его создание.",
     );
     expect(dialog.labels()).toEqual(["Рассылки", "Воронки", "Статистика"]);
@@ -292,7 +303,7 @@ describe("broadcast", () => {
     dialog.click("Создать рассылку");
     expect(dialog.kinds()).toEqual(["retain-broadcast", "menu"]);
     expect(dialog.labels()).toEqual(["Готово"]);
-    const id = dialog.state.broadcast!.broadcastId;
+    const id = required(dialog.state.broadcast).broadcastId;
 
     dialog.write("Первое");
     expect(dialog.labels()).toEqual([
@@ -330,7 +341,7 @@ describe("broadcast", () => {
       then: dialog.query("save-broadcast").then,
     });
     dialog.write("Третье");
-    expect(dialog.menu!.text).toContain("Не раньше 1 ч");
+    expect(required(dialog.menu).text).toContain("Не раньше 1 ч");
     expect(dialog.labels()).toEqual([
       "Через 1 ч",
       "Через 2 ч",
@@ -347,7 +358,9 @@ describe("broadcast", () => {
       "Изменить сообщения",
       "Все рассылки",
     ]);
-    expect(dialog.menu!.text).toContain("2. Через 1 ч · 📝 Текст · Второе");
+    expect(required(dialog.menu).text).toContain(
+      "2. Через 1 ч · 📝 Текст · Второе",
+    );
   });
 
   it("rejects a message whose broadcast changed after the author started it", () => {
@@ -372,7 +385,7 @@ describe("broadcast", () => {
       broadcastName: "Анонс",
     }).send({ kind: "callback", data: "author:menu:0" });
 
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Запустить «Анонс»?\n1 сообщений, версия 1.\nКому: все доступные контакты.\nКогда: сразу после подтверждения.",
     );
     dialog.click("Запустить рассылку");
@@ -403,7 +416,7 @@ describe("broadcast", () => {
       broadcast: broadcast({ revision: 0, parts: [] }),
     }).send({ kind: "callback", data: "author:menu:0" });
 
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Добавьте хотя бы одно сообщение перед запуском.",
     );
     expect(dialog.kinds()).toEqual(["menu"]);
@@ -440,7 +453,9 @@ describe("broadcast", () => {
       broadcastName: "Анонс",
     }).send({ kind: "callback", data: "author:menu:0" });
 
-    expect(dialog.menu!.text).toContain("Когда: 01.01.2030, 12:30:00 · Москва");
+    expect(required(dialog.menu).text).toContain(
+      "Когда: 01.01.2030, 12:30:00 · Москва",
+    );
   });
 });
 
@@ -459,7 +474,7 @@ describe("composer", () => {
     const dialog = editing();
 
     expect(dialog.kinds()).toEqual(["message", "menu"]);
-    expect(dialog.menu!.fresh).toBe(true);
+    expect(required(dialog.menu).fresh).toBe(true);
     expect(dialog.labels()).toEqual([
       "Заменить сообщение",
       "Посмотреть сообщение",
@@ -467,7 +482,7 @@ describe("composer", () => {
       "Прислать другое",
       "Отмена",
     ]);
-    expect(dialog.state.composing!.destination).toEqual({
+    expect(required(dialog.state.composing).destination).toEqual({
       kind: "broadcast",
       id: uuid(900),
       expectedRevision: 1,
@@ -477,19 +492,23 @@ describe("composer", () => {
 
   it("adds a button in two answers and rejects an unsafe link", () => {
     const dialog = editing().click("Добавить кнопку").write("Купить");
-    expect(dialog.menu!.text).toBe("Пришлите HTTPS-ссылку для кнопки.");
+    expect(required(dialog.menu).text).toBe(
+      "Пришлите HTTPS-ссылку для кнопки.",
+    );
 
     dialog.write("http://example.com");
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Нужна корректная HTTPS-ссылка без пароля или служебного адреса Telegram.",
     );
 
     dialog.write("https://example.com/buy");
     expect(dialog.labels()).toContain("Убрать кнопку: Купить");
-    expect(dialog.state.composing!.content!.buttons).toEqual([
+    expect(required(required(dialog.state.composing).content).buttons).toEqual([
       { text: "Купить", url: "https://example.com/buy", row: 0 },
     ]);
-    expect(dialog.state.broadcast!.parts[0]!.content.buttons).toEqual([]);
+    expect(
+      required(required(dialog.state.broadcast).parts[0]).content.buttons,
+    ).toEqual([]);
   });
 
   it("replaces the part only after acceptance", () => {
@@ -517,7 +536,9 @@ describe("composer", () => {
 
     expect(dialog.kinds()).toEqual(["discard-composition", "menu"]);
     expect(dialog.state.composing).toBeUndefined();
-    expect(dialog.state.broadcast!.parts[0]!.content).toEqual(text("Первое"));
+    expect(required(required(dialog.state.broadcast).parts[0]).content).toEqual(
+      text("Первое"),
+    );
   });
 
   it("chooses the replacement from saved posts", () => {
@@ -557,8 +578,10 @@ describe("composer", () => {
       templateId: uuid(700),
     });
     dialog.send({ kind: "post-read", purpose: "library", template: post });
-    expect(dialog.state.composing!.content).toEqual(text("Сохранённый"));
-    expect(dialog.state.composing!.destination.partId).toBe(uuid(901));
+    expect(required(dialog.state.composing).content).toEqual(
+      text("Сохранённый"),
+    );
+    expect(required(dialog.state.composing).destination.partId).toBe(uuid(901));
   });
 });
 
@@ -588,8 +611,10 @@ describe("funnel", () => {
       ...emptyAuthorState("menu"),
       actions: [{ kind: "f:new" }],
     }).send({ kind: "callback", data: "author:menu:0" });
-    const funnelId = dialog.state.funnelAuthor!.funnel!.funnelId;
-    expect(dialog.state.funnelAuthor!.prompt).toBeUndefined();
+    const funnelId = required(
+      required(dialog.state.funnelAuthor).funnel,
+    ).funnelId;
+    expect(required(dialog.state.funnelAuthor).prompt).toBeUndefined();
 
     dialog.write("Вход");
     expect(dialog.labels()).toEqual(["Сразу", "Не добавлять это сообщение"]);
@@ -609,11 +634,11 @@ describe("funnel", () => {
       kind: "discard-composition",
       id: funnelId,
     });
-    expect(dialog.state.composing!.sequence).toEqual({
+    expect(required(dialog.state.composing).sequence).toEqual({
       lastOffset: 0,
       firstEntry: false,
     });
-    expect(dialog.state.funnelAuthor!.dirty).toBe(false);
+    expect(required(dialog.state.funnelAuthor).dirty).toBe(false);
   });
 
   it("stops a sequence whose funnel the contract rejects", () => {
@@ -629,7 +654,7 @@ describe("funnel", () => {
     ).toThrow("malformed");
 
     dialog.send({ kind: "funnel-invalid", then: { kind: "card" } });
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Добавьте хотя бы один пост в первый ответ и в каждый шаг, затем сохраните черновик.",
     );
   });
@@ -696,7 +721,7 @@ describe("funnel", () => {
         purpose: "preview",
         result: { status: "denied" },
       });
-    expect(denied.menu!.text).toBe(
+    expect(required(denied.menu).text).toBe(
       "Право автора не подтверждено. Публикация недоступна.",
     );
 
@@ -761,8 +786,10 @@ describe("funnel", () => {
       delaySeconds: null,
       published: true,
     });
-    expect(published.menu!.text).toContain("Его перенос изменил бы историю");
-    expect(published.state.funnelAuthor!.funnel).toEqual(delayed);
+    expect(required(published.menu).text).toContain(
+      "Его перенос изменил бы историю",
+    );
+    expect(required(published.state.funnelAuthor).funnel).toEqual(delayed);
 
     const moved = start().send({
       kind: "part-history-read",
@@ -770,14 +797,16 @@ describe("funnel", () => {
       delaySeconds: null,
       published: false,
     });
-    const f = moved.state.funnelAuthor!.funnel!;
+    const f = required(required(moved.state.funnelAuthor).funnel);
     expect(f.entryResponse.parts.map((p) => p.partId)).toEqual([
       uuid(802),
       uuid(804),
     ]);
-    expect(f.steps[0]!.parts.map((p) => p.partId)).toEqual([uuid(805)]);
-    expect(moved.state.funnelAuthor!.dirty).toBe(true);
-    expect(moved.menu!.text).toContain("Прогрев · сообщения");
+    expect(required(f.steps[0]).parts.map((p) => p.partId)).toEqual([
+      uuid(805),
+    ]);
+    expect(required(moved.state.funnelAuthor).dirty).toBe(true);
+    expect(required(moved.menu).text).toContain("Прогрев · сообщения");
   });
 });
 
@@ -802,7 +831,7 @@ describe("funnel settings", () => {
     ]);
 
     dialog.click("Настройки");
-    expect(dialog.menu!.text).toBe("Настройки · Прогрев");
+    expect(required(dialog.menu).text).toBe("Настройки · Прогрев");
     expect(dialog.labels()).toEqual([
       "Название",
       "Первый ответ",
@@ -819,10 +848,10 @@ describe("funnel settings", () => {
       "К воронке",
     ]);
     dialog.click("К воронке");
-    expect(dialog.menu!.text).toContain("Прогрев\nОпубликована");
+    expect(required(dialog.menu).text).toContain("Прогрев\nОпубликована");
 
     dialog.click("Сообщения");
-    expect(dialog.menu!.text).toContain("Прогрев · сообщения");
+    expect(required(dialog.menu).text).toContain("Прогрев · сообщения");
     dialog.click("К воронке");
     expect(dialog.labels()).toContain("Настройки");
   });
@@ -864,7 +893,7 @@ describe("funnel settings", () => {
       ],
     });
   const delays = (dialog: Dialog) =>
-    dialog.state.funnelAuthor!.funnel!.steps.map((step) => [
+    required(required(dialog.state.funnelAuthor).funnel).steps.map((step) => [
       step.stepId,
       step.delaySeconds,
       step.delayAnchor,
@@ -880,8 +909,10 @@ describe("funnel settings", () => {
     ]);
 
     dialog.click("Добавить шаг");
-    const added = dialog.state.funnelAuthor!.target!;
-    expect(dialog.menu!.text).toBe("Шаг 3\nЧерез 26 ч от входа\nСообщений: 0");
+    const added = required(required(dialog.state.funnelAuthor).target);
+    expect(required(dialog.menu).text).toBe(
+      "Шаг 3\nЧерез 26 ч от входа\nСообщений: 0",
+    );
     expect(delays(dialog)).toEqual([
       [uuid(803), 3600, "entry"],
       [uuid(805), 7200, "entry"],
@@ -889,9 +920,9 @@ describe("funnel settings", () => {
     ]);
 
     dialog.click("Задержка");
-    expect(dialog.menu!.text).toContain("от входа");
+    expect(required(dialog.menu).text).toContain("от входа");
     dialog.write("30 мин");
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Шаг 1\nЧерез 30 мин от входа\nСообщений: 0",
     );
     expect(delays(dialog)).toEqual([
@@ -912,7 +943,7 @@ describe("funnel settings", () => {
       [uuid(805), 3600, "entry"],
       [uuid(803), 7200, "entry"],
     ]);
-    expect(dialog.state.funnelAuthor!.dirty).toBe(true);
+    expect(required(dialog.state.funnelAuthor).dirty).toBe(true);
   });
 
   it("keeps a chain of steps timed after the previous one", () => {
@@ -927,7 +958,7 @@ describe("funnel settings", () => {
     expect(dialog.labels()).toContain("Шаг 2 · 2 ч после предыдущего шага");
 
     dialog.click("Добавить шаг");
-    const added = dialog.state.funnelAuthor!.target!;
+    const added = required(required(dialog.state.funnelAuthor).target);
     dialog.click("Задержка").write("30 мин");
     dialog.click("Все шаги").click("Шаг 3 · 30 мин после предыдущего шага");
     dialog.click("Поднять шаг");
@@ -952,7 +983,7 @@ describe("funnel settings", () => {
         },
       }),
     ).click("Сообщения");
-    expect(dialog.menu!.text).toBe(
+    expect(required(dialog.menu).text).toBe(
       "Прогрев · сообщения\nВремя отсчитывается от входа. Выберите сообщение для настройки.",
     );
     expect(dialog.labels()).toEqual([
@@ -965,7 +996,7 @@ describe("funnel settings", () => {
     ]);
 
     dialog.click("4. Через 2 ч · 📝 Текст · Задание").click("Когда отправить");
-    expect(dialog.menu!.text).toContain("от входа");
+    expect(required(dialog.menu).text).toContain("от входа");
     dialog.write("30 мин");
     expect(delays(dialog)).toEqual([
       [uuid(805), 1800, "entry"],
@@ -986,30 +1017,32 @@ describe("funnel settings", () => {
       delaySeconds: 5400,
       published: false,
     });
-    const steps = dialog.state.funnelAuthor!.funnel!.steps;
+    const steps = required(required(dialog.state.funnelAuthor).funnel).steps;
     expect(steps.map((step) => [step.delaySeconds, step.delayAnchor])).toEqual([
       [1800, "entry"],
       [3600, "entry"],
       [5400, "entry"],
     ]);
-    expect(steps[2]!.parts.map((p) => p.partId)).toEqual([uuid(807)]);
+    expect(required(steps[2]).parts.map((p) => p.partId)).toEqual([uuid(807)]);
     expect(dialog.labels()).toContain("4. Через 90 мин · 📝 Текст · Бонус");
   });
 
   it("renames the funnel, sets it as the main one and manages its sources", () => {
     const dialog = card().click("Настройки").click("Название");
     dialog.write("Весенний прогрев");
-    expect(dialog.menu!.text).toMatch(/^Весенний прогрев\n/);
+    expect(required(dialog.menu).text).toMatch(/^Весенний прогрев\n/);
 
     dialog.click("Настройки").click("Ещё →").click("Сделать основной");
-    expect(dialog.state.funnelAuthor!.funnel!.isDefault).toBe(true);
+    expect(required(required(dialog.state.funnelAuthor).funnel).isDefault).toBe(
+      true,
+    );
     dialog.click("Настройки").click("Ещё →");
     expect(dialog.labels()).toContain("Убрать из основных");
 
     dialog.click("К воронке").click("Настройки").click("Источники");
     dialog.click("Добавить источник").write("Канал");
     dialog.write("m_x y");
-    expect(dialog.menu!.text).toContain("Код должен начинаться с m_");
+    expect(required(dialog.menu).text).toContain("Код должен начинаться с m_");
     dialog.write("m_channel");
     expect(dialog.labels()).toEqual([
       "Канал",
@@ -1017,9 +1050,11 @@ describe("funnel settings", () => {
       "К воронке",
     ]);
     dialog.click("Канал");
-    expect(dialog.menu!.text).toContain("?start=m_channel");
+    expect(required(dialog.menu).text).toContain("?start=m_channel");
     dialog.click("Убрать источник");
-    expect(dialog.state.funnelAuthor!.funnel!.sources).toEqual([]);
+    expect(
+      required(required(dialog.state.funnelAuthor).funnel).sources,
+    ).toEqual([]);
 
     dialog.click("К воронке").click("Сохранить черновик");
     const save = dialog.query("save-funnel");
@@ -1032,10 +1067,12 @@ describe("funnel settings", () => {
 
   it("edits the first response and the shared intro", () => {
     const dialog = card().click("Настройки").click("Первый ответ");
-    expect(dialog.menu!.text).toMatch(/^Первый ответ\n1\. /);
+    expect(required(dialog.menu).text).toMatch(/^Первый ответ\n1\. /);
     expect(dialog.labels()).toContain("Добавить сохранённый пост");
     dialog.click("Сообщение 1").click("Убрать сообщение");
-    expect(dialog.state.funnelAuthor!.funnel!.entryResponse.parts).toEqual([]);
+    expect(
+      required(required(dialog.state.funnelAuthor).funnel).entryResponse.parts,
+    ).toEqual([]);
 
     dialog.click("К воронке").click("Настройки").click("Ещё →");
     dialog.click("Общий вводный блок");
@@ -1049,7 +1086,7 @@ describe("funnel settings", () => {
       kind: "intro-read",
       funnelAuthor: { intro, target: "intro", dirty: false },
     });
-    expect(dialog.menu!.text).toMatch(/^Общий вводный блок\n1\. /);
+    expect(required(dialog.menu).text).toMatch(/^Общий вводный блок\n1\. /);
     dialog.click("Сохранить общий блок");
     expect(dialog.query("validate-content")).toMatchObject({
       purpose: "intro",
@@ -1062,7 +1099,7 @@ describe("funnel settings", () => {
     });
     expect(dialog.query("save-intro")).toEqual({ kind: "save-intro", intro });
     dialog.send({ kind: "intro-saved", intro: { ...intro, revision: 2 } });
-    expect(dialog.menu!.text).toContain("Общий вводный блок сохранён");
+    expect(required(dialog.menu).text).toContain("Общий вводный блок сохранён");
   });
 
   it("lists every step and source on one screen and every action of a middle step", () => {
@@ -1134,7 +1171,7 @@ describe("saved posts", () => {
 
   it("opens saved posts from the broadcast list, searches them and returns to the list", () => {
     const dialog = postsList();
-    expect(dialog.menu!.text).toBe("Сохранённые посты");
+    expect(required(dialog.menu).text).toBe("Сохранённые посты");
     expect(dialog.labels()).toEqual([
       "📝 Текст · Пост 1",
       "📝 Текст · Пост 2",
@@ -1156,7 +1193,7 @@ describe("saved posts", () => {
       templates: [post(1)],
       nextCursor: null,
     });
-    expect(dialog.menu!.text).toBe("Поиск: урок");
+    expect(required(dialog.menu).text).toBe("Поиск: урок");
     dialog.click("Все рассылки");
     expect(dialog.query("list-broadcasts")).toEqual({
       kind: "list-broadcasts",
@@ -1225,7 +1262,7 @@ describe("saved posts", () => {
       kind: "post-saved",
       template: { ...post(1), revision: 2, content: text("Новый текст") },
     });
-    expect(dialog.menu!.text).toContain("Пост · версия 2");
+    expect(required(dialog.menu).text).toContain("Пост · версия 2");
 
     dialog
       .click("Добавить кнопку")
@@ -1266,7 +1303,9 @@ describe("saved posts", () => {
       broadcast: { ...save.broadcast, revision: 1 },
       then: save.then,
     });
-    expect(dialog.menu!.text).toContain("Новый текст\nЧерновик · сообщений: 1");
+    expect(required(dialog.menu).text).toContain(
+      "Новый текст\nЧерновик · сообщений: 1",
+    );
   });
 });
 
@@ -1347,7 +1386,9 @@ describe("broadcast messages", () => {
       { partId: uuid(902), content: text("Второе"), sendAfterSeconds: 0 },
       { partId: uuid(901), content: text("Первое"), sendAfterSeconds: 3600 },
     ]);
-    expect(dialog.menu!.text).toContain("Анонс\nЧерновик · сообщений: 2");
+    expect(required(dialog.menu).text).toContain(
+      "Анонс\nЧерновик · сообщений: 2",
+    );
   });
 
   it("removes a message", () => {
@@ -1360,7 +1401,7 @@ describe("broadcast messages", () => {
     const dialog = card()
       .click("Изменить сообщения")
       .click("Создать сообщение");
-    expect(dialog.state.composing!.destination).toEqual({
+    expect(required(dialog.state.composing).destination).toEqual({
       kind: "broadcast",
       id: uuid(900),
       expectedRevision: 1,
@@ -1378,12 +1419,14 @@ describe("broadcast messages", () => {
     expect(saved(dialog)).toEqual([
       ...timed.parts,
       {
-        partId: expect.any(String),
+        partId: anyString(),
         content: { ...text("Третье"), buttons },
         sendAfterSeconds: 3600,
       },
     ]);
-    expect(dialog.menu!.text).toContain("3. Через 1 ч · 📝 Текст · Третье");
+    expect(required(dialog.menu).text).toContain(
+      "3. Через 1 ч · 📝 Текст · Третье",
+    );
   });
 
   it("adds a saved post as a new message", () => {
@@ -1425,12 +1468,12 @@ describe("broadcast messages", () => {
       content: text("Третье"),
       sendAfterSeconds: 3600,
     });
-    expect(dialog.menu!.text).toContain("Сохранено сообщений: 3.");
+    expect(required(dialog.menu).text).toContain("Сохранено сообщений: 3.");
 
     dialog.write("Четвёртое");
     expect(saved(dialog)).toHaveLength(4);
     dialog.click("Готово");
-    expect(dialog.menu!.text).toContain("Черновик · сообщений: 4");
+    expect(required(dialog.menu).text).toContain("Черновик · сообщений: 4");
   });
 
   it("offers no new message once the broadcast holds twenty", () => {

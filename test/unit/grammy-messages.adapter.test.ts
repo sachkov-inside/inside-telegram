@@ -7,12 +7,12 @@ describe("GrammyMessagesAdapter", () => {
   it("round-trips an int64-capable chat ID through the Telegram API seam", async () => {
     let receivedChatId: number | undefined;
     const adapter = new GrammyMessagesAdapter("synthetic", {
-      async editMessageText() {
-        return true;
+      editMessageText() {
+        return Promise.resolve(true);
       },
-      async sendMessage(chatId) {
+      sendMessage(chatId) {
         receivedChatId = chatId;
-        return { message_id: 99 };
+        return Promise.resolve({ message_id: 99 });
       },
     });
 
@@ -58,12 +58,12 @@ describe("GrammyMessagesAdapter", () => {
   it("edits the exact prompt and removes the inline keyboard without sending another message", async () => {
     let received: unknown;
     const adapter = new GrammyMessagesAdapter("synthetic", {
-      async sendMessage() {
-        throw new Error("Must edit, not send");
+      sendMessage() {
+        return Promise.reject(new Error("Must edit, not send"));
       },
-      async editMessageText(chatId, messageId, text, options) {
+      editMessageText(chatId, messageId, text, options) {
         received = { chatId, messageId, text, options };
-        return { message_id: messageId };
+        return Promise.resolve({ message_id: messageId });
       },
     });
     await expect(
@@ -83,21 +83,23 @@ describe("GrammyMessagesAdapter", () => {
 
   it("accepts an already applied edit after a lost acknowledgement", async () => {
     const adapter = new GrammyMessagesAdapter("synthetic", {
-      async sendMessage() {
-        throw new Error("Must edit, not send");
+      sendMessage() {
+        return Promise.reject(new Error("Must edit, not send"));
       },
-      async editMessageText() {
-        throw new GrammyError(
-          "Synthetic",
-          {
-            ok: false,
-            error_code: 400,
-            description:
-              "Bad Request: message is not modified: specified new message content is exactly the same",
-            parameters: {},
-          },
-          "editMessageText",
-          {},
+      editMessageText() {
+        return Promise.reject(
+          new GrammyError(
+            "Synthetic",
+            {
+              ok: false,
+              error_code: 400,
+              description:
+                "Bad Request: message is not modified: specified new message content is exactly the same",
+              parameters: {},
+            },
+            "editMessageText",
+            {},
+          ),
         );
       },
     });
@@ -111,13 +113,13 @@ describe("GrammyMessagesAdapter", () => {
   });
 });
 
-function adapterThrowing(error: unknown): GrammyMessagesAdapter {
+function adapterThrowing(error: Error): GrammyMessagesAdapter {
   return new GrammyMessagesAdapter("synthetic", {
-    async editMessageText() {
-      return true;
+    editMessageText() {
+      return Promise.resolve(true);
     },
-    async sendMessage() {
-      throw error;
+    sendMessage() {
+      return Promise.reject(error);
     },
   });
 }
@@ -132,6 +134,8 @@ function grammyError(errorCode: number, retryAfter?: number): GrammyError {
   return new GrammyError("Synthetic API rejection", error, "sendMessage", {});
 }
 
-async function sendSynthetic(adapter: GrammyMessagesAdapter) {
-  return adapter.sendText({ chatId: "42", text: "Synthetic welcome" });
+function sendSynthetic(adapter: GrammyMessagesAdapter) {
+  return Promise.resolve(
+    adapter.sendText({ chatId: "42", text: "Synthetic welcome" }),
+  );
 }

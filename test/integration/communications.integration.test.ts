@@ -5,10 +5,7 @@ import {
   AUTHOR_CONTENT_VALIDATION,
   type AuthorContentValidationResult,
 } from "../../src/modules/communications/author-content-validation.js";
-import type {
-  FunnelSnapshot,
-  MessagePart,
-} from "../../src/modules/communications/funnel-types.js";
+import type { MessagePart } from "../../src/modules/communications/funnel-types.js";
 import { AuthorAdmin } from "../../src/modules/communications/author-admin.js";
 import { parseAuthorState } from "../../src/modules/communications/author-dialog.js";
 import { AuthorDelivery } from "../../src/modules/communications/author-delivery.js";
@@ -51,6 +48,8 @@ import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram
 import { StartResponseDeliveryProcessor } from "../../src/modules/outbound/start-response-delivery-processor.js";
 import { TELEGRAM_MESSAGES } from "../../src/modules/outbound/telegram-messages.js";
 import scenarios from "../../src/modules/communications/contracts/inside-communications-v1/scenarios.json" with { type: "json" };
+import type { CommunicationsBody } from "../support/communications-body.js";
+import { required } from "../support/required.js";
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) throw new Error("DATABASE_URL is required");
 const database = createDatabase(databaseUrl);
@@ -72,6 +71,11 @@ const config = {
   // Scripted conversations exceed the per-user limit, which ordinary-start covers.
   senderRate: { requests: 10_000, windowMs: 10_000 },
 };
+function scenarioDecision(value: string): "allowed" | "denied" {
+  if (value === "allowed" || value === "denied") return value;
+  throw new Error(`Unknown scenario authorization: ${value}`);
+}
+
 class FakeAuthorization implements AuthorAuthorization {
   result: "allowed" | "denied" | "unavailable" = "allowed";
   subjects: AuthorSubject[] = [];
@@ -97,9 +101,9 @@ const authorization = new FakeAuthorization();
 const contentValidation = {
   result: { status: "ok", targetErrors: [] } as AuthorContentValidationResult,
   snapshots: [] as (readonly MessagePart[])[],
-  async validate(_subject: AuthorSubject, parts: readonly MessagePart[]) {
+  validate(_subject: AuthorSubject, parts: readonly MessagePart[]) {
     this.snapshots.push(structuredClone(parts));
-    return this.result;
+    return Promise.resolve(this.result);
   },
 };
 const sent: unknown[] = [];
@@ -116,9 +120,9 @@ beforeAll(async () => {
     .useValue(contentValidation)
     .overrideProvider(TELEGRAM_MESSAGES)
     .useValue({
-      sendText: async (message: unknown) => {
+      sendText: (message: unknown) => {
         sent.push(message);
-        return { kind: "delivered", providerMessageId: "123" };
+        return Promise.resolve({ kind: "delivered", providerMessageId: "123" });
       },
     })
     .compile();
@@ -165,7 +169,7 @@ function request(): CommunicationsRequest {
     payload: { templateId: randomUUID(), content },
   };
 }
-async function http(
+function http(
   body: unknown,
   secret: string | undefined = config.communicationsSecret,
 ) {
@@ -226,7 +230,7 @@ function update(id: number, body: Record<string, unknown>) {
 }
 async function intake(id: number, body: Record<string, unknown>) {
   await communications.intake(
-    translateTemplateIntake("inside", String(id), update(id, body))!,
+    required(translateTemplateIntake("inside", String(id), update(id, body))),
   );
 }
 function slowPlatform() {
@@ -242,7 +246,7 @@ async function updateState(updateId: string) {
     .executeTakeFirst();
   return row?.state;
 }
-async function rows() {
+function rows() {
   return database.selectFrom("communication_templates").selectAll().execute();
 }
 
@@ -250,12 +254,16 @@ describe("versioned HTTP scenarios shared with consumer", () => {
   for (const scenario of scenarios)
     it(scenario.name, async () => {
       for (const step of scenario.steps) {
-        authorization.result = step.authorization as "allowed" | "denied";
+        authorization.result = scenarioDecision(step.authorization);
         const response = await http(step.request);
         expect(response.statusCode).toBe(step.status);
-        expect(contractValidator("response")(response.json())).toBe(true);
+        expect(
+          contractValidator("response")(response.json<CommunicationsBody>()),
+        ).toBe(true);
         if ("revision" in step)
-          expect(response.json().template.revision).toBe(step.revision);
+          expect(response.json<CommunicationsBody>().template.revision).toBe(
+            step.revision,
+          );
       }
     });
   it("rejects untrusted service callers and forged actor properties before permission lookup", async () => {
@@ -433,12 +441,14 @@ describe("durable author intake", () => {
       const read = await http({
         ...request(),
         operation: "templates.read",
-        payload: { templateId: saved[0]!.template_id },
+        payload: { templateId: required(saved[0]).template_id },
       });
       expect(read.statusCode).toBe(200);
-      expect(read.json().template.content.type).toBe(type);
+      expect(read.json<CommunicationsBody>().template.content.type).toBe(type);
       if (type === "photo")
-        expect(read.json().template.content.fileId).toBe("synthetic_large");
+        expect(read.json<CommunicationsBody>().template.content.fileId).toBe(
+          "synthetic_large",
+        );
       expect(read.body).not.toContain("api.telegram.org");
     });
   it("rolls back template + reply + receipt together on a database fault, then recovers once", async () => {
@@ -491,7 +501,9 @@ describe("durable author intake", () => {
     expect(await rows()).toHaveLength(1);
     await app.get(StartResponseDeliveryProcessor).processAvailable();
     expect(sent).toHaveLength(2);
-    expect(JSON.stringify(sent)).toContain((await rows())[0]!.template_id);
+    expect(JSON.stringify(sent)).toContain(
+      required((await rows())[0]).template_id,
+    );
     const inbox = await database
       .selectFrom("telegram_updates")
       .selectAll()
@@ -659,7 +671,7 @@ async function authorClick(id: number, label: string, depth = 0) {
       data,
     },
   };
-  const input = translateAuthorInput("inside", String(id), payload)!;
+  const input = required(translateAuthorInput("inside", String(id), payload));
   await Promise.all([
     app.get(AuthorAdmin).handle(input),
     app.get(AuthorAdmin).handle(input),
@@ -687,7 +699,7 @@ async function sessionState() {
   return state;
 }
 
-async function broadcastRows() {
+function broadcastRows() {
   return database.selectFrom("communication_broadcasts").selectAll().execute();
 }
 
@@ -706,11 +718,11 @@ describe("author transport and API", () => {
     });
     expect(response.statusCode).toBe(200);
     expect(
-      response
-        .json()
-        .templates.map((t: { templateId: string }) => t.templateId),
+      response.json<CommunicationsBody>().templates.map((t) => t.templateId),
     ).toEqual([own.payload.templateId]);
-    expect(contractValidator("response")(response.json())).toBe(true);
+    expect(
+      contractValidator("response")(response.json<CommunicationsBody>()),
+    ).toBe(true);
     await seedLink();
     const sample = {
       ...request(),
@@ -732,7 +744,7 @@ describe("author transport and API", () => {
       ...request(),
       operation: "templates.testSend",
       expectedRevision: 1,
-      payload: { templateId: post.payload.templateId! },
+      payload: { templateId: required(post.payload.templateId) },
     };
     await http(sample);
     let calls = 0;
@@ -742,9 +754,9 @@ describe("author transport and API", () => {
         { ...config, deliveryMode: "live" },
         authorization,
         {
-          send: async () => {
+          send: () => {
             calls++;
-            return { kind: "transport_unknown" };
+            return Promise.resolve({ kind: "transport_unknown" });
           },
         },
       );
@@ -779,7 +791,7 @@ describe("author transport and API", () => {
       ...request(),
       operation: "templates.testSend",
       expectedRevision: 1,
-      payload: { templateId: post.payload.templateId! },
+      payload: { templateId: required(post.payload.templateId) },
     };
     await http(sample);
     await http({ ...sample, operationId: randomUUID() });
@@ -790,15 +802,17 @@ describe("author transport and API", () => {
       { ...config, deliveryMode: "live" },
       authorization,
       {
-        send: async () => {
+        send: () => {
           calls++;
-          return calls === 1
-            ? {
-                kind: "api_retryable",
-                providerErrorCode: 429,
-                retryAfterSeconds: 20,
-              }
-            : { kind: "delivered", providerMessageId: String(calls) };
+          return Promise.resolve(
+            calls === 1
+              ? {
+                  kind: "api_retryable",
+                  providerErrorCode: 429,
+                  retryAfterSeconds: 20,
+                }
+              : { kind: "delivered", providerMessageId: String(calls) },
+          );
         },
       },
     );
@@ -831,11 +845,13 @@ describe("author transport and API", () => {
       { ...config, deliveryMode: "live" },
       authorization,
       {
-        send: async (message) => {
+        send: (message) => {
           sent.push(message);
-          return sent.length === 2
-            ? { kind: "transport_unknown" }
-            : { kind: "delivered", providerMessageId: String(sent.length) };
+          return Promise.resolve(
+            sent.length === 2
+              ? { kind: "transport_unknown" }
+              : { kind: "delivered", providerMessageId: String(sent.length) },
+          );
         },
       },
     );
@@ -844,13 +860,13 @@ describe("author transport and API", () => {
     await worker.processAvailable(new Date(time));
     const stale = await authorClick(101, "Рассылки");
     await worker.processAvailable(new Date(time + 2000));
-    expect(sent[1]!.editMessageId).toBe("1");
+    expect(required(sent[1]).editMessageId).toBe("1");
     // The author retries an old visible button after the edit response was lost.
     await app.get(AuthorAdmin).handle({ ...stale, updateId: "1020" });
     await worker.processAvailable(new Date(time + 4000));
-    expect(sent[2]!.editMessageId).toBeUndefined();
+    expect(required(sent[2]).editMessageId).toBeUndefined();
     // A late edit of message 1 cannot modify the newly sent message 3.
-    expect(sent[2]!.authorMenu).toBe(true);
+    expect(required(sent[2]).authorMenu).toBe(true);
     expect(
       await database
         .selectFrom("communication_author_outbox")
@@ -896,17 +912,19 @@ describe("simple sequential authoring", () => {
     });
     await acceptPost(106, "Третье", "через 2 часа");
     await authorClick(107, "Готово");
-    const b = (await sessionState()).broadcast!;
+    const b = required((await sessionState()).broadcast);
     expect(b.parts.map((p) => p.sendAfterSeconds)).toEqual([0, 3600, 7200]);
-    expect(b.parts[0]!.content.entities).toEqual([
+    expect(required(b.parts[0]).content.entities).toEqual([
       { type: "bold", offset: 0, length: 6 },
     ]);
-    expect(b.parts[1]!.content).toMatchObject({
+    expect(required(b.parts[1]).content).toMatchObject({
       type: "voice",
       fileId: "prepared-voice",
     });
     expect(b.audience).toEqual({ kind: "all" });
-    const labels = (await sessionState()).menu!.buttons.map(([label]) => label);
+    const labels = required((await sessionState()).menu).buttons.map(
+      ([label]) => label,
+    );
     expect(labels).toEqual([
       "Добавить сообщение",
       "Запустить",
@@ -921,10 +939,14 @@ describe("simple sequential authoring", () => {
       payload: { broadcastId: b.broadcastId },
     });
     expect(response.statusCode).toBe(200);
-    expect(contractValidator("response")(response.json())).toBe(true);
-    expect(response.json().broadcast.parts).toEqual(b.parts);
+    expect(
+      contractValidator("response")(response.json<CommunicationsBody>()),
+    ).toBe(true);
+    expect(response.json<CommunicationsBody>().broadcast.parts).toEqual(
+      b.parts,
+    );
     await authorClick(108, "Запустить");
-    expect((await broadcastRows())[0]!.state).toBe("draft");
+    expect(required((await broadcastRows())[0]).state).toBe("draft");
     expect(
       await database
         .selectFrom("communication_deliveries")
@@ -955,7 +977,7 @@ describe("simple sequential authoring", () => {
       await authorClick(108, "Продолжить сообщение");
       await authorMessage(109, "1 день");
       await authorClick(110, "Готово");
-      expect((await broadcastRows())[0]!.parts).toMatchObject([
+      expect(required((await broadcastRows())[0]).parts).toMatchObject([
         { content: { text: "Начало" } },
         { sendAfterSeconds: 86400, content: { type } },
       ]);
@@ -973,21 +995,23 @@ describe("simple sequential authoring", () => {
     expect(await broadcastRows()).toHaveLength(0);
     await acceptPost(104, "Первый", "2 часа");
     await acceptPost(105, "Второй", "1 час");
-    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
-    expect((await sessionState()).composing!.content!.text).toBe("Второй");
+    expect(required((await broadcastRows())[0]).parts).toHaveLength(1);
+    expect(
+      required(required((await sessionState()).composing).content).text,
+    ).toBe("Второй");
     await authorMessage(106, "/cancel");
-    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+    expect(required((await broadcastRows())[0]).parts).toHaveLength(1);
     await authorClick(107, "Добавить сообщение");
     await authorMessage(108, "Без доступа");
     authorization.result = "denied";
     await authorMessage(109, "3 часа");
-    expect((await broadcastRows())[0]!.parts).toHaveLength(1);
+    expect(required((await broadcastRows())[0]).parts).toHaveLength(1);
   });
   it("keeps a pending message on concurrent terminal edits and reopens current provider content", async () => {
     await beginSequence("Рассылки");
     await acceptPost(103, "Начало", "сразу");
     await authorMessage(104, "Не потерять");
-    const b = (await sessionState()).broadcast!;
+    const b = required((await sessionState()).broadcast);
     const parts = b.parts.map((p) => ({
       ...p,
       content: { ...p.content, text: "Правка агента" },
@@ -1009,24 +1033,28 @@ describe("simple sequential authoring", () => {
     ).toBe(200);
     await authorMessage(105, "1 час");
     expect(await lastAuthorText()).toContain("изменились");
-    expect((await broadcastRows())[0]!.parts).toEqual(parts);
+    expect(required((await broadcastRows())[0]).parts).toEqual(parts);
     await authorClick(106, "Рассылки");
     await authorClick(107, "Начало · Черновик");
     await authorClick(108, "Продолжить сообщение");
-    expect((await sessionState()).composing!.content!.text).toBe("Не потерять");
+    expect(
+      required(required((await sessionState()).composing).content).text,
+    ).toBe("Не потерять");
     await authorMessage(109, "/cancel");
-    expect((await sessionState()).broadcast!.parts).toEqual(parts);
+    expect(required((await sessionState()).broadcast).parts).toEqual(parts);
   });
   it("saves a funnel as entry plus offsets from enrollment and allows a terminal agent to configure the same draft", async () => {
     await beginSequence("Воронки");
     await authorMessage(103, "Вход");
     await authorMessage(104, "1 час");
-    expect((await sessionState()).funnelAuthor!.funnel!.revision).toBe(0);
+    expect(
+      required(required((await sessionState()).funnelAuthor).funnel).revision,
+    ).toBe(0);
     await authorClick(105, "Сразу");
     await acceptPost(106, "Урок", "1 час");
     await acceptPost(107, "Предложение", "2 часа");
     await authorClick(108, "Готово");
-    const f = (await sessionState()).funnelAuthor!.funnel!;
+    const f = required(required((await sessionState()).funnelAuthor).funnel);
     expect(f.entryResponse.parts).toHaveLength(1);
     expect(f.steps.map((s) => [s.delayAnchor, s.delaySeconds])).toEqual([
       ["entry", 3600],
@@ -1039,7 +1067,9 @@ describe("simple sequential authoring", () => {
       payload: { funnelId: f.funnelId },
     });
     expect(r.statusCode).toBe(200);
-    expect(contractValidator("response")(r.json())).toBe(true);
+    expect(contractValidator("response")(r.json<CommunicationsBody>())).toBe(
+      true,
+    );
     const saved = await http({
       ...request(),
       operation: "funnels.save",
@@ -1058,15 +1088,15 @@ describe("simple sequential authoring", () => {
     await authorClick(110, "Воронки");
     await authorClick(111, "Вход · Черновик");
     expect(
-      (await sessionState()).funnelAuthor!.funnel!.steps.map(
+      required(required((await sessionState()).funnelAuthor).funnel).steps.map(
         (s) => s.delaySeconds,
       ),
     ).toEqual([7200, 7200]);
     await authorClick(112, "Отменить воронку");
     await authorClick(113, "Да, отменить");
-    expect((await sessionState()).funnelAuthor!.funnel!.lifecycle).toBe(
-      "archived",
-    );
+    expect(
+      required(required((await sessionState()).funnelAuthor).funnel).lifecycle,
+    ).toBe("archived");
   });
 });
 
@@ -1091,12 +1121,12 @@ it("restores the author menu below the delivered broadcast messages and never ex
   let now = Date.now() + 1000;
   const observed: CommunicationMessage[] = [];
   const transport = {
-    send: async (message: CommunicationMessage) => {
+    send: (message: CommunicationMessage) => {
       observed.push(message);
-      return {
+      return Promise.resolve({
         kind: "delivered" as const,
         providerMessageId: String(observed.length),
-      };
+      });
     },
   };
   const author = new AuthorDelivery(
@@ -1124,21 +1154,24 @@ it("restores the author menu below the delivered broadcast messages and never ex
     "First delivered post",
     "Second delivered post",
   ]);
-  expect(own.at(-1)!.authorMenu).toBe(true);
-  expect(own.at(-1)!.editMessageId).toBeUndefined();
+  expect(required(own.at(-1)).authorMenu).toBe(true);
+  expect(required(own.at(-1)).editMessageId).toBeUndefined();
   expect(
     observed.filter((m) => m.chatId === "43").map((m) => m.authorMenu),
   ).toEqual([undefined, undefined]);
-  const input = translateAuthorInput("inside", "9999", {
-    callback_query: {
-      id: "footer",
-      from: { id: 42, is_bot: false },
-      message: { chat: { id: 42, type: "private" } },
-      data: own.at(-1)!.authorButtons![0]!.callbackData,
-    },
-  })!;
+  const input = required(
+    translateAuthorInput("inside", "9999", {
+      callback_query: {
+        id: "footer",
+        from: { id: 42, is_bot: false },
+        message: { chat: { id: 42, type: "private" } },
+        data: required(required(required(own.at(-1)).authorButtons)[0])
+          .callbackData,
+      },
+    }),
+  );
   await app.get(AuthorAdmin).handle(input);
-  expect((await sessionState()).broadcast!.state).toBe("completed");
+  expect(required((await sessionState()).broadcast).state).toBe("completed");
 });
 
 it.each(["/cancel", "discard"])(
@@ -1156,13 +1189,17 @@ it.each(["/cancel", "discard"])(
     }
     const state = await sessionState();
     expect(state.composing).toBeUndefined();
-    expect(state.funnelAuthor!.funnel!.entryResponse.parts).toHaveLength(1);
-    expect(state.menu!.buttons.map(([label]) => label)).toContain(
+    expect(
+      required(required(state.funnelAuthor).funnel).entryResponse.parts,
+    ).toHaveLength(1);
+    expect(required(state.menu).buttons.map(([label]) => label)).toContain(
       "Все воронки",
     );
-    expect(state.menu!.buttons.map(([label]) => label).join(" ")).not.toMatch(
-      /сохранённый|порядок|Создать сообщение/,
-    );
+    expect(
+      required(state.menu)
+        .buttons.map(([label]) => label)
+        .join(" "),
+    ).not.toMatch(/сохранённый|порядок|Создать сообщение/);
   },
 );
 
@@ -1174,7 +1211,8 @@ describe("funnel settings in the bot", () => {
     await acceptPost(104, "Урок", "1 час");
     await acceptPost(105, "Задание", "2 часа");
     await authorClick(106, "Готово");
-    return (await sessionState()).funnelAuthor!.funnel!.funnelId;
+    return required(required((await sessionState()).funnelAuthor).funnel)
+      .funnelId;
   }
   /** The funnel as the API and MCP read it. */
   async function apiFunnel(funnelId: string) {
@@ -1184,7 +1222,7 @@ describe("funnel settings in the bot", () => {
       payload: { funnelId },
     });
     expect(response.statusCode).toBe(200);
-    return response.json().funnel as FunnelSnapshot;
+    return response.json<CommunicationsBody>().funnel;
   }
   const texts = (parts: readonly MessagePart[]) =>
     parts.map((p) => p.content.text);
@@ -1303,7 +1341,9 @@ describe("funnel settings in the bot", () => {
       payload: {},
     });
     expect(response.statusCode).toBe(200);
-    expect(texts(response.json().intro.parts)).toEqual(["Добро пожаловать"]);
+    expect(texts(response.json<CommunicationsBody>().intro.parts)).toEqual([
+      "Добро пожаловать",
+    ]);
   });
 });
 
@@ -1311,17 +1351,14 @@ describe("broadcast authoring in the bot", () => {
   const buy = { text: "Купить", url: "https://example.com/buy", row: 0 };
   /** The messages of the open broadcast as the API and MCP read them. */
   async function apiParts() {
-    const { broadcastId } = (await sessionState()).broadcast!;
+    const { broadcastId } = required((await sessionState()).broadcast);
     const response = await http({
       ...request(),
       operation: "broadcasts.read",
       payload: { broadcastId },
     });
     expect(response.statusCode).toBe(200);
-    return response.json().broadcast.parts as {
-      content: { text: string; buttons: unknown[] };
-      sendAfterSeconds?: number;
-    }[];
+    return response.json<CommunicationsBody>().broadcast.parts;
   }
   /** Each message's text and send time. */
   async function apiBroadcast() {
@@ -1366,7 +1403,7 @@ describe("broadcast authoring in the bot", () => {
       operation: "templates.read",
       payload: { templateId },
     });
-    expect(read.json().template).toMatchObject({
+    expect(read.json<CommunicationsBody>().template).toMatchObject({
       revision: 3,
       content: { text: "Новый урок", buttons: [buy] },
     });
@@ -1391,7 +1428,7 @@ describe("broadcast authoring in the bot", () => {
       operation: "templates.read",
       payload: { templateId },
     });
-    expect(withoutButton.json().template).toMatchObject({
+    expect(withoutButton.json<CommunicationsBody>().template).toMatchObject({
       revision: 4,
       content: { text: "Новый урок", buttons: [] },
     });
@@ -1467,7 +1504,7 @@ describe("broadcast authoring in the bot", () => {
       ["Второе", 3600],
       ["Третье", 3600],
     ]);
-    expect((await apiParts())[2]!.content.buttons).toEqual([buy]);
+    expect(required((await apiParts())[2]).content.buttons).toEqual([buy]);
   });
 
   it("adds several messages in a row", async () => {

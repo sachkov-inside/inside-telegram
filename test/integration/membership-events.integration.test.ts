@@ -380,7 +380,14 @@ describe("durable Membership events", () => {
     const metrics = new RuntimeMetrics();
     const linking = new IdentityLinking(database, clock);
     const processor = new TelegramUpdateProcessor(
-      { async start() {}, async action() {} },
+      {
+        start() {
+          return Promise.resolve();
+        },
+        action() {
+          return Promise.resolve();
+        },
+      },
       inbox,
       config,
       new BotContacts(database, config),
@@ -390,7 +397,7 @@ describe("durable Membership events", () => {
       new BotSignIn(database, config, clock),
       new DisabledTelegramCallbackAnswers(),
       new Communications(database, config, new DisabledAuthorAuthorization()),
-      { handle: async () => false },
+      { handle: () => Promise.resolve(false) },
       new MarketingEntry(database, config, clock),
       new CommunityProvider(
         database,
@@ -1157,29 +1164,32 @@ async function confirmLink(telegramUserId: string) {
 }
 
 class ControlledTelegramMembership implements TelegramMembership {
-  async getBotChatMember(): Promise<TelegramChatMemberResult> {
-    return { kind: "observed", value: { status: "administrator" } };
+  getBotChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve({
+      kind: "observed",
+      value: { status: "administrator" },
+    });
   }
 
-  async getChatMember(): Promise<TelegramChatMemberResult> {
-    return { kind: "observed", value: { status: "member" } };
+  getChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve({ kind: "observed", value: { status: "member" } });
   }
 }
 
 class DemotedTelegramMembership extends ControlledTelegramMembership {
-  override async getBotChatMember(): Promise<TelegramChatMemberResult> {
-    return { kind: "observed", value: { status: "member" } };
+  override getBotChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve({ kind: "observed", value: { status: "member" } });
   }
 }
 
 class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
   readonly requests: PlatformEvidenceDeliveryRequest[] = [];
 
-  async deliver(
+  deliver(
     request: PlatformEvidenceDeliveryRequest,
   ): Promise<{ kind: "delivered" }> {
     this.requests.push(request);
-    return { kind: "delivered" };
+    return Promise.resolve({ kind: "delivered" });
   }
 }
 

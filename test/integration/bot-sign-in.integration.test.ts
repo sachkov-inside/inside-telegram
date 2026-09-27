@@ -42,6 +42,8 @@ import { MembershipEvidenceProvider } from "../../src/modules/membership-evidenc
 import { CommunityProvider } from "../../src/modules/community/community-provider.js";
 import { RuntimeMetrics } from "../../src/operations/runtime-metrics.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
+import { anyString } from "../support/matchers.js";
+import { required } from "../support/required.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl)
@@ -291,21 +293,21 @@ describe("bot sign-in provider", () => {
     ]);
     const calls: { chatId: string; messageId: string; text: string }[] = [];
     const messages = {
-      async sendText() {
-        throw new Error("Completion must edit, never send another message");
+      sendText() {
+        return Promise.reject(
+          new Error("Completion must edit, never send another message"),
+        );
       },
-      async editText(message: {
-        chatId: string;
-        messageId: string;
-        text: string;
-      }) {
+      editText(message: { chatId: string; messageId: string; text: string }) {
         calls.push(message);
-        return calls.length === 1
-          ? { kind: "transport_unknown" as const }
-          : {
-              kind: "delivered" as const,
-              providerMessageId: message.messageId,
-            };
+        return Promise.resolve(
+          calls.length === 1
+            ? { kind: "transport_unknown" as const }
+            : {
+                kind: "delivered" as const,
+                providerMessageId: message.messageId,
+              },
+        );
       },
     };
     const now = new Date();
@@ -441,7 +443,14 @@ describe("bot sign-in provider", () => {
       }
       claim.mockClear();
       const processor = new TelegramUpdateProcessor(
-        { async start() {}, async action() {} },
+        {
+          start() {
+            return Promise.resolve();
+          },
+          action() {
+            return Promise.resolve();
+          },
+        },
         inbox,
         config,
         application.get(BotContacts),
@@ -450,12 +459,13 @@ describe("bot sign-in provider", () => {
         application.get(MembershipEvidenceProvider),
         signIn,
         {
-          async answer() {
+          answer() {
             vi.setSystemTime(later);
+            return Promise.resolve();
           },
         },
         application.get(Communications),
-        { handle: async () => false },
+        { handle: () => Promise.resolve(false) },
         application.get(MarketingEntry),
         application.get(CommunityProvider),
         application.get(StartResponseDeliveryQueue),
@@ -546,13 +556,16 @@ describe("bot sign-in provider", () => {
       const delivery = new StartResponseDeliveryProcessor(
         new StartResponseDeliveryQueue(database),
         {
-          async editText() {
-            throw new Error("Unexpected message edit");
+          editText() {
+            return Promise.reject(new Error("Unexpected message edit"));
           },
-          async sendText(message) {
+          sendText(message) {
             messages.push(message);
             vi.setSystemTime(new Date(challenge.envelope.expiresAt));
-            return { kind: "delivered", providerMessageId: "1" };
+            return Promise.resolve({
+              kind: "delivered",
+              providerMessageId: "1",
+            });
           },
         },
         new RuntimeMetrics(),
@@ -617,12 +630,12 @@ describe("bot sign-in provider", () => {
     const delivery = new StartResponseDeliveryProcessor(
       new StartResponseDeliveryQueue(database),
       {
-        async editText() {
-          throw new Error("Unexpected message edit");
+        editText() {
+          return Promise.reject(new Error("Unexpected message edit"));
         },
-        async sendText(message) {
+        sendText(message) {
           messages.push(message);
-          return { kind: "delivered", providerMessageId: "1" };
+          return Promise.resolve({ kind: "delivered", providerMessageId: "1" });
         },
       },
       new RuntimeMetrics(),
@@ -656,7 +669,7 @@ describe("bot sign-in provider", () => {
     const proof = await status(challenge, true);
     expect(proof).toMatchObject({
       status: "verified",
-      subjectRef: expect.any(String),
+      subjectRef: anyString(),
       existingLink: null,
     });
     expect(proof).not.toHaveProperty("telegramUserId");
@@ -959,9 +972,9 @@ function callback(
 }
 
 function deferred() {
-  let signal = () => {};
+  let signal: (() => void) | undefined;
   const promise = new Promise<void>((resolve) => {
     signal = resolve;
   });
-  return { promise, resolve: () => signal() };
+  return { promise, resolve: () => required(signal)() };
 }

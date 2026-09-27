@@ -82,5 +82,5 @@ it.each([
   ["2 дня", 172800],
   ["10 секунд", 10],
 ])("parses human delay %s consistently", (value, seconds) => {
-  expect(parseFunnelDelay(String(value))).toBe(seconds);
+  expect(parseFunnelDelay(value)).toBe(seconds);
 });

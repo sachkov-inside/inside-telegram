@@ -3,11 +3,12 @@ import { readdirSync, readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
 
 import harness from "../../.inside-harness/product-harness.json" with { type: "json" };
+import { required } from "../support/required.js";
 
 /** A third-party action runs with the job token, so only an immutable commit may be referenced. */
 function unpinnedActions(workflow: string): string[] {
   return [...workflow.matchAll(/^\s*(?:-\s+)?uses:\s*(\S+)/gm)]
-    .map((match) => match[1]!)
+    .map((match) => required(match[1]))
     .filter(
       (reference) =>
         !reference.startsWith("./") && !/@[0-9a-f]{40}$/.test(reference),

@@ -33,6 +33,7 @@ import type {
   TelegramChatMemberResult,
   TelegramMembership,
 } from "../../src/modules/membership-evidence/telegram-membership.js";
+import { anyString } from "../support/matchers.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -220,7 +221,7 @@ describe("initial Membership Evidence", () => {
         checkedAt: "2030-01-01T00:00:00.000Z",
         contractVersion: "inside.membership-evidence.v1",
         decision: "member",
-        evidenceRef: expect.any(String),
+        evidenceRef: anyString(),
         evidenceVersion: 1,
         principalRef: "account-ref-a",
         reasonCode: "chat_member",
@@ -397,7 +398,7 @@ describe("initial Membership Evidence", () => {
     const confirmation = await confirmLink("42");
     const telegram = new SequencedTelegramMembership([
       { kind: "observed", value: { status: "member" } },
-      new Promise<TelegramChatMemberResult>(() => {}),
+      new Promise<TelegramChatMemberResult>(() => undefined),
       { kind: "observed", value: { status: "member" } },
     ]);
     const provider = new MembershipEvidenceProvider(
@@ -537,17 +538,17 @@ class ControlledTelegramMembership implements TelegramMembership {
     private readonly subjectResult: TelegramChatMemberResult,
   ) {}
 
-  async getBotChatMember(chatId: string): Promise<TelegramChatMemberResult> {
+  getBotChatMember(chatId: string): Promise<TelegramChatMemberResult> {
     this.botRequests.push(chatId);
-    return this.botResult;
+    return Promise.resolve(this.botResult);
   }
 
-  async getChatMember(
+  getChatMember(
     chatId: string,
     telegramUserId: string,
   ): Promise<TelegramChatMemberResult> {
     this.subjectRequests.push({ chatId, telegramUserId });
-    return this.subjectResult;
+    return Promise.resolve(this.subjectResult);
   }
 }
 
@@ -558,16 +559,21 @@ class SequencedTelegramMembership implements TelegramMembership {
     )[],
   ) {}
 
-  async getBotChatMember(): Promise<TelegramChatMemberResult> {
-    return { kind: "observed", value: { status: "administrator" } };
+  getBotChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve({
+      kind: "observed",
+      value: { status: "administrator" },
+    });
   }
 
-  async getChatMember(): Promise<TelegramChatMemberResult> {
+  getChatMember(): Promise<TelegramChatMemberResult> {
     const next = this.subjectResults.shift();
     if (!next) {
-      throw new Error("No controlled Telegram Membership result remains");
+      return Promise.reject(
+        new Error("No controlled Telegram Membership result remains"),
+      );
     }
-    return next;
+    return Promise.resolve(next);
   }
 }
 
@@ -581,32 +587,30 @@ class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
     )[] = [{ kind: "delivered" }],
   ) {}
 
-  async deliver(
+  deliver(
     request: PlatformEvidenceDeliveryRequest,
   ): Promise<
     | { diagnosticCode: string; kind: "rejected" | "retryable" }
     | { kind: "delivered" }
   > {
     this.requests.push(request);
-    return this.results.shift() ?? { kind: "delivered" };
+    return Promise.resolve(this.results.shift() ?? { kind: "delivered" });
   }
 }
 
 class ControlledTelegramMessages implements TelegramMessages {
   readonly sent: TelegramTextMessage[] = [];
 
-  async editText(): Promise<TelegramDeliveryResult> {
-    throw new Error("Unexpected message edit");
+  editText(): Promise<TelegramDeliveryResult> {
+    return Promise.reject(new Error("Unexpected message edit"));
   }
 
-  async sendText(
-    message: TelegramTextMessage,
-  ): Promise<TelegramDeliveryResult> {
+  sendText(message: TelegramTextMessage): Promise<TelegramDeliveryResult> {
     this.sent.push(message);
-    return {
+    return Promise.resolve({
       kind: "delivered",
       providerMessageId: String(this.sent.length),
-    };
+    });
   }
 }
 

@@ -34,6 +34,7 @@ import { CLOCK } from "../../src/shared/clock.js";
 import { TELEGRAM_MESSAGES } from "../../src/modules/outbound/telegram-messages.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { TelegramWebhook } from "../../src/modules/webhook/telegram-webhook.js";
+import { required } from "../support/required.js";
 
 // A due funnel backlog for the whole audience must not delay a new /start: its processing and
 // its first reply stay within these bounds while the marketing worker drains the backlog.
@@ -70,19 +71,25 @@ async function compile() {
     .overrideProvider(CLOCK)
     .useValue({ now: () => new Date() })
     .overrideProvider(AUTHOR_AUTHORIZATION)
-    .useValue({ authorize: async () => "allowed" })
+    .useValue({ authorize: () => Promise.resolve("allowed") })
     .overrideProvider(AUTHOR_CONTENT_VALIDATION)
-    .useValue({ validate: async () => ({ status: "ok", targetErrors: [] }) })
+    .useValue({
+      validate: () => Promise.resolve({ status: "ok", targetErrors: [] }),
+    })
     .overrideProvider(COMMUNICATION_TRANSPORT)
     .useValue({
-      send: async (message: CommunicationMessage) => {
+      send: (message: CommunicationMessage) => {
         sent.push({ message, at: performance.now() });
-        return { kind: "delivered", providerMessageId: "synthetic" };
+        return Promise.resolve({
+          kind: "delivered",
+          providerMessageId: "synthetic",
+        });
       },
     })
     .overrideProvider(TELEGRAM_MESSAGES)
     .useValue({
-      sendText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+      sendText: () =>
+        Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
     })
     .compile();
   const nest = module.createNestApplication<NestFastifyApplication>(
@@ -257,15 +264,15 @@ async function seedDueAudience(size = AUDIENCE): Promise<FunnelDraft> {
           {
             ...common,
             delivery_id: randomUUID(),
-            dedup_key: `step:${r.enrollmentId}:${value.steps[0]!.stepId}`,
+            dedup_key: `step:${r.enrollmentId}:${required(value.steps[0]).stepId}`,
             contact_id: r.contactId,
             funnel_id: value.funnelId,
-            step_id: value.steps[0]!.stepId,
+            step_id: required(value.steps[0]).stepId,
             kind: "step" as const,
             published_revision: 2,
-            snapshot: JSON.stringify(value.steps[0]!.parts),
+            snapshot: JSON.stringify(required(value.steps[0]).parts),
             parts: JSON.stringify(
-              value.steps[0]!.parts.map((p) => ({
+              required(value.steps[0]).parts.map((p) => ({
                 partId: p.partId,
                 state: "pending",
                 diagnosticCode: null,
@@ -347,7 +354,7 @@ it(`answers /start within bounds while a funnel dispatches to ${AUDIENCE} contac
     expect(enrolledMs).toBeLessThan(START_PROCESSING_LIMIT_MS);
     expect(processingMs).toBeLessThan(START_PROCESSING_LIMIT_MS);
     expect(replyMs).toBeLessThan(START_REPLY_LIMIT_MS);
-    expect(reply!.message.content.text).toBe("intro");
+    expect(required(reply).message.content.text).toBe("intro");
   } finally {
     dispatching = false;
     await Promise.race([worker, delay(MEASUREMENT_CAP_MS)]);
@@ -390,7 +397,9 @@ it("completes every BotContact command while the bot scheduler lock is held", as
       .execute((tx) =>
         communicationLock(tx, "communications-scheduler:inside"),
       );
-    expect(await elapsed(() => waiter!, 300)).toBe(Number.POSITIVE_INFINITY);
+    expect(await elapsed(() => required(waiter), 300)).toBe(
+      Number.POSITIVE_INFINITY,
+    );
     const commands = [
       () => app.get(BotContacts).observeStart(contact("1"), "welcome"),
       () => app.get(MarketingEntry).enter(contact("2")),
@@ -575,9 +584,12 @@ it("never holds a BotContact whose chat lane is busy while the claim continues",
     config,
     { now: () => new Date() },
     {
-      send: async (message: CommunicationMessage) => {
+      send: (message: CommunicationMessage) => {
         sent.push({ message, at: performance.now() });
-        return { kind: "delivered", providerMessageId: "synthetic" };
+        return Promise.resolve({
+          kind: "delivered",
+          providerMessageId: "synthetic",
+        });
       },
     },
   ).processAvailable(1);

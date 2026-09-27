@@ -9,6 +9,7 @@ import {
   GrammyUpdateAdapter,
   prepareTelegramUpdateForInbox,
 } from "../../src/adapters/telegram/grammy-update.adapter.js";
+import { required } from "../support/required.js";
 
 const text = {
   type: "text",
@@ -143,9 +144,11 @@ describe("vendored communications contract", () => {
         ],
       },
     ]) {
-      const value = translateTemplateIntake("inside", "1", {
-        message: { ...message("hello").message, ...extra },
-      })!;
+      const value = required(
+        translateTemplateIntake("inside", "1", {
+          message: { ...message("hello").message, ...extra },
+        }),
+      );
       expect(() => validateContent(value.content)).toThrow(
         "unsupported_content",
       );

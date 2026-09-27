@@ -323,7 +323,7 @@ describe("Telegram webhook contract", () => {
     expect(response.message_text).toBe(config.linkReceiptText);
     const links = await database
       .selectFrom("platform_links")
-      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .select(({ fn }) => fn.countAll<string>().as("count"))
       .executeTakeFirstOrThrow();
     expect(Number(links.count)).toBe(0);
   });
@@ -387,11 +387,10 @@ describe("Telegram webhook contract", () => {
     const answers = application.get<symbol, TelegramCallbackAnswers>(
       TELEGRAM_CALLBACK_ANSWERS,
     );
-    const answer = vi
-      .spyOn(answers, "answer")
-      .mockImplementation(async (id) => {
-        answered.push(id);
-      });
+    const answer = vi.spyOn(answers, "answer").mockImplementation((id) => {
+      answered.push(id);
+      return Promise.resolve();
+    });
     onTestFinished(() => answer.mockRestore());
     const burst = [
       ...Array.from({ length: 10 }, (_, index) =>
@@ -731,7 +730,7 @@ async function tableCount(
 ): Promise<number> {
   const result = await database
     .selectFrom(table)
-    .select(({ fn }) => fn.countAll<number>().as("count"))
+    .select(({ fn }) => fn.countAll<string>().as("count"))
     .executeTakeFirstOrThrow();
   return Number(result.count);
 }
@@ -757,19 +756,17 @@ class ControlledMessages implements TelegramMessages {
 
   constructor(private readonly results: TelegramDeliveryResult[]) {}
 
-  async editText(): Promise<TelegramDeliveryResult> {
-    throw new Error("Unexpected message edit");
+  editText(): Promise<TelegramDeliveryResult> {
+    return Promise.reject(new Error("Unexpected message edit"));
   }
 
-  async sendText(
-    message: TelegramTextMessage,
-  ): Promise<TelegramDeliveryResult> {
+  sendText(message: TelegramTextMessage): Promise<TelegramDeliveryResult> {
     this.sent.push(message);
     const result = this.results.shift();
     if (!result) {
-      throw new Error("Controlled Telegram result is missing");
+      return Promise.reject(new Error("Controlled Telegram result is missing"));
     }
-    return result;
+    return Promise.resolve(result);
   }
 }
 

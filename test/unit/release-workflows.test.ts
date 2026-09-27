@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { describe, expect, it } from "vitest";
+import { jsonRecord } from "../support/json.js";
 
 const release = readFileSync(".github/workflows/release.yml", "utf8");
 const deploy = readFileSync(".github/workflows/deploy.yml", "utf8");
@@ -418,11 +419,7 @@ describe("release contract", () => {
           { encoding: "utf8" },
         );
         expect(result.status, result.stderr).toBe(0);
-        return JSON.parse(result.stdout) as {
-          identity: string;
-          count: number;
-          latest: string;
-        };
+        return jsonRecord(result.stdout);
       };
       writeFileSync(path.join(directory, "001-first.ts"), "one\n");
       const first = identity();
@@ -461,7 +458,7 @@ describe("release contract", () => {
       { encoding: "utf8" },
     );
     expect(result.status, result.stderr).toBe(0);
-    const manifest = JSON.parse(result.stdout) as Record<string, unknown>;
+    const manifest = jsonRecord(result.stdout);
     expect(Object.keys(manifest).sort()).toEqual([
       "caddy",
       "compose",

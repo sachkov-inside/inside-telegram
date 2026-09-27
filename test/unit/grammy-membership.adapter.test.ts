@@ -25,11 +25,11 @@ describe("GrammyMembershipAdapter", () => {
 
   it("maps provider errors to unavailable rather than non-member", async () => {
     const adapter = new GrammyMembershipAdapter("synthetic-token", {
-      async getChatMember() {
-        throw new Error("provider detail must not escape");
+      getChatMember() {
+        return Promise.reject(new Error("provider detail must not escape"));
       },
-      async getMe() {
-        return { id: 99 };
+      getMe() {
+        return Promise.resolve({ id: 99 });
       },
     });
 
@@ -43,14 +43,16 @@ describe("GrammyMembershipAdapter", () => {
 class ControlledTelegramApi {
   readonly requests: { chatId: number; userId: number }[] = [];
 
-  async getMe() {
-    return { id: 99 };
+  getMe() {
+    return Promise.resolve({ id: 99 });
   }
 
-  async getChatMember(chatId: number, userId: number) {
+  getChatMember(chatId: number, userId: number) {
     this.requests.push({ chatId, userId });
-    return userId === 99
-      ? { status: "administrator" }
-      : { is_member: true, status: "restricted" };
+    return Promise.resolve(
+      userId === 99
+        ? { status: "administrator" }
+        : { is_member: true, status: "restricted" },
+    );
   }
 }
