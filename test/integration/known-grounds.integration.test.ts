@@ -741,6 +741,39 @@ describe("the owner link", () => {
     expect(await openReviews(person.user)).toEqual([]);
   });
 
+  it("stops retrying an expired confirmed ground but keeps its confirmation", async () => {
+    const person = await linkedPerson();
+    members.add(`${courseChatId}:${person.user}`);
+    await send(person.user, "/start a_course");
+    await drain();
+    // A retry of the confirmed ground kept failing until its retention ran out.
+    await db
+      .updateTable("activation_attempts")
+      .set({
+        state: "retry",
+        result: { ok: false, error: { code: "unavailable" } },
+        expires_at: clock.now(),
+        due_at: clock.now(),
+      })
+      .where("bot_identity", "=", bot)
+      .where("telegram_user_id", "=", String(person.user))
+      .where("code", "=", "course")
+      .execute();
+    begins.length = 0;
+    clock.value = new Date(clock.now().getTime() + 61_000);
+    await drain();
+    expect(begins).toEqual([]);
+    const kept = await db
+      .selectFrom("activation_attempts")
+      .select(["state", "confirmed_at"])
+      .where("bot_identity", "=", bot)
+      .where("telegram_user_id", "=", String(person.user))
+      .where("code", "=", "course")
+      .executeTakeFirstOrThrow();
+    expect(kept.state).toBe("retry");
+    expect(kept.confirmed_at).toBeInstanceOf(Date);
+  });
+
   it("answers a link to an unknown rule without queueing an owner review", async () => {
     const person = await linkedPerson();
     await send(person.user, "/start a_typo");

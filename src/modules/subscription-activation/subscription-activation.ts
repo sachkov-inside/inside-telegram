@@ -44,9 +44,10 @@ type Attempt = Selectable<ActivationTables["activation_attempts"]>;
 const RETENTION = 30 * 24 * 60 * 60_000;
 const CADENCE = 60_000;
 // A known unfinished outcome may expire. Never discard an uncertain evidence write
-// or a confirmed Enrollment receipt just because the user has not returned.
+// or a confirmed Enrollment receipt just because the user has not returned. An expired
+// confirmed attempt stops retrying but is kept: the deletions also require no confirmation.
 // Parenthesized as a whole, because callers negate it.
-const expirableAttempt = sql<boolean>`(confirmed_at is null and coalesce(
+const expirableAttempt = sql<boolean>`(coalesce(
   (evidence is null and result is null)
   or result->>'ok' = 'false'
   or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account', 'pending_review'), false))`;
@@ -96,6 +97,7 @@ export class SubscriptionActivation {
           "pending_review",
         ])
         .where(expirableAttempt)
+        .where("confirmed_at", "is", null)
         .where((eb) =>
           eb.or([eb("lease_until", "is", null), eb("lease_until", "<=", now)]),
         )
@@ -370,6 +372,7 @@ export class SubscriptionActivation {
         "pending_review",
       ])
       .where(expirableAttempt)
+      .where("confirmed_at", "is", null)
       .where((eb) =>
         eb.or([
           eb("lease_until", "is", null),
@@ -571,7 +574,11 @@ export class SubscriptionActivation {
           lease_until: null,
           diagnostic_code: result.ok ? null : result.error.code,
           // Kept once set: a later retry result must not hide rights Platform granted.
-          ...(confirmed ? { confirmed_at: this.clock.now() } : {}),
+          ...(confirmed
+            ? {
+                confirmed_at: sql<Date>`coalesce(confirmed_at, ${this.clock.now()})`,
+              }
+            : {}),
         })
         .where("attempt_id", "=", attempt.attempt_id)
         .where("lease_token", "=", attempt.lease_token)
