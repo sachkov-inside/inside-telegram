@@ -1,7 +1,7 @@
 {
   "schemaVersion": 3,
   "package": "inside-engineering",
-  "version": "0.4.12",
+  "version": "0.4.13",
   "profile": "core",
   "managedSkills": [
     "ask-matt",
@@ -19,6 +19,7 @@
     "prototype",
     "research",
     "resolving-merge-conflicts",
+    "retro",
     "setup-matt-pocock-skills",
     "tdd",
     "teach",
