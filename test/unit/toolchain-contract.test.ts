@@ -98,8 +98,8 @@ function ignoredBy(config: Record<string, unknown>, file: string): string[] {
  */
 function gitignoreGlobs(pattern: string): string[] {
   const path = pattern.replace(/\/$/, "");
-  const anchored = path.includes("/") ? path.replace(/^\//, "") : `**/${path}`;
-  return [anchored, `${anchored}/**`];
+  const glob = path.includes("/") ? path.replace(/^\//, "") : `**/${path}`;
+  return [glob, `${glob}/**`];
 }
 
 /** Rules whose level for `file` differs from their level for application code. */
