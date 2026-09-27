@@ -9,6 +9,12 @@ on:
 permissions:
   contents: read
 
+# A newer push to the same pull request supersedes its run. Push and merge-queue runs of one SHA
+# sit in separate groups and always finish.
+concurrency:
+  group: inside-harness-health-${{ github.event_name }}-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   health:
     # Workspace checks its canonical package in its own CI. Every other repository checks its

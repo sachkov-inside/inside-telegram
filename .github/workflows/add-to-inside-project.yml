@@ -40,7 +40,7 @@ concurrency:
 jobs:
   reconcile:
     if: github.event_name != 'schedule' || github.repository == 'sachkov-inside/workspace'
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
       # Never execute PR head/merge code in the token-bearing metadata workflow.
