@@ -4,11 +4,15 @@ import type { Migration } from "kysely/migration";
 /**
  * An ordinary `/start` checks every known ground as one group, so the person hears one outcome.
  * A ground check or owner link that confirms nothing leaves one review request per person.
+ * A confirmed ground keeps its confirmation time, so a later retry result cannot hide it; a
+ * confirmation from before this migration gets its attempt's creation time.
  */
 export const knownGroundChecksMigration: Migration = {
   async up(db: Kysely<unknown>) {
     await sql`
       alter table activation_attempts add column ground_check_id uuid;
+      alter table activation_attempts add column confirmed_at timestamptz;
+      update activation_attempts set confirmed_at = created_at where state = 'completed';
       create index activation_attempts_ground_check on activation_attempts
         (bot_identity, ground_check_id) where ground_check_id is not null;
       create table activation_review_requests (
@@ -31,6 +35,7 @@ export const knownGroundChecksMigration: Migration = {
     await sql`
       drop table activation_review_requests;
       drop index activation_attempts_ground_check;
+      alter table activation_attempts drop column confirmed_at;
       alter table activation_attempts drop column ground_check_id;
     `.execute(db);
   },

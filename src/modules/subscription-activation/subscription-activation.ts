@@ -26,6 +26,7 @@ import {
   type ActivationEvidence,
   type ActivationResponse,
   type ActivationResult,
+  type ActivationState,
 } from "./activation-contract.js";
 import {
   accountPrompt,
@@ -44,7 +45,7 @@ const RETENTION = 30 * 24 * 60 * 60_000;
 const CADENCE = 60_000;
 // A known unfinished outcome may expire. Never discard an uncertain evidence write
 // or a confirmed Enrollment receipt just because the user has not returned.
-const expirableAttempt = sql<boolean>`coalesce(
+const expirableAttempt = sql<boolean>`confirmed_at is null and coalesce(
   (evidence is null and result is null)
   or result->>'ok' = 'false'
   or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account', 'pending_review'), false)`;
@@ -154,7 +155,7 @@ export class SubscriptionActivation {
         .execute();
       // Rights for a confirmed ground are granted once, and an owner's decision is final for the
       // automatic check; repeating it would only queue the person again.
-      if (rows.some((row) => row.result && confirmedResult(row.result))) return;
+      if (rows.some((row) => row.confirmed_at !== null)) return;
       const decided = await tx
         .selectFrom("activation_review_requests")
         .select("review_id")
@@ -454,7 +455,7 @@ export class SubscriptionActivation {
     }
     if (
       begun.value.attemptId === attempt.attempt_id &&
-      ["active", "already_active"].includes(begun.value.state)
+      confirmedResult(begun)
     ) {
       await this.finish(attempt, begun);
       return;
@@ -568,6 +569,8 @@ export class SubscriptionActivation {
           lease_token: null,
           lease_until: null,
           diagnostic_code: result.ok ? null : result.error.code,
+          // Kept once set: a later retry result must not hide rights Platform granted.
+          ...(confirmed ? { confirmed_at: this.clock.now() } : {}),
         })
         .where("attempt_id", "=", attempt.attempt_id)
         .where("lease_token", "=", attempt.lease_token)
@@ -715,15 +718,13 @@ export class SubscriptionActivation {
     tx: Transaction<DatabaseSchema>,
     attempt: Attempt,
   ): Promise<boolean> {
-    // The stored result, not the state: a retried confirmation is pending until Platform repeats it.
+    // Not the state or result: a retried confirmation is pending until Platform repeats it.
     const confirmed = await tx
       .selectFrom("activation_attempts")
       .select("attempt_id")
       .where("bot_identity", "=", attempt.bot_identity)
       .where("telegram_user_id", "=", attempt.telegram_user_id)
-      .where(
-        sql<boolean>`result->'value'->>'state' in ('active', 'already_active')`,
-      )
+      .where("confirmed_at", "is not", null)
       .executeTakeFirst();
     return confirmed !== undefined;
   }
@@ -836,11 +837,16 @@ function groundCheckKey(groundCheckId: string): string {
   return `activation-ground-check:${groundCheckId}`;
 }
 
+const CONFIRMED_STATES: readonly ActivationState[] = [
+  "active",
+  "already_active",
+];
+
 /** Platform granted, now or on an earlier attempt of the same ground. */
 function confirmedResult(
   result: ActivationResult<ActivationResponse>,
 ): boolean {
-  return result.ok && ["active", "already_active"].includes(result.value.state);
+  return result.ok && CONFIRMED_STATES.includes(result.value.state);
 }
 
 /** A ground that was checked and not confirmed, as opposed to a broken link or paused rule. */
@@ -884,6 +890,7 @@ function newAttempt(
     attempts: 0,
     diagnostic_code: null,
     ground_check_id: groundCheckId,
+    confirmed_at: null,
   };
 }
 

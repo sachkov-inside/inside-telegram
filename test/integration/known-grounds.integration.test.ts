@@ -86,6 +86,8 @@ const members = new Set<string>();
 const tributeRegistry = new Set<string>();
 /** Rules the owner paused on Platform. */
 const paused = new Set<string>();
+/** Rules Platform cannot answer for right now. */
+const outage = new Set<string>();
 /** Identities whose Tribute ground Platform holds as a latched source end. */
 const suspendedTribute = new Set<string>();
 const begins: string[] = [];
@@ -112,6 +114,8 @@ const platform: ActivationPlatform = {
     );
     if (!code)
       return Promise.resolve({ ok: false, error: { code: "not_found" } });
+    if (outage.has(code))
+      return Promise.resolve({ ok: false, error: { code: "unavailable" } });
     if (paused.has(code))
       return Promise.resolve({ ok: false, error: { code: "policy_paused" } });
     return Promise.resolve({
@@ -684,6 +688,57 @@ describe("the owner link", () => {
       { code: "course", outcome: "rejected" },
       { code: "tribute", outcome: "pending_review" },
     ]);
+  });
+
+  it("keeps a confirmed ground when its retry meets a Platform outage", async () => {
+    const person = await linkedPerson();
+    await send(person.user);
+    await drain();
+    members.add(`${courseChatId}:${person.user}`);
+    await send(person.user, "/start a_course");
+    await drain();
+    await worker.action(
+      {
+        botIdentity: bot,
+        telegramUserId: String(person.user),
+        privateChatId: String(person.user),
+        updateId: String(++updateId),
+        observedAt: clock.now(),
+      },
+      "retry",
+    );
+    // The course retry meets the outage first; the Tribute ground finishes afterwards.
+    await db
+      .updateTable("activation_attempts")
+      .set({ due_at: new Date(clock.now().getTime() + 120_000) })
+      .where("bot_identity", "=", bot)
+      .where("telegram_user_id", "=", String(person.user))
+      .where("code", "=", "tribute")
+      .execute();
+    outage.add("course");
+    try {
+      clock.value = new Date(clock.now().getTime() + 61_000);
+      await drain();
+      expect(
+        await db
+          .selectFrom("activation_attempts")
+          .select("state")
+          .where("bot_identity", "=", bot)
+          .where("telegram_user_id", "=", String(person.user))
+          .where("code", "=", "course")
+          .executeTakeFirstOrThrow(),
+      ).toEqual({ state: "retry" });
+      clock.value = new Date(clock.now().getTime() + 120_000);
+      await drain();
+    } finally {
+      outage.clear();
+    }
+    expect(
+      (await activationMessages(person.user)).filter(
+        (m) => m.message_text === NO_KNOWN_GROUND,
+      ),
+    ).toHaveLength(1);
+    expect(await openReviews(person.user)).toEqual([]);
   });
 
   it("answers a link to an unknown rule without queueing an owner review", async () => {

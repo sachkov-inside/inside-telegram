@@ -37,6 +37,8 @@ export interface ActivationTables {
     diagnostic_code: string | null;
     /** Groups the attempts one ordinary `/start` scheduled; null for an explicit code. */
     ground_check_id: string | null;
+    /** When Platform first granted this ground; never cleared by a later retry. */
+    confirmed_at: Timestamp | null;
   };
   activation_review_requests: {
     review_id: string;
