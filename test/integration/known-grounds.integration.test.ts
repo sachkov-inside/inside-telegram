@@ -24,6 +24,7 @@ import {
 } from "../../src/modules/subscription-activation/activation-contract.js";
 import { ActivationReviews } from "../../src/modules/subscription-activation/activation-reviews.js";
 import {
+  GROUND_CHECK_UNAVAILABLE,
   NO_KNOWN_GROUND,
   OWNER_REVIEW,
 } from "../../src/modules/subscription-activation/activation-view.js";
@@ -83,6 +84,8 @@ const bindings = new Map<string, ActivationBinding>();
 /** Chat members by `${chatId}:${userId}`; the canonical chat is listed to prove it is ignored. */
 const members = new Set<string>();
 const tributeRegistry = new Set<string>();
+/** Rules the owner paused on Platform. */
+const paused = new Set<string>();
 /** Identities whose Tribute ground Platform holds as a latched source end. */
 const suspendedTribute = new Set<string>();
 const begins: string[] = [];
@@ -109,6 +112,8 @@ const platform: ActivationPlatform = {
     );
     if (!code)
       return Promise.resolve({ ok: false, error: { code: "not_found" } });
+    if (paused.has(code))
+      return Promise.resolve({ ok: false, error: { code: "policy_paused" } });
     return Promise.resolve({
       ok: true,
       value: {
@@ -503,6 +508,22 @@ describe("ordinary /start checks known grounds of a linked identity", () => {
     expect(await openReviews(person.user)).toEqual([]);
   });
 
+  it("answers with a next step and queues nobody while the owner's rules are paused", async () => {
+    const person = await linkedPerson();
+    paused.add("course");
+    paused.add("tribute");
+    try {
+      await send(person.user);
+      await drain();
+    } finally {
+      paused.clear();
+    }
+    expect(await activationMessages(person.user)).toEqual([
+      expect.objectContaining({ message_text: GROUND_CHECK_UNAVAILABLE }),
+    ]);
+    expect(await openReviews(person.user)).toEqual([]);
+  });
+
   it("grants once: a repeated /start after leaving the group sends nothing new", async () => {
     const person = await linkedPerson();
     members.add(`${courseChatId}:${person.user}`);
@@ -619,7 +640,29 @@ describe("the owner link", () => {
       },
       "retry",
     );
+    // The confirmed course is being confirmed again while the Tribute ground finishes first.
+    await db
+      .updateTable("activation_attempts")
+      .set({ due_at: new Date(clock.now().getTime() + 120_000) })
+      .where("bot_identity", "=", bot)
+      .where("telegram_user_id", "=", String(person.user))
+      .where("code", "=", "course")
+      .execute();
     clock.value = new Date(clock.now().getTime() + 61_000);
+    await drain();
+    expect(
+      await db
+        .selectFrom("activation_attempts")
+        .select(["code", "state"])
+        .where("bot_identity", "=", bot)
+        .where("telegram_user_id", "=", String(person.user))
+        .orderBy("code")
+        .execute(),
+    ).toEqual([
+      { code: "course", state: "pending" },
+      { code: "tribute", state: "pending_review" },
+    ]);
+    clock.value = new Date(clock.now().getTime() + 120_000);
     await drain();
     expect(
       (await activationMessages(person.user)).filter(
@@ -627,6 +670,20 @@ describe("the owner link", () => {
       ),
     ).toHaveLength(1);
     expect(await openReviews(person.user)).toEqual([]);
+  });
+
+  it("keeps a ground its group still waits for when the owner link arrives meanwhile", async () => {
+    const person = await linkedPerson();
+    await send(person.user);
+    await send(person.user, "/start a_course");
+    await drain();
+    expect(await activationMessages(person.user)).toEqual([
+      expect.objectContaining({ message_text: NO_KNOWN_GROUND }),
+    ]);
+    expect(required((await openReviews(person.user))[0]).outcomes).toEqual([
+      { code: "course", outcome: "rejected" },
+      { code: "tribute", outcome: "pending_review" },
+    ]);
   });
 
   it("answers a link to an unknown rule without queueing an owner review", async () => {

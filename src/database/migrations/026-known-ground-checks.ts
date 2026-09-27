@@ -14,7 +14,7 @@ export const knownGroundChecksMigration: Migration = {
       create table activation_review_requests (
         review_id uuid primary key,
         bot_identity text not null,
-        telegram_user_id text not null,
+        telegram_user_id bigint not null,
         identity_ref text not null,
         account_ref text,
         outcomes jsonb not null,

@@ -31,6 +31,7 @@ import {
   accountPrompt,
   activationMenu,
   activationMessage,
+  GROUND_CHECK_UNAVAILABLE,
   NO_KNOWN_GROUND,
   OWNER_REVIEW,
   ownAccessText,
@@ -102,9 +103,13 @@ export class SubscriptionActivation {
         .values(newAttempt(contact, identity, code, now, null))
         // An explicit owner link answers for its own rule, outside any known-ground group.
         .onConflict((c) =>
-          c
-            .columns(["bot_identity", "telegram_user_id", "code"])
-            .doUpdateSet({ due_at: now, ground_check_id: null }),
+          c.columns(["bot_identity", "telegram_user_id", "code"]).doUpdateSet({
+            due_at: now,
+            // A group still waiting for this ground keeps it, so the group can still answer.
+            ground_check_id: sql<
+              string | null
+            >`case when activation_attempts.state in ('rejected', 'pending_review', 'completed') then null else activation_attempts.ground_check_id end`,
+          }),
         )
         .execute();
     });
@@ -149,7 +154,7 @@ export class SubscriptionActivation {
         .execute();
       // Rights for a confirmed ground are granted once, and an owner's decision is final for the
       // automatic check; repeating it would only queue the person again.
-      if (rows.some((row) => row.state === "completed")) return;
+      if (rows.some((row) => row.result && confirmedResult(row.result))) return;
       const decided = await tx
         .selectFrom("activation_review_requests")
         .select("review_id")
@@ -239,8 +244,9 @@ export class SubscriptionActivation {
           .where("telegram_user_id", "=", contact.telegramUserId);
         if (onlyCode !== undefined) query = query.where("code", "=", onlyCode);
         const rows = await query.forUpdate().execute();
-        // A retried known-ground group answers once again, under a new group.
-        const groundCheckId = randomUUID();
+        // A retried known-ground group answers once again, under a new group. A retry for one
+        // rule leaves its attempt in whatever group it belongs to.
+        const groundCheckId = onlyCode === undefined ? randomUUID() : null;
         const now = this.clock.now();
         for (const row of rows)
           await reschedule(
@@ -545,8 +551,7 @@ export class SubscriptionActivation {
           result.value.state,
         )
       : result.error.code === "unavailable";
-    const confirmed =
-      result.ok && ["active", "already_active"].includes(result.value.state);
+    const confirmed = confirmedResult(result);
     await this.db.transaction().execute(async (tx) => {
       const stored = await tx
         .updateTable("activation_attempts")
@@ -662,19 +667,15 @@ export class SubscriptionActivation {
       (await this.hasConfirmedGround(tx, attempt))
     )
       return;
-    // A broken link or paused rule is the owner's setup, not a person to review.
+    // A paused or missing rule is the owner's setup, not a person to review.
     if (
       !grounds.some(
         (ground) => ground.result && unconfirmedGround(ground.result),
       )
     ) {
-      const setup = grounds.find((ground) => ground.result)?.result;
       await this.replies.enqueue(
         {
-          ...this.delivery(
-            this.contact(attempt),
-            setup ? activationMessage(setup) : NO_KNOWN_GROUND,
-          ),
+          ...this.delivery(this.contact(attempt), GROUND_CHECK_UNAVAILABLE),
           sourceKey: groundCheckKey(groundCheckId),
           ...this.menu(),
         },
@@ -714,12 +715,15 @@ export class SubscriptionActivation {
     tx: Transaction<DatabaseSchema>,
     attempt: Attempt,
   ): Promise<boolean> {
+    // The stored result, not the state: a retried confirmation is pending until Platform repeats it.
     const confirmed = await tx
       .selectFrom("activation_attempts")
       .select("attempt_id")
       .where("bot_identity", "=", attempt.bot_identity)
       .where("telegram_user_id", "=", attempt.telegram_user_id)
-      .where("state", "=", "completed")
+      .where(
+        sql<boolean>`result->'value'->>'state' in ('active', 'already_active')`,
+      )
       .executeTakeFirst();
     return confirmed !== undefined;
   }
@@ -830,6 +834,13 @@ export class SubscriptionActivation {
 
 function groundCheckKey(groundCheckId: string): string {
   return `activation-ground-check:${groundCheckId}`;
+}
+
+/** Platform granted, now or on an earlier attempt of the same ground. */
+function confirmedResult(
+  result: ActivationResult<ActivationResponse>,
+): boolean {
+  return result.ok && ["active", "already_active"].includes(result.value.state);
 }
 
 /** A ground that was checked and not confirmed, as opposed to a broken link or paused rule. */

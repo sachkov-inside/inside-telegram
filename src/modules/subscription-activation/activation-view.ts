@@ -17,6 +17,9 @@ const enrollmentStates = {
 /** Tells the person that an unconfirmed ground is now in the owner's review queue. */
 export const OWNER_REVIEW =
   "Запрос передан владельцу: он проверит его вручную.";
+/** The answer when no known ground could be checked because the owner's rules are not available. */
+export const GROUND_CHECK_UNAVAILABLE =
+  "Проверить прежние покупки сейчас не получилось: проверка временно недоступна. Нажмите «Повторить проверку» позже или «Нужна помощь», если доступ нужен сейчас. Уже выданные права сохраняются.";
 /** The one answer to a known-ground check that confirmed nothing; the owner reviews it. */
 export const NO_KNOWN_GROUND = `Мы не нашли подтверждения прежней покупки курса или подписки Tribute для этого Telegram. ${OWNER_REVIEW} Если вы покупали курс с другого аккаунта Telegram, нажмите «Нужна помощь». Уже выданные права сохраняются.`;
 export function activationMenu(accountUrl: string): readonly TelegramButton[] {
