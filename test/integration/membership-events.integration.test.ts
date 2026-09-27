@@ -381,12 +381,8 @@ describe("durable Membership events", () => {
     const linking = new IdentityLinking(database, clock);
     const processor = new TelegramUpdateProcessor(
       {
-        start() {
-          return Promise.resolve();
-        },
-        action() {
-          return Promise.resolve();
-        },
+        start: () => Promise.resolve(),
+        action: () => Promise.resolve(),
       },
       inbox,
       config,

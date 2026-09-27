@@ -84,6 +84,20 @@ function missingProductionRules(
   return PRODUCTION_RULES.filter((rule) => applied.get(rule) !== "error");
 }
 
+/** Ignore patterns that exclude `file` from linting altogether. */
+function ignoredBy(config: Record<string, unknown>, file: string): string[] {
+  const patterns: unknown = config.ignorePatterns;
+  if (!Array.isArray(patterns)) return [];
+  const list: readonly unknown[] = patterns;
+  return list.filter(
+    (pattern): pattern is string =>
+      typeof pattern === "string" &&
+      (pattern.endsWith("/**")
+        ? file.startsWith(pattern.slice(0, -2))
+        : matches(pattern, file)),
+  );
+}
+
 /** Rules whose level for `file` differs from their level for application code. */
 function rulesDifferingFromApplication(
   overrides: readonly Override[],
@@ -170,14 +184,17 @@ describe("toolchain contract", () => {
   });
 
   it("lints tests with the same rules as application code", () => {
-    const overrides = overridesOf(json(".oxlintrc.json"));
+    const config = json(".oxlintrc.json");
+    const overrides = overridesOf(config);
     for (const file of [
       "test/unit/toolchain-contract.test.ts",
       "test/integration/funnels.integration.test.ts",
       "test/support/community-chat.ts",
       "test/local/course-activation-provider.ts",
-    ])
+    ]) {
       expect(rulesDifferingFromApplication(overrides, file), file).toEqual([]);
+      expect(ignoredBy(config, file), file).toEqual([]);
+    }
   });
 
   it("detects a rule turned off for tests", () => {
@@ -191,6 +208,12 @@ describe("toolchain contract", () => {
     expect(
       rulesDifferingFromApplication(overrides, "test/unit/example.test.ts"),
     ).toEqual(["typescript/require-await"]);
+    expect(
+      ignoredBy(
+        { ignorePatterns: ["dist/**", "test/**"] },
+        "test/unit/example.test.ts",
+      ),
+    ).toEqual(["test/**"]);
   });
 
   it("detects a production rule turned off for application code", () => {

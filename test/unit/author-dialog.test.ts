@@ -10,14 +10,13 @@ import {
 } from "../../src/modules/communications/author-dialog.js";
 import type { TemplateContent } from "../../src/modules/communications/communications-contract.js";
 import { required } from "../support/required.js";
+import { jsonRecord } from "../support/json.js";
 
 const broadcastId = "4f7c1d2e-9a8b-4c3d-8e7f-6a5b4c3d2e1f";
 
 /** The JSON a session store keeps for `state`, as an object a test may rewrite. */
 function storedCopy(state: AuthorState): Record<string, unknown> {
-  const stored: unknown = JSON.parse(JSON.stringify(state));
-  if (!isRecord(stored)) throw new Error("A stored session is an object");
-  return Object.fromEntries(Object.entries(stored));
+  return jsonRecord(JSON.stringify(state));
 }
 
 function isRecord(value: unknown): value is Record<string | number, unknown> {

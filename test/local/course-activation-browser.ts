@@ -7,6 +7,7 @@ import {
   type APIResponse,
 } from "@playwright/test";
 import { required } from "../support/required.js";
+import { list, record, text } from "../support/json.js";
 
 const expect = baseExpect.configure({ timeout: 30_000 });
 
@@ -59,20 +60,6 @@ interface Message {
   id: string;
   text: string;
   buttons?: { url?: string; callbackData?: string }[];
-}
-function record(value: unknown): Record<string, unknown> {
-  if (typeof value !== "object" || value === null || Array.isArray(value))
-    throw new Error("Expected a JSON object");
-  return Object.fromEntries(Object.entries(value));
-}
-function list(value: unknown): Record<string, unknown>[] {
-  if (!Array.isArray(value)) throw new Error("Expected a JSON array");
-  const items: readonly unknown[] = value;
-  return items.map(record);
-}
-function text(value: unknown): string {
-  if (typeof value !== "string") throw new Error("Expected a JSON string");
-  return value;
 }
 async function jsonObject(response: APIResponse) {
   return record(await response.json());

@@ -292,11 +292,11 @@ it("edits author menus and only replaces definitively unavailable messages", asy
  * A Telegram API double for the adapter. grammY types every method with complete Telegram
  * objects, while these doubles return only the fields the adapter reads.
  */
+type TelegramApi = ConstructorParameters<typeof GrammyCommunicationsAdapter>[0];
+
 function telegram(
-  methods: object,
-): ConstructorParameters<typeof GrammyCommunicationsAdapter>[0] {
+  methods: Partial<Record<keyof TelegramApi, unknown>>,
+): TelegramApi {
   // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- partial grammY double, see above.
-  return methods as ConstructorParameters<
-    typeof GrammyCommunicationsAdapter
-  >[0];
+  return methods as TelegramApi;
 }

@@ -444,12 +444,8 @@ describe("bot sign-in provider", () => {
       claim.mockClear();
       const processor = new TelegramUpdateProcessor(
         {
-          start() {
-            return Promise.resolve();
-          },
-          action() {
-            return Promise.resolve();
-          },
+          start: () => Promise.resolve(),
+          action: () => Promise.resolve(),
         },
         inbox,
         config,

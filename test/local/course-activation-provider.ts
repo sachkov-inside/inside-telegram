@@ -107,9 +107,7 @@ const module = await Test.createTestingModule({
   .useValue(chat)
   .overrideProvider(TELEGRAM_CALLBACK_ANSWERS)
   .useValue({
-    answer() {
-      return Promise.resolve();
-    },
+    answer: () => Promise.resolve(),
   })
   .overrideProvider(TELEGRAM_MESSAGES)
   .useValue({

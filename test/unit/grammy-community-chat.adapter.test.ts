@@ -140,8 +140,10 @@ describe("canonical chat mutations", () => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
       api({
-        unbanChatMember: (...args: unknown[]) =>
-          Promise.resolve(calls.push(args)),
+        unbanChatMember: (...args: unknown[]) => {
+          calls.push(args);
+          return Promise.resolve(true);
+        },
       }),
     );
     await adapter.unbanMember(CHAT, USER);
