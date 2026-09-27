@@ -380,6 +380,22 @@ export class SubscriptionActivation {
         ]),
       )
       .execute();
+    // An expired retry of a confirmed ground ends where it started: confirmed, not pending.
+    await this.db
+      .updateTable("activation_attempts")
+      .set({ state: "completed" })
+      .where("bot_identity", "=", this.config.botIdentity)
+      .where("expires_at", "<=", this.clock.now())
+      .where("state", "in", ["pending", "needs_account", "retry"])
+      .where(expirableAttempt)
+      .where("confirmed_at", "is not", null)
+      .where((eb) =>
+        eb.or([
+          eb("lease_until", "is", null),
+          eb("lease_until", "<=", this.clock.now()),
+        ]),
+      )
+      .execute();
     return processed;
   }
 

@@ -741,7 +741,7 @@ describe("the owner link", () => {
     expect(await openReviews(person.user)).toEqual([]);
   });
 
-  it("stops retrying an expired confirmed ground but keeps its confirmation", async () => {
+  it("ends an expired retry of a confirmed ground as confirmed", async () => {
     const person = await linkedPerson();
     members.add(`${courseChatId}:${person.user}`);
     await send(person.user, "/start a_course");
@@ -770,7 +770,7 @@ describe("the owner link", () => {
       .where("telegram_user_id", "=", String(person.user))
       .where("code", "=", "course")
       .executeTakeFirstOrThrow();
-    expect(kept.state).toBe("retry");
+    expect(kept.state).toBe("completed");
     expect(kept.confirmed_at).toBeInstanceOf(Date);
   });
 
