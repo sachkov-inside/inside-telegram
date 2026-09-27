@@ -45,10 +45,11 @@ const RETENTION = 30 * 24 * 60 * 60_000;
 const CADENCE = 60_000;
 // A known unfinished outcome may expire. Never discard an uncertain evidence write
 // or a confirmed Enrollment receipt just because the user has not returned.
-const expirableAttempt = sql<boolean>`confirmed_at is null and coalesce(
+// Parenthesized as a whole, because callers negate it.
+const expirableAttempt = sql<boolean>`(confirmed_at is null and coalesce(
   (evidence is null and result is null)
   or result->>'ok' = 'false'
-  or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account', 'pending_review'), false)`;
+  or result->'value'->>'state' in ('unavailable', 'checking', 'needs_account', 'pending_review'), false))`;
 export type AccessAction = "own" | "community" | "retry" | "help" | "platform";
 
 /** Durable Telegram continuation; Account and every grant remain Platform-owned. */
