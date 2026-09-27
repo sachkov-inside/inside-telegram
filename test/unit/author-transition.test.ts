@@ -60,7 +60,7 @@ function funnel(overrides: Partial<FunnelSnapshot> = {}): FunnelSnapshot {
 /** Drives the dialog as the executor does, keeping the menu the author sees. */
 class Dialog {
   effects: readonly AuthorEffect[] = [];
-  menu?: Extract<AuthorEffect, { kind: "menu" }>;
+  menu?: Extract<AuthorEffect, { kind: "menu" }> | undefined;
   private ids = 0;
   pending = new Set<string>();
 

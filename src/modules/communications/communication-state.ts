@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { sql, type Transaction } from "kysely";
 import type { DatabaseSchema } from "../../database/database.js";
 import type { MessagePart } from "./funnel-types.js";
+import { aggregateRow } from "./communication-queries.js";
 export async function communicationLock(
   tx: Transaction<DatabaseSchema>,
   key: string,
@@ -40,7 +41,7 @@ export async function tryContactLock(
   }>`select pg_try_advisory_xact_lock(hashtextextended(${contactKey(bot, telegramUserId)}, 0)) as locked`.execute(
     tx,
   );
-  return result.rows[0]!.locked;
+  return aggregateRow(result).locked;
 }
 // Locks the BotContact that owns this delivery, if the delivery exists.
 export async function lockDeliveryContact(
@@ -132,4 +133,15 @@ export async function planDeliveries(
       )
       .onConflict((c) => c.column("dedup_key").doNothing())
       .execute();
+}
+/**
+ * The result an operation stored in communication_operations. A replay returns it only after
+ * matching the same actor and the deep-equal request, so the row was written by this operation.
+ */
+// oxlint-disable-next-line typescript/no-unnecessary-type-parameters -- the caller names the type its own operation stored
+export function replayedResult<Result>(receipt: {
+  readonly result: unknown;
+}): Result {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- the matched request fixes the stored result type
+  return receipt.result as Result;
 }

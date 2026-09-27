@@ -18,7 +18,7 @@ export class AuthorFunnelDrafts {
   async list(
     c: Context,
     cursor: string | undefined,
-  ): Promise<{ items: FunnelListItem[]; nextCursor?: string }> {
+  ): Promise<{ items: FunnelListItem[]; nextCursor?: string | undefined }> {
     let saved = c.tx
       .selectFrom("communication_funnels")
       .select("funnel_id as id")
@@ -108,8 +108,6 @@ export class AuthorFunnelDrafts {
       .select("part_ids")
       .where("funnel_id", "=", funnelId)
       .execute();
-    return historical.some((step) =>
-      (step.part_ids as string[]).includes(partId),
-    );
+    return historical.some((step) => step.part_ids.includes(partId));
   }
 }

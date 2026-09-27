@@ -1,6 +1,5 @@
 import { readFile } from "node:fs/promises";
-
-import { parse } from "dotenv";
+import { parseEnv } from "node:util";
 
 import { validateCredentialedProofDatabaseUrl } from "./credentialed-proof.js";
 
@@ -14,7 +13,7 @@ if (!environmentPath) {
   process.exitCode = 1;
 } else {
   try {
-    const environment = parse(await readFile(environmentPath));
+    const environment = parseEnv(await readFile(environmentPath, "utf8"));
     validateCredentialedProofDatabaseUrl(environment.DATABASE_URL);
     process.stdout.write('{"ok":true,"stage":"proof-preflight"}\n');
   } catch {

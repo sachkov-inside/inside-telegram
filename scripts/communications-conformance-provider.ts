@@ -82,12 +82,12 @@ let outcome:
 const sent: CommunicationMessage[] = [];
 const serviceMessages: string[] = [];
 const serviceTransport: TelegramMessages = {
-  async sendText(message) {
+  sendText(message) {
     serviceMessages.push(message.text);
-    return { kind: "delivered", providerMessageId: "123" };
+    return Promise.resolve({ kind: "delivered", providerMessageId: "123" });
   },
-  async editText() {
-    return { kind: "delivered", providerMessageId: "123" };
+  editText() {
+    return Promise.resolve({ kind: "delivered", providerMessageId: "123" });
   },
 };
 const module = await Test.createTestingModule({
@@ -99,22 +99,24 @@ const module = await Test.createTestingModule({
   .useValue(serviceTransport)
   .overrideProvider(COMMUNICATION_TRANSPORT)
   .useValue({
-    async send(message: CommunicationMessage) {
-      sent.push(message);
-      if (outcome === "delivered")
-        return { kind: outcome, providerMessageId: `synthetic-${sent.length}` };
-      if (outcome === "retry_after")
-        return {
-          kind: "api_retryable",
-          providerErrorCode: 429,
-          retryAfterSeconds: 30,
-        };
-      if (outcome === "permanent_failure")
-        return { kind: "api_rejected", providerErrorCode: 400 };
-      return { kind: outcome };
-    },
+    send: (message: CommunicationMessage) =>
+      Promise.resolve(syntheticDelivery(message)),
   })
   .compile();
+function syntheticDelivery(message: CommunicationMessage) {
+  sent.push(message);
+  if (outcome === "delivered")
+    return { kind: outcome, providerMessageId: `synthetic-${sent.length}` };
+  if (outcome === "retry_after")
+    return {
+      kind: "api_retryable",
+      providerErrorCode: 429,
+      retryAfterSeconds: 30,
+    };
+  if (outcome === "permanent_failure")
+    return { kind: "api_rejected", providerErrorCode: 400 };
+  return { kind: outcome };
+}
 const app = module.createNestApplication<NestFastifyApplication>(
   new FastifyAdapter(),
   { logger: false },

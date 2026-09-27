@@ -64,18 +64,14 @@ export function planWebhookRegistration(
     typeof current.ip_address === "string" && current.ip_address
       ? current.ip_address
       : undefined;
-  const maxConnections = Number.isSafeInteger(current.max_connections)
-    ? (current.max_connections as number)
-    : undefined;
+  const maxConnections = safeInteger(current.max_connections);
   const summary: WebhookRegistrationSummary = {
     port: new URL(url).port || "443",
     ipAddressPreserved: ipAddress !== undefined,
     maxConnections: maxConnections ?? null,
     addedUpdates: required.filter((name) => !subscribed.includes(name)),
     removedUpdates: subscribed.filter((name) => !required.includes(name)),
-    pendingUpdateCount: Number.isSafeInteger(current.pending_update_count)
-      ? (current.pending_update_count as number)
-      : null,
+    pendingUpdateCount: safeInteger(current.pending_update_count) ?? null,
   };
   if (!summary.addedUpdates.length && !summary.removedUpdates.length)
     return { kind: "current", summary };
@@ -147,4 +143,10 @@ function updateNames(value: unknown): string[] {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function safeInteger(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isSafeInteger(value)
+    ? value
+    : undefined;
 }

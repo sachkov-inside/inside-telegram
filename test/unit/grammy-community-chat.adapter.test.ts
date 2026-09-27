@@ -31,7 +31,7 @@ function api(overrides: Record<string, unknown> = {}) {
     banChatMember: async () => ({}),
     revokeChatInviteLink: async () => ({}),
     ...overrides,
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    // oxlint-disable-next-line typescript/no-explicit-any
   } as any;
 }
 

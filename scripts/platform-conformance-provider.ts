@@ -1,6 +1,10 @@
 import "reflect-metadata";
 
-import { createServer, type IncomingMessage } from "node:http";
+import {
+  createServer,
+  type IncomingMessage,
+  type ServerResponse,
+} from "node:http";
 
 import {
   FastifyAdapter,
@@ -39,14 +43,14 @@ class ControlledTelegramMembership implements TelegramMembership {
   botState: "administrator" | "member" | "unavailable" = "administrator";
   subjectState: "left" | "member" | "unavailable" = "member";
 
-  async getBotChatMember(): Promise<TelegramChatMemberResult> {
+  getBotChatMember(): Promise<TelegramChatMemberResult> {
     this.calls += 1;
-    return result(this.botState);
+    return Promise.resolve(result(this.botState));
   }
 
-  async getChatMember(): Promise<TelegramChatMemberResult> {
+  getChatMember(): Promise<TelegramChatMemberResult> {
     this.calls += 1;
-    return result(this.subjectState);
+    return Promise.resolve(result(this.subjectState));
   }
 }
 
@@ -89,7 +93,16 @@ const application = module.createNestApplication<NestFastifyApplication>(
 );
 await application.listen(appPort, "127.0.0.1");
 
-const control = createServer(async (request, response) => {
+const control = createServer((request, response) => {
+  handleControl(request, response).catch(() => {
+    if (!response.headersSent) response.writeHead(500);
+    response.end(JSON.stringify({ error: "internal" }));
+  });
+});
+async function handleControl(
+  request: IncomingMessage,
+  response: ServerResponse,
+): Promise<void> {
   response.setHeader("content-type", "application/json");
   if (request.headers.authorization !== `Bearer ${controlSecret}`) {
     response.writeHead(401).end(JSON.stringify({ error: "unauthorized" }));
@@ -117,7 +130,7 @@ const control = createServer(async (request, response) => {
     return;
   }
   response.writeHead(404).end(JSON.stringify({ error: "not_found" }));
-});
+}
 await new Promise<void>((resolve) =>
   control.listen(controlPort, "127.0.0.1", resolve),
 );

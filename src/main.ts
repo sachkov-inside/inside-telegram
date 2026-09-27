@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "./config/load-environment.js";
 import "reflect-metadata";
 
 import { Logger } from "@nestjs/common";

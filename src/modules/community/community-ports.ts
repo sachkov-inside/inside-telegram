@@ -87,35 +87,41 @@ export interface TelegramCommunityChat {
 export const TELEGRAM_COMMUNITY_CHAT = Symbol("TELEGRAM_COMMUNITY_CHAT");
 
 export class DisabledTelegramCommunityChat implements TelegramCommunityChat {
-  async observeMember(): Promise<CommunityObservation> {
-    return { kind: "unavailable", diagnosticCode: "community_chat_disabled" };
+  observeMember(): Promise<CommunityObservation> {
+    return Promise.resolve({
+      kind: "unavailable",
+      diagnosticCode: "community_chat_disabled",
+    });
   }
-  async readCapability(): Promise<CommunityCapability> {
-    return { kind: "unavailable", diagnosticCode: "community_chat_disabled" };
+  readCapability(): Promise<CommunityCapability> {
+    return Promise.resolve({
+      kind: "unavailable",
+      diagnosticCode: "community_chat_disabled",
+    });
   }
-  async unbanMember(): Promise<CommunityCallOutcome> {
-    return unavailableCall();
+  unbanMember(): Promise<CommunityCallOutcome> {
+    return Promise.resolve(unavailableCall());
   }
-  async createJoinRequestLink(): Promise<CommunityInviteOutcome> {
-    return unavailableCall();
+  createJoinRequestLink(): Promise<CommunityInviteOutcome> {
+    return Promise.resolve(unavailableCall());
   }
-  async approveJoinRequest(): Promise<CommunityCallOutcome> {
-    return unavailableCall();
+  approveJoinRequest(): Promise<CommunityCallOutcome> {
+    return Promise.resolve(unavailableCall());
   }
-  async declineJoinRequest(): Promise<CommunityCallOutcome> {
-    return unavailableCall();
+  declineJoinRequest(): Promise<CommunityCallOutcome> {
+    return Promise.resolve(unavailableCall());
   }
-  async banMember(): Promise<CommunityCallOutcome> {
-    return unavailableCall();
+  banMember(): Promise<CommunityCallOutcome> {
+    return Promise.resolve(unavailableCall());
   }
-  async revokeInviteLink(): Promise<CommunityCallOutcome> {
-    return unavailableCall();
+  revokeInviteLink(): Promise<CommunityCallOutcome> {
+    return Promise.resolve(unavailableCall());
   }
 }
 
 export class DisabledCommunityDispatchAuthorization implements CommunityDispatchAuthorization {
-  async authorize(): Promise<undefined> {
-    return undefined;
+  authorize(): Promise<undefined> {
+    return Promise.resolve(undefined);
   }
 }
 

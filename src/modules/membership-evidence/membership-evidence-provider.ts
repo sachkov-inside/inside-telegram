@@ -423,7 +423,7 @@ export class MembershipEvidenceProvider {
       return {
         evidence,
         providerState: providerObservation.currentState,
-        responsePlanned: Boolean(responsePlanned),
+        responsePlanned,
       };
     });
   }
@@ -652,7 +652,7 @@ async function recordEvidence(
     >;
     readonly normalizedState: NormalizedMembershipState;
     readonly observedAt: Date;
-    readonly rawChatMember?: TelegramChatMember;
+    readonly rawChatMember?: TelegramChatMember | undefined;
     readonly resultRef: string;
     readonly source: MembershipEvidenceSource;
     readonly telegramIdentityRef: string;
@@ -1003,13 +1003,14 @@ async function nextReadyProviderObservation(
     .select(["observed_at", "source_update_id"])
     .where("bot_identity", "=", record.botIdentity)
     .where("state", "=", "ready");
-  recovery = record.sourceUpdateId
+  const sourceUpdateId = record.sourceUpdateId;
+  recovery = sourceUpdateId
     ? recovery.where((expression) =>
         expression.or([
           expression("observed_at", ">", record.observedAt),
           expression.and([
             expression("observed_at", "=", record.observedAt),
-            expression("source_update_id", ">", record.sourceUpdateId!),
+            expression("source_update_id", ">", sourceUpdateId),
           ]),
         ]),
       )

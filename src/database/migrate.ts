@@ -1,4 +1,4 @@
-import "dotenv/config";
+import "../config/load-environment.js";
 
 import { createDatabase } from "./create-database.js";
 import { migrateToLatest } from "./migrator.js";

@@ -86,11 +86,7 @@ export async function enqueueReply(
       attempt_count: 0,
       available_at: reply.now,
       bot_identity: reply.botIdentity,
-      buttons: reply.buttons
-        ? (JSON.stringify(
-            reply.buttons,
-          ) as unknown as readonly TelegramButton[])
-        : null,
+      buttons: reply.buttons ? JSON.stringify(reply.buttons) : null,
       created_at: reply.now,
       delivered_at: null,
       diagnostic_code: null,
@@ -183,6 +179,9 @@ export class StartResponseDeliveryQueue {
         updated_at: now,
       });
       for (const lease of abandoned) {
+        const deliveryId = lease.key.id;
+        if (typeof deliveryId !== "string")
+          throw new Error("A start response lease has no delivery id");
         await transaction
           .insertInto("start_response_delivery_attempts")
           .values({
@@ -192,7 +191,7 @@ export class StartResponseDeliveryQueue {
             outcome: "transport_unknown",
             provider_error_code: null,
             provider_message_id: null,
-            start_response_delivery_id: lease.key.id as string,
+            start_response_delivery_id: deliveryId,
           })
           .onConflict((conflict) => conflict.doNothing())
           .execute();

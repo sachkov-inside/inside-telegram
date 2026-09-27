@@ -18,11 +18,11 @@ const request: DispatchAuthorizationRequest = {
 };
 
 function respond(body: unknown, status = 200): typeof fetch {
-  return (async () =>
+  return async () =>
     new Response(JSON.stringify(body), {
       status,
       headers: { "content-type": "application/json" },
-    })) as unknown as typeof fetch;
+    });
 }
 
 const allowed = {
@@ -110,9 +110,9 @@ describe("community dispatch authorization", () => {
     const adapter = new HttpCommunityAuthorization(
       "https://p/x",
       "s",
-      (async () => {
+      async () => {
         throw new Error("network");
-      }) as unknown as typeof fetch,
+      },
     );
     await expect(adapter.authorize(request)).resolves.toBeUndefined();
   });
@@ -121,11 +121,11 @@ describe("community dispatch authorization", () => {
     const adapter = new HttpCommunityAuthorization(
       "https://p/x",
       "s",
-      (async () =>
+      async () =>
         new Response("ok", {
           status: 200,
           headers: { "content-type": "text/plain" },
-        })) as unknown as typeof fetch,
+        }),
     );
     await expect(adapter.authorize(request)).resolves.toBeUndefined();
   });

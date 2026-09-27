@@ -87,10 +87,12 @@ export type NotificationResult = ResultState & {
 const ajv = new Ajv({ strict: false });
 addFormats.default(ajv);
 ajv.addSchema(schema);
-export const notificationValidator = (definition: string) =>
-  ajv.compile({ $ref: `${schema.$id}#/definitions/${definition}` });
-const validCommand = notificationValidator("telegramDelivery");
-export const validDispatchResponse = ajv.compile({
+/** Compiles one schema definition; `Shape` is the TypeScript type that definition describes. */
+export const notificationValidator = <Shape = unknown>(definition: string) =>
+  ajv.compile<Shape>({ $ref: `${schema.$id}#/definitions/${definition}` });
+const validCommand =
+  notificationValidator<NotificationCommand>("telegramDelivery");
+export const validDispatchResponse = ajv.compile<DispatchResponse>({
   oneOf: ["allowed", "denied", "dispatchError"].map((name) => ({
     $ref: `${schema.$id}#/definitions/${name}`,
   })),
@@ -98,9 +100,9 @@ export const validDispatchResponse = ajv.compile({
 export interface DeliveryEnvelope {
   exchange: string;
   routingKey: string;
-  contentType?: string;
-  type?: string;
-  messageId?: string;
+  contentType?: string | undefined;
+  type?: string | undefined;
+  messageId?: string | undefined;
   persistent?: boolean;
 }
 export function parseNotification(
@@ -122,7 +124,7 @@ export function parseNotification(
       new TextDecoder("utf-8", { fatal: true }).decode(bytes),
     );
     if (!validCommand(value)) return;
-    const c = value as NotificationCommand;
+    const c = value;
     if (
       c.content.category !== category ||
       envelope.messageId?.toLowerCase() !== c.operationId.toLowerCase()
@@ -143,4 +145,12 @@ export function parseNotification(
   } catch {
     return;
   }
+}
+/** Whether a dispatch response repeats every field of the request it answers. */
+export function echoesRequest(
+  response: DispatchResponse,
+  request: DispatchRequest,
+): boolean {
+  const echoed = new Map<string, unknown>(Object.entries(response));
+  return Object.entries(request).every(([k, v]) => echoed.get(k) === v);
 }

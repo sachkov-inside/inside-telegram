@@ -47,32 +47,43 @@ export function isFunnelEditorAction(
   );
 }
 /** Funnel buttons that do not leave the current prompt. */
+const PROMPT_STEPS = [
+  "f:settings",
+  "f:messages",
+  "f:message",
+  "f:timing",
+  "f:timing-entry",
+] as const;
+/** Funnel buttons that leave the prompt and work without an open funnel. */
+const SELECTIONS = [
+  "f:discard",
+  "f:list",
+  "f:read",
+  "f:show",
+  "f:intro",
+  "f:parts",
+  "f:parts-page",
+  "f:part",
+  "f:move-part",
+  "f:remove-part",
+  "f:sample",
+  "f:save-intro",
+] as const;
 type PromptStep = Extract<
   FunnelEditorAction,
-  {
-    kind:
-      "f:settings" | "f:messages" | "f:message" | "f:timing" | "f:timing-entry";
-  }
+  { kind: (typeof PROMPT_STEPS)[number] }
 >;
-/** Funnel buttons that need an open funnel. */
+/** Funnel buttons that need an open funnel; saving the intro may fall through to them. */
 type FunnelEdit = Exclude<
   FunnelEditorAction,
-  | PromptStep
-  | {
-      kind:
-        | "f:discard"
-        | "f:list"
-        | "f:read"
-        | "f:show"
-        | "f:intro"
-        | "f:parts"
-        | "f:parts-page"
-        | "f:part"
-        | "f:move-part"
-        | "f:remove-part"
-        | "f:sample";
-    }
+  PromptStep | { kind: Exclude<(typeof SELECTIONS)[number], "f:save-intro"> }
 >;
+function isKindOf<Action extends { kind: string }, Kind extends Action["kind"]>(
+  kinds: readonly Kind[],
+  action: Action,
+): action is Extract<Action, { kind: Kind }> {
+  return (kinds as readonly string[]).includes(action.kind);
+}
 
 // Funnel composition shares the admin's session, authorization, update receipt and reply outbox.
 
@@ -383,6 +394,7 @@ function partsMenu(t: Turn, offset = 0) {
 }
 
 export function performFunnel(t: Turn, a: FunnelEditorAction): void {
+  if (!isKindOf(PROMPT_STEPS, a)) return performSelection(t, a);
   switch (a.kind) {
     case "f:settings":
       return settings(t);
@@ -405,7 +417,7 @@ export function performFunnel(t: Turn, a: FunnelEditorAction): void {
     case "f:timing-entry":
       return moveTimedPart(t, a.id, null);
     default:
-      return performSelection(t, a);
+      return unhandled(a, "funnel prompt step");
   }
 }
 
@@ -422,6 +434,7 @@ function performSelection(
   a: Exclude<FunnelEditorAction, PromptStep>,
 ): void {
   const s = leavePrompts(t);
+  if (!isKindOf(SELECTIONS, a)) return performEdit(t, s, a);
   switch (a.kind) {
     case "f:discard": {
       const id = s.target === "intro" ? s.intro?.introId : s.funnel?.funnelId;
@@ -517,15 +530,11 @@ function performSelection(
         purpose: "intro",
       });
     default:
-      return performEdit(t, s, a);
+      return unhandled(a, "funnel selection");
   }
 }
 
-function performEdit(
-  t: Turn,
-  s: AuthorFunnelState,
-  a: FunnelEdit | Extract<FunnelEditorAction, { kind: "f:save-intro" }>,
-): void {
+function performEdit(t: Turn, s: AuthorFunnelState, a: FunnelEdit): void {
   const f = s.funnel;
   if (!f) return t.reply("Сначала откройте воронку.", root);
   if (f.lifecycle === "archived" && a.kind !== "f:life") return showFunnel(t);

@@ -69,7 +69,7 @@ it.each(["communications-first", "sign-in-first"] as const)(
           bot_identity: "synthetic",
           owner_account_ref: "synthetic-account",
           revision: 1,
-          content: { text: "preserved" },
+          content: JSON.stringify({ text: "preserved" }),
           created_at: new Date(),
           updated_at: new Date(),
         })

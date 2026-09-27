@@ -16,7 +16,12 @@ import {
 } from "../../shared/failure-diagnostics.js";
 
 const validRequest = contractValidator("contentValidationRequest");
-const validResponse = contractValidator("contentValidationResponse");
+const validResponse = contractValidator<{
+  requestId: string;
+  status: "ok" | "denied";
+  accountRef?: string;
+  targetErrors: ContentTargetError[];
+}>("contentValidationResponse");
 export class HttpAuthorContentValidationAdapter implements AuthorContentValidation {
   constructor(
     private readonly endpoint: string,
@@ -58,12 +63,7 @@ export class HttpAuthorContentValidationAdapter implements AuthorContentValidati
       }
       const body: unknown = await response.json();
       if (!validResponse(body)) return { status: "unavailable" };
-      const result = body as {
-        requestId: string;
-        status: "ok" | "denied";
-        accountRef?: string;
-        targetErrors: ContentTargetError[];
-      };
+      const result = body;
       if (result.requestId !== requestId) return { status: "unavailable" };
       if (
         result.status === "denied" ||

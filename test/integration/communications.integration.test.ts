@@ -77,7 +77,7 @@ class FakeAuthorization implements AuthorAuthorization {
   subjects: AuthorSubject[] = [];
   openTransactions: number[] = [];
   /** While set, every answer waits for it: a slow Platform. */
-  slow?: Promise<void>;
+  slow?: Promise<void> | undefined;
   async authorize(subject: AuthorSubject) {
     this.subjects.push(subject);
     this.openTransactions.push(await openTransactions());
@@ -629,7 +629,7 @@ async function authorClick(id: number, label: string, depth = 0) {
     .map(
       (r) =>
         r.message as {
-          authorButtons?: { text: string; callbackData: string }[];
+          authorButtons?: readonly { text: string; callbackData: string }[];
         },
     )
     .find((m) => m.authorButtons);

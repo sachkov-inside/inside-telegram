@@ -100,7 +100,7 @@ export interface CommunityProviderOptions {
   readonly reconciliationCadenceMs?: number;
   readonly contractVersion?: CommunityVersion;
   readonly removalsEnabled?: boolean;
-  readonly botTelegramUserId?: string;
+  readonly botTelegramUserId?: string | undefined;
   /** Removals by this bot end the Tribute basis only; they are never moderation. */
   readonly tributeBotTelegramUserId?: string;
   readonly readmission?: {
@@ -1127,7 +1127,8 @@ export class CommunityProvider {
             ? await this.chat.revokeInviteLink(chat, inviteLink)
             : { kind: "succeeded" };
         case "create_invite": {
-          const expiresAt = expiry!;
+          if (!expiry) throw new Error("An admission link needs its expiry");
+          const expiresAt = expiry;
           const created = await this.chat.createJoinRequestLink(
             chat,
             expiresAt,

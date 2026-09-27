@@ -38,7 +38,6 @@ import { MarketingEntry } from "../../src/modules/communications/marketing-entry
 import type {
   FunnelDraft,
   MessagePart,
-  DeliveryPart,
 } from "../../src/modules/communications/funnel-types.js";
 import { CLOCK } from "../../src/shared/clock.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
@@ -79,7 +78,7 @@ const transport = {
   ),
 };
 const authorization = {
-  authorize: vi.fn(async () => "allowed" as "allowed" | "denied"),
+  authorize: vi.fn(async () => "allowed"),
 };
 const contentValidation = {
   validate: vi.fn(async (): Promise<AuthorContentValidationResult> => ({
@@ -233,7 +232,7 @@ describe("funnel author contract", () => {
       expect(res.statusCode).toBe(200);
       expect(responseValidator(res.json())).toBe(true);
     }
-    expect(responses[0]!.json()).toEqual(responses[1]!.json());
+    expect(responses[0].json()).toEqual(responses[1].json());
     const changed = {
       ...value,
       name: "edited",
@@ -244,7 +243,7 @@ describe("funnel author contract", () => {
       http(command("funnels.save", changed, 3)),
     ]);
     expect(races.map((r) => r.statusCode).sort()).toEqual([200, 409]);
-    expect((await http(publish)).json()).toEqual(responses[0]!.json());
+    expect((await http(publish)).json()).toEqual(responses[0].json());
     const persisted = await database
       .selectFrom("communication_publications")
       .select("snapshot")
@@ -431,7 +430,7 @@ describe("durable marketing entry and scheduling", () => {
     expect(transport.send).toHaveBeenCalledTimes(calls);
     expect(
       (await deliveries()).some((d) =>
-        (d.parts as DeliveryPart[]).some((p) => p.state === "unknown"),
+        d.parts.some((p) => p.state === "unknown"),
       ),
     ).toBe(true);
   });
@@ -536,7 +535,7 @@ describe("durable marketing entry and scheduling", () => {
     await start();
     // A persisted claim can outlive its worker without gaining automatic permission to send again.
     const pending = (await deliveries()).find((d) => d.kind === "intro")!;
-    const parts = pending.parts as DeliveryPart[];
+    const parts = pending.parts;
     parts[0]!.state = "in_flight";
     await database
       .updateTable("communication_deliveries")
@@ -550,10 +549,7 @@ describe("durable marketing entry and scheduling", () => {
     await tick(61);
     expect(sent).toHaveLength(0);
     expect(
-      (
-        (await deliveries()).find((d) => d.kind === "intro")!
-          .parts as DeliveryPart[]
-      )[0]!.state,
+      (await deliveries()).find((d) => d.kind === "intro")!.parts[0]!.state,
     ).toBe("unknown");
   });
 });
@@ -585,9 +581,10 @@ describe("external dispatch crash boundaries", () => {
     await running;
     const intro = (await deliveries()).find((d) => d.kind === "intro")!;
     expect(intro.completed_at).not.toBeNull();
-    expect(
-      (intro.parts as DeliveryPart[])[0]!.attempts.map((a) => a.outcome),
-    ).toEqual(["unknown", "sent"]);
+    expect(intro.parts[0]!.attempts.map((a) => a.outcome)).toEqual([
+      "unknown",
+      "sent",
+    ]);
   });
   it("preserves sent after a commit-then-error acknowledgement and blocks an unrecorded external result", async () => {
     await setup();
@@ -625,7 +622,7 @@ describe("external dispatch crash boundaries", () => {
     expect(sent).toHaveLength(count);
     expect(
       (await deliveries()).some((d) =>
-        (d.parts as DeliveryPart[]).some((p) => p.state === "unknown"),
+        d.parts.some((p) => p.state === "unknown"),
       ),
     ).toBe(true);
   });
@@ -681,7 +678,7 @@ describe("recovery and completion serialization", () => {
     await setup();
     await start();
     const pending = (await deliveries()).find((d) => d.kind === "intro")!;
-    const parts = pending.parts as DeliveryPart[];
+    const parts = pending.parts;
     parts[0]!.state = "in_flight";
     const attemptId = randomUUID();
     await database
@@ -756,11 +753,12 @@ describe("recovery and completion serialization", () => {
     const saved = (await deliveries()).find(
       (d) => d.delivery_id === pending.delivery_id,
     )!;
-    expect((saved.parts as DeliveryPart[])[0]!.state).toBe("sent");
+    expect(saved.parts[0]!.state).toBe("sent");
     expect(saved.completed_at).not.toBeNull();
-    expect(
-      (saved.parts as DeliveryPart[])[0]!.attempts.map((a) => a.outcome),
-    ).toEqual(["unknown", "sent"]);
+    expect(saved.parts[0]!.attempts.map((a) => a.outcome)).toEqual([
+      "unknown",
+      "sent",
+    ]);
   });
   it("filters delivery history by its exact ID instead of returning unrelated deliveries", async () => {
     await setup();
@@ -831,9 +829,7 @@ async function resolve(
   duplicateRiskAccepted = false,
 ) {
   const d = (await deliveries()).find((d) => d.delivery_id === deliveryId)!;
-  const p = (d.parts as DeliveryPart[]).find((p) =>
-    ["unknown", "failed"].includes(p.state),
-  )!;
+  const p = d.parts.find((p) => ["unknown", "failed"].includes(p.state))!;
   return http(
     command(
       "delivery.resolve",
@@ -930,7 +926,7 @@ describe("published audience updates and subscriber preferences #29", () => {
       (d) => d.step_id === value.steps[0]!.stepId,
     )!;
     expect(deleted.completed_at).toEqual(now);
-    expect((deleted.parts as DeliveryPart[])[0]!.state).toBe("cancelled");
+    expect(deleted.parts[0]!.state).toBe("cancelled");
     const res = await http(
       command(
         "funnels.rollback",
@@ -948,7 +944,7 @@ describe("published audience updates and subscriber preferences #29", () => {
       (d) => d.step_id === value.steps[0]!.stepId,
     )!;
     expect(first.delivery_id).toBe(deleted.delivery_id);
-    expect((first.parts as DeliveryPart[])[0]!.state).toBe("sent");
+    expect(first.parts[0]!.state).toBe("sent");
   });
   it("finishes partial cancellation at the terminal timestamp, never before unknown resolution", async () => {
     const value = draft();
@@ -973,14 +969,14 @@ describe("published audience updates and subscriber preferences #29", () => {
     const before = (await deliveries()).find(
       (d) => d.step_id === first.stepId,
     )!;
-    const evidence = (before.parts as DeliveryPart[])[1]!.attempts;
+    const evidence = before.parts[1]!.attempts;
     await publish({ ...value, steps: [value.steps[1]!] });
     const cancelled = (await deliveries()).find(
       (d) => d.step_id === first.stepId,
     )!;
     expect(cancelled.cancel_requested).toBe(true);
     expect(cancelled.completed_at).toBeNull();
-    expect((cancelled.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+    expect(cancelled.parts.map((p) => p.state)).toEqual([
       "sent",
       "unknown",
       "cancelled",
@@ -996,7 +992,7 @@ describe("published audience updates and subscriber preferences #29", () => {
     const resolved = (await deliveries()).find(
       (d) => d.delivery_id === before.delivery_id,
     )!;
-    expect((resolved.parts as DeliveryPart[])[1]!.attempts).toEqual(evidence);
+    expect(resolved.parts[1]!.attempts).toEqual(evidence);
     expect(resolved.completed_at).toEqual(now);
     await tick(9);
     expect(sent.at(-1)?.content.type).toBe("video_note");
@@ -1013,7 +1009,7 @@ describe("published audience updates and subscriber preferences #29", () => {
       "delivery.resolve",
       {
         deliveryId: d.delivery_id,
-        partId: (d.parts as DeliveryPart[])[0]!.partId,
+        partId: d.parts[0]!.partId,
         action: "retry",
         duplicateRiskAccepted: true,
       },
@@ -1021,12 +1017,11 @@ describe("published audience updates and subscriber preferences #29", () => {
     );
     const responses = await Promise.all([http(request), http(request)]);
     expect(responses.map((r) => r.statusCode)).toEqual([200, 200]);
-    expect(responses[0]!.json()).toEqual(responses[1]!.json());
+    expect(responses[0].json()).toEqual(responses[1].json());
     await tick();
-    const sentPart = (
-      (await deliveries()).find((x) => x.delivery_id === d.delivery_id)!
-        .parts as DeliveryPart[]
-    )[0]!;
+    const sentPart = (await deliveries()).find(
+      (x) => x.delivery_id === d.delivery_id,
+    )!.parts[0]!;
     expect(sentPart.attempts[0]!.outcome).toBe("unknown");
     expect(sentPart.attempts[1]!.duplicateRiskAccepted).toBe(true);
     authorization.authorize.mockResolvedValueOnce("denied");
@@ -1043,7 +1038,7 @@ describe("published audience updates and subscriber preferences #29", () => {
       const first = (await deliveries()).find(
         (d) => d.step_id === value.steps[0]!.stepId,
       )!;
-      expect((first.parts as DeliveryPart[])[0]!.state).toBe("suppressed");
+      expect(first.parts[0]!.state).toBe("suppressed");
       const second = (await deliveries()).find(
         (d) => d.step_id === value.steps[1]!.stepId,
       )!;
@@ -1106,7 +1101,7 @@ describe("published audience updates and subscriber preferences #29", () => {
     const added = (await deliveries()).find(
       (d) => d.step_id === inserted.stepId,
     )!;
-    expect((added.parts as DeliveryPart[])[0]!.state).toBe("suppressed");
+    expect(added.parts[0]!.state).toBe("suppressed");
     expect(
       (await deliveries()).find((d) => d.step_id === value.steps[1]!.stepId)!
         .due_at,
@@ -1141,10 +1136,8 @@ describe("published audience updates and subscriber preferences #29", () => {
       updateId: "11",
     });
     expect(
-      (
-        (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId)!
-          .parts as DeliveryPart[]
-      )[0]!.state,
+      (await deliveries()).find((d) => d.step_id === value.steps[0]!.stepId)!
+        .parts[0]!.state,
     ).toBe("suppressed");
     await funnels.execute(
       command(
@@ -1209,7 +1202,7 @@ describe("preference and publication crash/race boundaries #29", () => {
     )!;
     expect(inFlight.cancel_requested).toBe(true);
     expect(inFlight.completed_at).toBeNull();
-    expect((inFlight.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
+    expect(inFlight.parts.map((p) => p.state)).toEqual([
       "in_flight",
       "cancelled",
     ]);
@@ -1220,10 +1213,7 @@ describe("preference and publication crash/race boundaries #29", () => {
       (d) => d.step_id === first.stepId,
     )!;
     expect(terminal.completed_at).toEqual(now);
-    expect((terminal.parts as DeliveryPart[]).map((p) => p.state)).toEqual([
-      "sent",
-      "cancelled",
-    ]);
+    expect(terminal.parts.map((p) => p.state)).toEqual(["sent", "cancelled"]);
     await tick(100);
     expect(sent.some((m) => m.content.text === "must cancel")).toBe(false);
   });
@@ -1342,9 +1332,10 @@ describe("preference and publication crash/race boundaries #29", () => {
     expect((settled.snapshot as MessagePart[])[1]!.content.text).toBe(
       "frozen two",
     );
-    expect(
-      (settled.parts as DeliveryPart[])[1]!.attempts.map((a) => a.outcome),
-    ).toEqual(["unknown", "sent"]);
+    expect(settled.parts[1]!.attempts.map((a) => a.outcome)).toEqual([
+      "unknown",
+      "sent",
+    ]);
     expect(transport.send.mock.calls.length).toBe(calls);
     expect(settled.completed_at).toEqual(now);
   });

@@ -107,11 +107,11 @@ interface TelegramApi {
 }
 
 export class DisabledMessagesAdapter implements TelegramMessages {
-  async editText(): Promise<TelegramDeliveryResult> {
-    throw new Error("External Telegram delivery is disabled");
+  editText(): Promise<TelegramDeliveryResult> {
+    return Promise.reject(new Error("External Telegram delivery is disabled"));
   }
-  async sendText(): Promise<TelegramDeliveryResult> {
-    throw new Error("External Telegram delivery is disabled");
+  sendText(): Promise<TelegramDeliveryResult> {
+    return Promise.reject(new Error("External Telegram delivery is disabled"));
   }
 }
 

@@ -527,10 +527,10 @@ async function confirmLink(telegramUserId: string) {
 
 class ControlledTelegramMembership implements TelegramMembership {
   readonly botRequests: string[] = [];
-  readonly subjectRequests: Array<{
+  readonly subjectRequests: {
     chatId: string;
     telegramUserId: string;
-  }> = [];
+  }[] = [];
 
   constructor(
     private readonly botResult: TelegramChatMemberResult,
@@ -553,9 +553,9 @@ class ControlledTelegramMembership implements TelegramMembership {
 
 class SequencedTelegramMembership implements TelegramMembership {
   constructor(
-    private readonly subjectResults: Array<
+    private readonly subjectResults: (
       TelegramChatMemberResult | Promise<TelegramChatMemberResult>
-    >,
+    )[],
   ) {}
 
   async getBotChatMember(): Promise<TelegramChatMemberResult> {
@@ -575,10 +575,10 @@ class ControlledPlatformEvidenceDelivery implements PlatformEvidenceDelivery {
   readonly requests: PlatformEvidenceDeliveryRequest[] = [];
 
   constructor(
-    private readonly results: Array<
+    private readonly results: (
       | { diagnosticCode: string; kind: "rejected" | "retryable" }
       | { kind: "delivered" }
-    > = [{ kind: "delivered" }],
+    )[] = [{ kind: "delivered" }],
   ) {}
 
   async deliver(

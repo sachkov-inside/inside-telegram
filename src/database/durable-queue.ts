@@ -12,7 +12,7 @@ import {
 
 import type { Database, DatabaseSchema } from "./database.js";
 
-type Table = keyof DatabaseSchema & string;
+type Table = keyof DatabaseSchema;
 type Row<T extends Table> = Selectable<DatabaseSchema[T]>;
 type Column<T extends Table> = keyof Row<T> & string;
 type State<T extends Table> = Row<T> extends { state: infer S } ? S : never;
@@ -52,14 +52,14 @@ export interface DurableQueue<T extends Table> {
  * whose lease expired and was taken over settles nothing.
  */
 export interface Lease<T extends Table> {
-  readonly key: Readonly<Record<Column<T>, unknown>>;
+  readonly key: Readonly<Partial<Record<Column<T>, unknown>>>;
   readonly attempt: number;
   readonly leasedAt: Date;
 }
 
 /** A lease that outlived `leaseMs`, with the attempt that was abandoned. */
 export interface ExpiredLease<T extends Table> {
-  readonly key: Readonly<Record<Column<T>, unknown>>;
+  readonly key: Readonly<Partial<Record<Column<T>, unknown>>>;
   readonly attempt: number;
 }
 
@@ -169,7 +169,7 @@ export async function claim<T extends Table, C extends Column<T>>(
       state: queue.leased,
       [queue.leasedAt]: now,
       [queue.attempts]: attempt,
-    } as QueueValues<T>)}
+    })}
     where ${keyMatch(queue, leased.key)}
   `.execute(transaction);
   return { ...leased, row };
@@ -244,15 +244,15 @@ function laneFree<T extends Table>(
 function keyOf<T extends Table>(
   queue: DurableQueue<T>,
   row: Record<string, unknown>,
-): Readonly<Record<Column<T>, unknown>> {
-  return Object.fromEntries(
-    queue.key.map((column) => [column, row[column]]),
-  ) as Record<Column<T>, unknown>;
+): Readonly<Partial<Record<Column<T>, unknown>>> {
+  const key: Partial<Record<Column<T>, unknown>> = {};
+  for (const column of queue.key) key[column] = row[column];
+  return key;
 }
 
 function keyMatch<T extends Table>(
   queue: DurableQueue<T>,
-  key: Readonly<Record<Column<T>, unknown>>,
+  key: Readonly<Partial<Record<Column<T>, unknown>>>,
 ): RawBuilder<SqlBool> {
   return sql<SqlBool>`${sql.join(
     queue.key.map((column) => sql`${sql.ref(column)} = ${key[column]}`),

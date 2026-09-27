@@ -30,8 +30,8 @@ const baseEnvironment = {
 
 /** Reads an optional, commented-out assignment from `.env.example`. */
 function exampleValue(name: string): string {
-  const match = readFileSync(".env.example", "utf8").match(
-    new RegExp(`^# ${name}=(.+)$`, "m"),
+  const match = new RegExp(`^# ${name}=(.+)$`, "m").exec(
+    readFileSync(".env.example", "utf8"),
   );
   if (!match?.[1]) throw new Error(`${name} is missing from .env.example`);
   return match[1];

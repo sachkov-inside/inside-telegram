@@ -16,7 +16,7 @@ pnpm credentialed-proof:wizard
 
 Before BotFather opens, the wizard verifies the required CLI versions, repository root, ignored
 destinations, an exact query-free loopback database URL, and owner login readiness. It loads the
-selected `ENV_FILE` with dotenv override enabled, so inherited environment values cannot win, and
+selected `ENV_FILE` with `ENV_FILE_OVERRIDE=true`, so inherited environment values cannot win, and
 gives the same settings to the application terminal. Probe capture and evidence paths are fixed to
 ignored `.credentialed-proof/` files and cannot be redirected by environment. Its thirteen
 resumable stages write credentials/provider

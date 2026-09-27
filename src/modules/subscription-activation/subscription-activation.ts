@@ -539,7 +539,9 @@ export class SubscriptionActivation {
             .digest(
               "hex",
             )}:${result.ok ? (result.value.state === "pending_review" ? `pending_review:${result.value.enrollment?.state ?? "none"}` : result.value.state) : result.error.code}`,
-          buttons: activationMenu(this.config.activation!.accountUrl),
+          ...(this.config.activation
+            ? { buttons: activationMenu(this.config.activation.accountUrl) }
+            : {}),
         },
         tx,
       );

@@ -62,7 +62,7 @@ beforeAll(async () => {
     { logger: false },
   );
   await application.init();
-  fastify = application.getHttpAdapter().getInstance() as FastifyInstance;
+  fastify = application.getHttpAdapter().getInstance();
   await fastify.ready();
 });
 

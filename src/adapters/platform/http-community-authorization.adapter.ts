@@ -42,7 +42,7 @@ export class HttpCommunityAuthorization implements CommunityDispatchAuthorizatio
       if (!body) return;
       const value: unknown = JSON.parse(body);
       if (!validDispatchResponse(value)) return;
-      const result = value as DispatchAuthorizationResponse;
+      const result = value;
       if (result.operationId !== request.operationId) return;
       if (result.operation === "dispatch.error") {
         return response.status === communityErrorStatus[result.error]

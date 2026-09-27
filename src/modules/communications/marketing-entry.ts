@@ -11,7 +11,6 @@ import {
 import { CLOCK, type Clock } from "../../shared/clock.js";
 import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
 import { contactLock, planDelivery } from "./communication-state.js";
-import type { FunnelDraft, IntroSnapshot } from "./funnel-types.js";
 
 @Injectable()
 export class MarketingEntry {
@@ -135,9 +134,16 @@ export class MarketingEntry {
           )
         : query.where("is_default", "=", true);
       const row = await query.executeTakeFirst();
-      const draft = row?.published as FunnelDraft | undefined;
-      const available =
-        draft && (!source || draft.sources.some((s) => s.code === source));
+      const funnel =
+        row?.published &&
+        row.published_revision !== null &&
+        (!source || row.published.sources.some((s) => s.code === source))
+          ? {
+              funnelId: row.funnel_id,
+              draft: row.published,
+              revision: row.published_revision,
+            }
+          : undefined;
       const now = this.clock.now();
       await tx
         .insertInto("communication_entries")
@@ -145,13 +151,13 @@ export class MarketingEntry {
           bot_identity: start.botIdentity,
           update_id: start.updateId,
           contact_id: contact.contact_id,
-          funnel_id: available ? row!.funnel_id : null,
+          funnel_id: funnel?.funnelId ?? null,
           source_id: sourceRow?.source_id ?? null,
           source_code: source ?? null,
           entered_at: now,
           outcome: !contact.marketing_enabled
             ? "marketing_off"
-            : available
+            : funnel
               ? "entered"
               : "unavailable",
         })
@@ -162,7 +168,7 @@ export class MarketingEntry {
         now,
         dueAt: now,
       };
-      if (!available) {
+      if (!funnel) {
         await planDelivery(tx, {
           ...common,
           kind: "fallback",
@@ -187,7 +193,7 @@ export class MarketingEntry {
         .select("snapshot")
         .where("bot_identity", "=", start.botIdentity)
         .executeTakeFirstOrThrow();
-      const introSnapshot = intro.snapshot as IntroSnapshot;
+      const introSnapshot = intro.snapshot;
       await planDelivery(tx, {
         ...common,
         kind: "intro",
@@ -208,7 +214,7 @@ export class MarketingEntry {
         .values({
           enrollment_id: randomUUID(),
           contact_id: contact.contact_id,
-          funnel_id: row!.funnel_id,
+          funnel_id: funnel.funnelId,
           enrolled_at: now,
           initial_entry_key: `entry:${start.botIdentity}:${start.updateId}`,
         })
@@ -218,10 +224,10 @@ export class MarketingEntry {
         ...common,
         kind: "entry",
         key: `entry:${start.botIdentity}:${start.updateId}`,
-        funnelId: row!.funnel_id,
-        stepId: draft.entryResponse.stepId,
-        parts: draft.entryResponse.parts,
-        revision: row!.published_revision!,
+        funnelId: funnel.funnelId,
+        stepId: funnel.draft.entryResponse.stepId,
+        parts: funnel.draft.entryResponse.parts,
+        revision: funnel.revision,
       });
     });
   }

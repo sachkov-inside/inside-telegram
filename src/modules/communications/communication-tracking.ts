@@ -16,6 +16,7 @@ import { communicationLock } from "./communication-state.js";
 import {
   CommunicationsError,
   type CommunicationsRequest,
+  requiredField,
   type TemplateContent,
 } from "./communications-contract.js";
 
@@ -56,7 +57,10 @@ export async function trackedContent(
   content: TemplateContent,
   now: Date,
 ): Promise<TemplateContent> {
-  if (!config.platformTrackingRedirectUrl) return content;
+  const redirectUrl = config.platformTrackingRedirectUrl;
+  if (!redirectUrl) return content;
+  // A hoisted function declaration does not keep the narrowing above.
+  const target = redirectUrl;
   async function link(value: string): Promise<string> {
     if (!isTrackingDestination(value, config)) return value;
     const existing = await tx
@@ -79,7 +83,7 @@ export async function trackedContent(
           created_at: now,
         })
         .execute();
-    const redirect = new URL(config.platformTrackingRedirectUrl!);
+    const redirect = new URL(target);
     redirect.searchParams.set("token", token);
     return redirect.toString();
   }
@@ -155,25 +159,26 @@ export class CommunicationTracking {
         .selectFrom("communication_tracking_tokens")
         .selectAll()
         .where("bot_identity", "=", this.config.botIdentity)
-        .where("token", "=", request.payload.token!)
+        .where("token", "=", requiredField(request.payload.token))
         .executeTakeFirst();
       if (!token || !isTrackingDestination(token.destination, this.config))
         throw new CommunicationsError("not_found");
       if (request.operation === "tracking.resolve")
         return { safeUrl: token.destination };
       const now = this.clock.now();
-      const occurred = new Date(request.payload.occurredAt!);
+      const occurred = new Date(requiredField(request.payload.occurredAt));
       if (+occurred > +now + 60_000 || +occurred < +token.created_at - 60_000)
         throw new CommunicationsError("malformed");
+      const eventId = requiredField(request.payload.eventId);
       await communicationLock(
         tx,
-        `communications-hit:${this.config.botIdentity}:${request.payload.eventId}`,
+        `communications-hit:${this.config.botIdentity}:${eventId}`,
       );
       const prior = await tx
         .selectFrom("communication_tracking_hits")
         .selectAll()
         .where("bot_identity", "=", this.config.botIdentity)
-        .where("event_id", "=", request.payload.eventId!)
+        .where("event_id", "=", eventId)
         .executeTakeFirst();
       if (prior) {
         if (
@@ -188,14 +193,14 @@ export class CommunicationTracking {
         .insertInto("communication_tracking_hits")
         .values({
           bot_identity: this.config.botIdentity,
-          event_id: request.payload.eventId!,
+          event_id: eventId,
           token: token.token,
           occurred_at: occurred,
           received_at: now,
-          traffic: request.payload.traffic!,
+          traffic: requiredField(request.payload.traffic),
         })
         .execute();
-      return { eventId: request.payload.eventId!, outcome: "recorded" };
+      return { eventId, outcome: "recorded" };
     });
   }
 }

@@ -1,4 +1,5 @@
 import {
+  echoesRequest,
   validDispatchResponse,
   type DispatchRequest,
   type DispatchResponse,
@@ -47,13 +48,8 @@ export class HttpNotificationAuthorization implements NotificationAuthorization 
       }
       const value: unknown = JSON.parse(Buffer.concat(chunks).toString("utf8"));
       if (!validDispatchResponse(value)) return;
-      const result = value as DispatchResponse;
-      if (
-        !Object.entries(request).every(
-          ([k, v]) => result[k as keyof DispatchRequest] === v,
-        )
-      )
-        return;
+      const result = value;
+      if (!echoesRequest(result, request)) return;
       const expected =
         result.status === "error"
           ? (

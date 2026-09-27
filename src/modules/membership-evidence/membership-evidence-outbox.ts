@@ -63,7 +63,8 @@ export class MembershipEvidenceOutbox {
       },
       {
         select: ["envelope", "id", "source"],
-        prepare: async () => ({ diagnostic_code: null, updated_at: now }),
+        prepare: () =>
+          Promise.resolve({ diagnostic_code: null, updated_at: now }),
       },
     );
     if (!claimed) {

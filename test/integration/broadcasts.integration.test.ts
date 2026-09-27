@@ -76,7 +76,7 @@ const transport = {
   ),
 };
 const authorization = {
-  authorize: vi.fn(async () => "allowed" as "allowed" | "denied"),
+  authorize: vi.fn(async () => "allowed"),
 };
 let app: NestFastifyApplication;
 let funnels: Funnels;
@@ -341,8 +341,8 @@ describe("broadcast audience and lifecycle", () => {
       1,
     );
     const responses = await Promise.all([http(request), http(request)]);
-    expect(responses[0]!.json()).toEqual(responses[1]!.json());
-    expect(responses[0]!.json().broadcast.snapshotSize).toBe(1);
+    expect(responses[0].json()).toEqual(responses[1].json());
+    expect(responses[0].json().broadcast.snapshotSize).toBe(1);
     expect(
       await database
         .selectFrom("communication_enrollments")
@@ -755,8 +755,8 @@ describe("broadcast crash boundaries", () => {
     expect(row.audience_snapshot_id).toBeNull();
     expect(row.state).toBe("draft");
     const responses = await Promise.all([http(request), http(request)]);
-    expect(responses[0]!.json()).toEqual(responses[1]!.json());
-    expect(responses[0]!.json().broadcast.snapshotSize).toBe(2);
+    expect(responses[0].json()).toEqual(responses[1].json());
+    expect(responses[0].json().broadcast.snapshotSize).toBe(2);
   });
   it("keeps sent after lost acknowledgement and never retries an external effect whose result rolled back", async () => {
     await oldContact();

@@ -24,13 +24,17 @@ export function translateAuthorInput(
     message.sender_chat
   )
     return;
-  if (
-    callback &&
-    (typeof callback.data !== "string" ||
-      !callback.data.startsWith("author:") ||
-      typeof callback.id !== "string")
-  )
-    return;
+  let pressed: { callbackData: string; callbackQueryId: string } | undefined;
+  if (callback) {
+    const { data, id } = callback;
+    if (
+      typeof data !== "string" ||
+      !data.startsWith("author:") ||
+      typeof id !== "string"
+    )
+      return;
+    pressed = { callbackData: data, callbackQueryId: id };
+  }
   return {
     botIdentity,
     updateId,
@@ -39,12 +43,7 @@ export function translateAuthorInput(
     text:
       typeof message.text === "string" && !callback ? message.text.trim() : "",
     content: callback ? null : snapshot(message),
-    ...(callback
-      ? {
-          callbackData: callback.data as string,
-          callbackQueryId: callback.id as string,
-        }
-      : {}),
+    ...pressed,
   };
 }
 function record(value: unknown): value is Record<string, unknown> {

@@ -35,7 +35,11 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
               ])
             : buttonRows(c.buttons),
         };
-    const entities = c.entities as MessageEntity[];
+    const entities = telegramEntities(c.entities);
+    // Content validation admits neither case; a violation is rejected here, never sent.
+    if (!entities || (c.type !== "text" && c.fileId === undefined))
+      return { kind: "api_rejected", providerErrorCode: 400 };
+    const file = c.fileId ?? "";
     const options = {
       caption: c.text,
       caption_entities: entities,
@@ -57,9 +61,13 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
                 c.text,
                 {
                   entities,
-                  reply_markup: reply_markup.inline_keyboard
-                    ? { inline_keyboard: reply_markup.inline_keyboard }
-                    : undefined,
+                  ...(reply_markup.inline_keyboard
+                    ? {
+                        reply_markup: {
+                          inline_keyboard: reply_markup.inline_keyboard,
+                        },
+                      }
+                    : {}),
                 },
               );
               return {
@@ -86,25 +94,21 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
           });
           break;
         case "photo":
-          sent = await this.api.sendPhoto(message.chatId, c.fileId!, options);
+          sent = await this.api.sendPhoto(message.chatId, file, options);
           break;
         case "video":
-          sent = await this.api.sendVideo(message.chatId, c.fileId!, options);
+          sent = await this.api.sendVideo(message.chatId, file, options);
           break;
         case "video_note":
-          sent = await this.api.sendVideoNote(message.chatId, c.fileId!, {
+          sent = await this.api.sendVideoNote(message.chatId, file, {
             reply_markup,
           });
           break;
         case "voice":
-          sent = await this.api.sendVoice(message.chatId, c.fileId!, options);
+          sent = await this.api.sendVoice(message.chatId, file, options);
           break;
         case "document":
-          sent = await this.api.sendDocument(
-            message.chatId,
-            c.fileId!,
-            options,
-          );
+          sent = await this.api.sendDocument(message.chatId, file, options);
           break;
       }
       return { kind: "delivered", providerMessageId: String(sent.message_id) };
@@ -118,7 +122,7 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
           kind: "api_retryable",
           providerErrorCode: error.error_code,
           ...(Number.isSafeInteger(error.parameters.retry_after) &&
-          error.parameters.retry_after! > 0
+          (error.parameters.retry_after ?? 0) > 0
             ? { retryAfterSeconds: error.parameters.retry_after }
             : {}),
         };
@@ -127,7 +131,48 @@ export class GrammyCommunicationsAdapter implements CommunicationTransport {
   }
 }
 export class DisabledCommunicationTransport implements CommunicationTransport {
-  async send(): Promise<TelegramDeliveryResult> {
-    throw new Error("Marketing delivery is disabled");
+  send(): Promise<TelegramDeliveryResult> {
+    return Promise.reject(new Error("Marketing delivery is disabled"));
   }
+}
+const COMMON_ENTITY_TYPES: readonly MessageEntity.CommonMessageEntity["type"][] =
+  [
+    "mention",
+    "hashtag",
+    "cashtag",
+    "bot_command",
+    "url",
+    "email",
+    "phone_number",
+    "bold",
+    "italic",
+    "underline",
+    "strikethrough",
+    "spoiler",
+    "blockquote",
+    "expandable_blockquote",
+    "code",
+  ];
+// The contract schema admits exactly these entity types; content validation pairs url with
+// text_link. Undefined means an entity outside the contract.
+function telegramEntities(
+  entities: CommunicationMessage["content"]["entities"],
+): MessageEntity[] | undefined {
+  const mapped: MessageEntity[] = [];
+  for (const entity of entities) {
+    const { offset, length } = entity;
+    const type = COMMON_ENTITY_TYPES.find((common) => common === entity.type);
+    if (entity.type === "pre")
+      mapped.push({
+        type: "pre",
+        offset,
+        length,
+        ...(entity.language === undefined ? {} : { language: entity.language }),
+      });
+    else if (entity.type === "text_link" && entity.url !== undefined)
+      mapped.push({ type: "text_link", offset, length, url: entity.url });
+    else if (type !== undefined) mapped.push({ type, offset, length });
+    else return undefined;
+  }
+  return mapped;
 }

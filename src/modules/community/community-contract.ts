@@ -141,19 +141,22 @@ const ajv = new Ajv({ strict: false });
 addFormats.default(ajv);
 ajv.addSchema(schema);
 ajv.addSchema(v2Schema);
-const v2Definition = (name: string) =>
-  ajv.compile({ $ref: `${v2Schema.$id}#/definitions/${name}` });
-const validV2Set = v2Definition("communitySet");
+/** Compiles one schema definition; `Shape` is the TypeScript type that definition describes. */
+const v2Definition = <Shape = unknown>(name: string) =>
+  ajv.compile<Shape>({ $ref: `${v2Schema.$id}#/definitions/${name}` });
+const validV2Set = v2Definition<CommunitySetCommand>("communitySet");
 const validV2Status = v2Definition("communityStatus");
 const validV2Result = v2Definition("communityResult");
 
-const definition = (name: string) =>
-  ajv.compile({ $ref: `${schema.$id}#/definitions/${name}` });
+const definition = <Shape = unknown>(name: string) =>
+  ajv.compile<Shape>({ $ref: `${schema.$id}#/definitions/${name}` });
 
-const validSet = definition("communitySet");
+const validSet = definition<CommunitySetCommand>("communitySet");
 const validStatusQuery = definition("communityStatus");
 const validResult = definition("communityResult");
-export const validDispatchResponse = definition("authorizationResponse");
+export const validDispatchResponse = definition<DispatchAuthorizationResponse>(
+  "authorizationResponse",
+);
 
 /** The wire body of one authenticated `inside.community-entitlement.v1` request. */
 export type ParsedCommunityRequest =
@@ -210,15 +213,9 @@ export function parseCommunityRequest(
       return rejected("malformed");
     return { kind: "status", operationId };
   }
-  if (
-    !(version === COMMUNITY_V2 ? validV2Set(record) : validSet(record)) ||
-    !operationId
-  )
-    return rejected("malformed");
-  const command = normalize(
-    record as unknown as CommunitySetCommand,
-    operationId,
-  );
+  const validCommand = version === COMMUNITY_V2 ? validV2Set : validSet;
+  if (!validCommand(record) || !operationId) return rejected("malformed");
+  const command = normalize(record, operationId);
   return {
     kind: "set",
     command,

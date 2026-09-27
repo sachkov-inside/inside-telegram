@@ -50,10 +50,10 @@ export class BotSignInController {
       return {
         contractVersion: CONTRACT_VERSION,
         ...(await this.signIn.register({
-          requestRef: envelope.requestRef!,
-          startTokenDigest: envelope.startTokenDigest!,
-          browserSecretDigest: envelope.browserSecretDigest!,
-          expiresAt: new Date(envelope.expiresAt!),
+          requestRef: envelope("requestRef"),
+          startTokenDigest: envelope("startTokenDigest"),
+          browserSecretDigest: envelope("browserSecretDigest"),
+          expiresAt: new Date(envelope("expiresAt")),
         })),
       };
     } catch (error) {
@@ -99,8 +99,8 @@ export class BotSignInController {
       contractVersion: CONTRACT_VERSION,
       ...(await this.accountLink.bind(
         requestRef,
-        envelope.subjectRef!,
-        envelope.accountRef!,
+        envelope("subjectRef"),
+        envelope("accountRef"),
       )),
     };
   }
@@ -117,7 +117,7 @@ export class BotSignInController {
       contractVersion: CONTRACT_VERSION,
       ...(await this.signIn.inspect(
         requestRef,
-        envelope.browserSecret!,
+        envelope("browserSecret"),
         consume,
       )),
     };
@@ -129,22 +129,29 @@ export class BotSignInController {
   }
 }
 
-function readEnvelope(
+/** Validates the whole envelope, then reads its string fields by name. */
+function readEnvelope<const Field extends string>(
   body: unknown,
-  fields: readonly string[],
-): Record<string, string> {
+  fields: readonly Field[],
+): (field: Field) => string {
   if (typeof body !== "object" || body === null || Array.isArray(body))
     throw new BadRequestException();
-  const record = body as Record<string, unknown>;
+  const record = new Map<string, unknown>(Object.entries(body));
+  const values = new Map<string, string>();
+  for (const field of fields) {
+    const value = record.get(field);
+    if (typeof value === "string" && value.length <= 128)
+      values.set(field, value);
+  }
   if (
-    record.contractVersion !== CONTRACT_VERSION ||
-    Object.keys(record).length !== fields.length + 1 ||
-    fields.some(
-      (field) =>
-        typeof record[field] !== "string" ||
-        (record[field] as string).length > 128,
-    )
+    record.get("contractVersion") !== CONTRACT_VERSION ||
+    record.size !== fields.length + 1 ||
+    values.size !== fields.length
   )
     throw new BadRequestException();
-  return record as Record<string, string>;
+  return (field) => {
+    const value = values.get(field);
+    if (value === undefined) throw new BadRequestException();
+    return value;
+  };
 }

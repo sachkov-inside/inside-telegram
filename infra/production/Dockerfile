@@ -1,13 +1,14 @@
-FROM node:24.20.0-bookworm-slim AS build
+# Multi-arch index digest of the tag; update both together with .node-version.
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6 AS build
 WORKDIR /app
-RUN npm install --global pnpm@11.22.0 --ignore-scripts
+RUN npm install --global pnpm@11.27.1 --ignore-scripts
 COPY package.json pnpm-lock.yaml pnpm-workspace.yaml ./
 RUN pnpm install --frozen-lockfile
-COPY tsconfig.json tsconfig.build.json ./
+COPY tsconfig.base.json tsconfig.json tsconfig.build.json ./
 COPY src ./src
 RUN pnpm build && pnpm prune --prod
 
-FROM node:24.20.0-bookworm-slim
+FROM node:24.21.0-bookworm-slim@sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6
 ARG SOURCE_COMMIT
 LABEL org.opencontainers.image.revision=$SOURCE_COMMIT
 ENV NODE_ENV=production

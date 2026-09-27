@@ -40,7 +40,7 @@ export class CommunityController {
       );
 
     const handled = await this.provider.handle(body);
-    if (handled.status === HttpStatus.OK && handled.body) return handled.body;
+    if (handled.status === 200 && handled.body) return handled.body;
     throw new HttpException(
       handled.body ?? { statusCode: handled.status },
       handled.status,

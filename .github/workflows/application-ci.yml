@@ -16,7 +16,13 @@ permissions:
 
 jobs:
   verify:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    # A newer push to the same pull request supersedes its run. Push and release runs of one SHA
+    # sit in separate groups, so neither replaces the other.
+    concurrency:
+      group: telegram-ci-${{ github.event_name }}-${{ github.event.pull_request.number || inputs.source_sha || github.sha }}
+      cancel-in-progress: ${{ github.event_name == 'pull_request' }}
     services:
       rabbitmq:
         image: rabbitmq:4.3-management-alpine

@@ -84,7 +84,7 @@ beforeAll(async () => {
     { logger: false },
   );
   await application.init();
-  fastify = application.getHttpAdapter().getInstance() as FastifyInstance;
+  fastify = application.getHttpAdapter().getInstance();
   await fastify.ready();
   signIn = application.get(BotSignIn);
 });
@@ -507,9 +507,7 @@ describe("bot sign-in provider", () => {
       );
     try {
       await disabledApplication.init();
-      const disabledHttp = disabledApplication
-        .getHttpAdapter()
-        .getInstance() as FastifyInstance;
+      const disabledHttp = disabledApplication.getHttpAdapter().getInstance();
       for (const path of ["status", "consume"]) {
         const response = await disabledHttp.inject({
           method: "POST",

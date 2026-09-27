@@ -90,13 +90,16 @@ export type AuthorEffect =
 /** Effects answered by an event: reads and writes whose result the dialog shows. */
 export type AuthorQuery =
   /** Answered by `statistics-read`. */
-  | { readonly kind: "read-statistics"; readonly broadcastId?: string }
+  | {
+      readonly kind: "read-statistics";
+      readonly broadcastId?: string | undefined;
+    }
   /** Answered by `posts-listed`. */
   | {
       readonly kind: "list-posts";
       readonly purpose: "posts" | "library";
-      readonly cursor?: string;
-      readonly search?: string;
+      readonly cursor?: string | undefined;
+      readonly search?: string | undefined;
     }
   /** Answered by `post-read`. */
   | {
@@ -126,7 +129,7 @@ export type AuthorQuery =
       readonly operation: "launch" | "pause" | "resume" | "cancel";
     }
   /** Answered by `broadcasts-listed`. */
-  | { readonly kind: "list-broadcasts"; readonly cursor?: string }
+  | { readonly kind: "list-broadcasts"; readonly cursor?: string | undefined }
   /** Answered by `broadcast-read`. */
   | { readonly kind: "read-broadcast"; readonly broadcastId: string }
   /** Answered by `composition-restored`. */
@@ -136,7 +139,7 @@ export type AuthorQuery =
       readonly then: "resume" | "discard";
     }
   /** Answered by `funnels-listed`. */
-  | { readonly kind: "list-funnels"; readonly cursor?: string }
+  | { readonly kind: "list-funnels"; readonly cursor?: string | undefined }
   /** Answered by `funnel-read`. */
   | { readonly kind: "read-funnel"; readonly funnelId: string }
   /** Answered by `intro-read`. */
@@ -193,15 +196,15 @@ export type AuthorEvent =
   | { readonly kind: "failed"; readonly during: "callback" | "text" }
   | {
       readonly kind: "statistics-read";
-      readonly broadcastId?: string;
-      readonly deliveries?: StatisticsCounts;
+      readonly broadcastId?: string | undefined;
+      readonly deliveries?: StatisticsCounts | undefined;
     }
   | {
       readonly kind: "posts-listed";
       readonly purpose: "posts" | "library";
-      readonly cursor?: string;
+      readonly cursor?: string | undefined;
       readonly templates: readonly TemplateSnapshot[];
-      readonly nextCursor?: string | null;
+      readonly nextCursor?: string | null | undefined;
     }
   | {
       readonly kind: "post-read";
@@ -212,17 +215,20 @@ export type AuthorEvent =
   | { readonly kind: "post-conflict" }
   | {
       readonly kind: "broadcast-saved";
-      readonly broadcast?: AuthorBroadcast;
+      readonly broadcast?: AuthorBroadcast | undefined;
       readonly then: AfterSave;
     }
-  | { readonly kind: "broadcast-changed"; readonly broadcast?: AuthorBroadcast }
+  | {
+      readonly kind: "broadcast-changed";
+      readonly broadcast?: AuthorBroadcast | undefined;
+    }
   | {
       readonly kind: "broadcasts-listed";
       readonly items: readonly {
         readonly broadcast: AuthorBroadcast;
         readonly name: string;
       }[];
-      readonly nextCursor?: string;
+      readonly nextCursor?: string | undefined;
     }
   | {
       readonly kind: "broadcast-read";
@@ -237,13 +243,13 @@ export type AuthorEvent =
   | {
       readonly kind: "funnels-listed";
       readonly items: readonly FunnelListItem[];
-      readonly nextCursor?: string;
+      readonly nextCursor?: string | undefined;
     }
   | { readonly kind: "funnel-read"; readonly funnelAuthor: AuthorFunnelState }
   | { readonly kind: "intro-read"; readonly funnelAuthor: AuthorFunnelState }
   | {
       readonly kind: "funnel-saved";
-      readonly funnel?: FunnelSnapshot;
+      readonly funnel?: FunnelSnapshot | undefined;
       readonly then: AfterFunnelSave;
     }
   | { readonly kind: "funnel-invalid"; readonly then: AfterFunnelSave }
@@ -252,15 +258,18 @@ export type AuthorEvent =
       readonly purpose: ValidationPurpose;
       readonly result: AuthorContentValidationResult;
     }
-  | { readonly kind: "intro-saved"; readonly intro?: IntroSnapshot }
+  | { readonly kind: "intro-saved"; readonly intro?: IntroSnapshot | undefined }
   | {
       readonly kind: "funnel-locked";
       readonly publish: boolean;
-      readonly revision?: number;
+      readonly revision?: number | undefined;
     }
   | { readonly kind: "funnel-published"; readonly funnel: FunnelSnapshot }
   | { readonly kind: "publication-previewed"; readonly preview: FunnelPreview }
-  | { readonly kind: "funnel-changed"; readonly funnel?: FunnelSnapshot }
+  | {
+      readonly kind: "funnel-changed";
+      readonly funnel?: FunnelSnapshot | undefined;
+    }
   | {
       readonly kind: "part-history-read";
       readonly partId: string;

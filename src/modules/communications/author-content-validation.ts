@@ -23,8 +23,8 @@ export interface AuthorContentValidation {
   ): Promise<AuthorContentValidationResult>;
 }
 export class DisabledAuthorContentValidation implements AuthorContentValidation {
-  async validate(): Promise<AuthorContentValidationResult> {
-    return { status: "unavailable" };
+  validate(): Promise<AuthorContentValidationResult> {
+    return Promise.resolve({ status: "unavailable" });
   }
 }
 

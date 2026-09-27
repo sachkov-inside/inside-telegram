@@ -53,6 +53,32 @@ describe("communication transport", () => {
             : { caption_entities: content.entities, caption: "hello" },
         );
     });
+  it.each([
+    [
+      "media without a file",
+      { type: "photo", text: "", entities: [], buttons: [] },
+    ],
+    [
+      "a formatting entity outside the contract",
+      {
+        type: "text",
+        text: "hello",
+        entities: [{ type: "custom_emoji", offset: 0, length: 5 }],
+        buttons: [],
+      },
+    ],
+  ] as const)("rejects %s without calling Telegram", async (_, content) => {
+    const send = vi.fn(async () => ({ message_id: 123 }));
+    const adapter = new GrammyCommunicationsAdapter({
+      sendMessage: send,
+      sendPhoto: send,
+    } as unknown as Api);
+    expect(await adapter.send({ chatId: "42", content })).toEqual({
+      kind: "api_rejected",
+      providerErrorCode: 400,
+    });
+    expect(send).not.toHaveBeenCalled();
+  });
   it("classifies 429, permanent rejection and transport ambiguity without retrying inside adapter", async () => {
     const send = vi.fn();
     const adapter = new GrammyCommunicationsAdapter({

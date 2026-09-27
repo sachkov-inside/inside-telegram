@@ -104,11 +104,15 @@ export interface OwnAccess {
 const ajv = new Ajv({ strict: false });
 addFormats.default(ajv);
 ajv.addSchema(schema);
-export const activationValidator = (definition: string) =>
-  ajv.compile({ $ref: `${schema.$id}#/definitions/${definition}` });
+/** Compiles one schema definition; `Shape` is the TypeScript type that definition describes. */
+export const activationValidator = <Shape = unknown>(definition: string) =>
+  ajv.compile<Shape>({ $ref: `${schema.$id}#/definitions/${definition}` });
 export const validActivationResponse =
-  activationValidator("activationResponse");
-export const validOwnAccessResponse = activationValidator("ownAccessResponse");
+  activationValidator<ActivationResult<ActivationResponse>>(
+    "activationResponse",
+  );
+export const validOwnAccessResponse =
+  activationValidator<ActivationResult<OwnAccess>>("ownAccessResponse");
 export const validActivationEvidence = activationValidator("evidence");
 
 export type BindingResponse =
@@ -127,4 +131,5 @@ export type BindingResponse =
         readonly code: "invalid_input" | "identity_conflict" | "unavailable";
       };
     };
-export const validBindingResponse = activationValidator("bindingResponse");
+export const validBindingResponse =
+  activationValidator<BindingResponse>("bindingResponse");

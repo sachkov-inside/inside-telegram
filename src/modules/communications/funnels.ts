@@ -5,7 +5,7 @@ import {
 } from "./author-content-validation.js";
 import { previewFunnel, type FunnelPreview } from "./funnel-preview.js";
 import { transactionWithExternalReads } from "../../database/external-reads.js";
-import { deliveryOwnerPredicate } from "./communication-queries.js";
+import { deliveryOwnerPredicate, nextCursor } from "./communication-queries.js";
 import { applyBroadcast, type BroadcastResult } from "./broadcasts.js";
 import {
   readStatistics,
@@ -18,6 +18,7 @@ import {
   communicationLock,
   lockContactRows,
   lockDeliveryContact,
+  replayedResult,
   schedulerLock,
 } from "./communication-state.js";
 import { isDeepStrictEqual } from "node:util";
@@ -41,6 +42,7 @@ import {
 import {
   CommunicationsError,
   type CommunicationsRequest,
+  requiredField,
   validateContent,
 } from "./communications-contract.js";
 import type {
@@ -48,7 +50,6 @@ import type {
   FunnelSnapshot,
   IntroSnapshot,
   MessagePart,
-  DeliveryPart,
   DeliverySnapshot,
 } from "./funnel-types.js";
 
@@ -66,6 +67,13 @@ export type FunnelResult =
       outcome: "skipped" | "retry_requested";
     }
   | { deliveries: DeliverySnapshot[]; nextCursor: string | null };
+
+const LIFECYCLE_AFTER = {
+  pause: "paused",
+  resume: "published",
+  archive: "archived",
+  restore: "paused",
+} as const;
 
 @Injectable()
 export class Funnels {
@@ -110,7 +118,7 @@ export class Funnels {
           !isDeepStrictEqual(prior.request, request)
         )
           throw new CommunicationsError("operation_conflict");
-        return prior.result as FunnelResult;
+        return replayedResult<FunnelResult>(prior);
       }
       await communicationLock(
         tx,
@@ -170,7 +178,7 @@ export class Funnels {
         .executeTakeFirst();
       if (row && row.owner_account_ref !== actor)
         throw new CommunicationsError("not_found");
-      const old = row?.snapshot as IntroSnapshot | undefined;
+      const old = row?.snapshot;
       if (operation === "intro.read") {
         if (!old) throw new CommunicationsError("not_found");
         return { intro: old };
@@ -179,11 +187,11 @@ export class Funnels {
         throw new CommunicationsError("revision_conflict");
       if (old && old.introId !== payload.introId)
         throw new CommunicationsError("revision_conflict");
-      validateParts(payload.parts!);
+      validateParts(requiredField(payload.parts));
       const intro: IntroSnapshot = {
-        introId: payload.introId!,
+        introId: requiredField(payload.introId),
         revision: expectedRevision + 1,
-        parts: payload.parts!,
+        parts: requiredField(payload.parts),
       };
       await tx
         .insertInto("communication_intro")
@@ -211,7 +219,7 @@ export class Funnels {
       const rows = await query.orderBy("funnel_id").limit(101).execute();
       return {
         funnels: rows.slice(0, 100).map(funnelView),
-        nextCursor: rows.length > 100 ? rows[99]!.funnel_id : null,
+        nextCursor: nextCursor(rows, 100, (row) => row.funnel_id),
       };
     }
     if (operation === "deliveries.read") {
@@ -246,12 +254,12 @@ export class Funnels {
       const rows = await query.orderBy("d.delivery_id").limit(101).execute();
       return {
         deliveries: rows.slice(0, 100).map(deliveryView),
-        nextCursor: rows.length > 100 ? rows[99]!.delivery_id : null,
+        nextCursor: nextCursor(rows, 100, (row) => row.delivery_id),
       };
     }
     if (operation === "delivery.resolve") {
       // The decision is serialized with this contact's own commands, claim and result.
-      await lockDeliveryContact(tx, bot, payload.deliveryId!);
+      await lockDeliveryContact(tx, bot, requiredField(payload.deliveryId));
       const row = await tx
         .selectFrom("communication_deliveries as d")
         .leftJoin("communication_funnels as f", "f.funnel_id", "d.funnel_id")
@@ -266,14 +274,14 @@ export class Funnels {
           "d.bot_identity",
         )
         .selectAll("d")
-        .where("d.delivery_id", "=", payload.deliveryId!)
+        .where("d.delivery_id", "=", requiredField(payload.deliveryId))
         .where("d.bot_identity", "=", bot)
         .where(deliveryOwnerPredicate(actor))
         .executeTakeFirst();
       if (!row) throw new CommunicationsError("not_found");
       if (row.revision !== expectedRevision || row.completed_at)
         throw new CommunicationsError("revision_conflict");
-      const parts = row.parts as DeliveryPart[];
+      const parts = row.parts;
       const part = parts.find((p) => p.partId === payload.partId);
       if (!part || !["unknown", "failed"].includes(part.state))
         throw new CommunicationsError("revision_conflict");
@@ -329,7 +337,7 @@ export class Funnels {
     const existing = await tx
       .selectFrom("communication_funnels")
       .selectAll()
-      .where("funnel_id", "=", payload.funnelId!)
+      .where("funnel_id", "=", requiredField(payload.funnelId))
       .executeTakeFirst();
     if (
       existing &&
@@ -344,12 +352,12 @@ export class Funnels {
       throw new CommunicationsError("revision_conflict");
     if (operation === "funnels.save") {
       const draft: FunnelDraft = {
-        funnelId: payload.funnelId!,
-        name: payload.name!,
-        steps: payload.steps!,
-        sources: payload.sources!,
-        isDefault: payload.isDefault!,
-        entryResponse: payload.entryResponse!,
+        funnelId: requiredField(payload.funnelId),
+        name: requiredField(payload.name),
+        steps: requiredField(payload.steps),
+        sources: requiredField(payload.sources),
+        isDefault: requiredField(payload.isDefault),
+        entryResponse: requiredField(payload.entryResponse),
       };
       unique([draft.entryResponse.stepId, ...draft.steps.map((s) => s.stepId)]);
       const allParts = [draft.entryResponse, ...draft.steps].flatMap(
@@ -428,29 +436,26 @@ export class Funnels {
         preview: await previewFunnel(
           tx,
           bot,
-          existing.draft as FunnelDraft,
-          existing.published as FunnelDraft | null,
+          existing.draft,
+          existing.published,
           existing.revision,
         ),
       };
     }
     if (operation === "funnels.lifecycle") {
-      let lifecycle: "draft" | "published" | "paused" | "archived" = (
-        {
-          pause: "paused",
-          resume: "published",
-          archive: "archived",
-          restore: "paused",
-        } as const
-      )[payload.action as "pause" | "resume" | "archive" | "restore"];
+      const action = payload.action;
       if (
-        !lifecycle ||
-        (!existing.published &&
-          !["archive", "restore"].includes(payload.action!))
+        (action !== "pause" &&
+          action !== "resume" &&
+          action !== "archive" &&
+          action !== "restore") ||
+        (!existing.published && action !== "archive" && action !== "restore")
       )
         throw new CommunicationsError("revision_conflict");
-      if (!existing.published && payload.action === "restore")
-        lifecycle = "draft";
+      const lifecycle: "draft" | "published" | "paused" | "archived" =
+        !existing.published && action === "restore"
+          ? "draft"
+          : LIFECYCLE_AFTER[action];
       await tx
         .updateTable("communication_funnels")
         .set({ lifecycle, revision: expectedRevision + 1 })
@@ -464,17 +469,17 @@ export class Funnels {
         },
       };
     }
-    let draft = existing.draft as FunnelDraft;
+    let draft = existing.draft;
     const rollback = operation === "funnels.rollback";
     if (rollback) {
       const publication = await tx
         .selectFrom("communication_publications")
         .select("snapshot")
         .where("funnel_id", "=", existing.funnel_id)
-        .where("revision", "=", payload.publishedRevision!)
+        .where("revision", "=", requiredField(payload.publishedRevision))
         .executeTakeFirst();
       if (!publication) throw new CommunicationsError("not_found");
-      draft = publication.snapshot as FunnelDraft;
+      draft = publication.snapshot;
       // Validate the immutable historical snapshot under the definition lock. Receipts and
       // expectedRevision were checked first, so replay never re-publishes changed content.
       const validation = await validateAuthorContent(
@@ -491,7 +496,7 @@ export class Funnels {
       if (validation.targetErrors.length)
         throw new CommunicationsError("unsupported_content");
     }
-    const previous = existing.published as FunnelDraft | null;
+    const previous = existing.published;
     const intro = await tx
       .selectFrom("communication_intro")
       .select("snapshot")
@@ -530,15 +535,13 @@ export class Funnels {
         historicalSteps.some(
           (s) =>
             s.step_id !== step.stepId &&
-            (s.part_ids as string[]).some((id) =>
-              step.parts.some((p) => p.partId === id),
-            ),
+            s.part_ids.some((id) => step.parts.some((p) => p.partId === id)),
         )
       )
         throw new CommunicationsError("revision_conflict");
       const partIds = [
         ...new Set([
-          ...((saved?.part_ids as string[] | undefined) ?? []),
+          ...(saved?.part_ids ?? []),
           ...step.parts.map((p) => p.partId),
         ]),
       ];
@@ -601,7 +604,7 @@ export class Funnels {
       );
       const cancelled = await revivable.selectAll().execute();
       for (const delivery of cancelled) {
-        const parts = delivery.parts as DeliveryPart[];
+        const parts = delivery.parts;
         if (
           draft.steps.some((s) => s.stepId === delivery.step_id) &&
           parts.every(
@@ -641,13 +644,13 @@ export class Funnels {
   }
 }
 function funnelView(row: {
-  draft: unknown;
+  draft: FunnelDraft;
   revision: number;
   published_revision: number | null;
   lifecycle: FunnelSnapshot["lifecycle"];
 }): FunnelSnapshot {
   return {
-    ...(row.draft as FunnelDraft),
+    ...row.draft,
     revision: row.revision,
     publishedRevision: row.published_revision,
     lifecycle: row.lifecycle,

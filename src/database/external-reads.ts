@@ -59,6 +59,8 @@ export async function externalRead<Value>(
 ): Promise<Value> {
   const reads = scope.getStore();
   if (!reads) return load();
-  if (reads.results.has(key)) return reads.results.get(key) as Value;
+  if (reads.results.has(key))
+    // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- a key is loaded only by the read that asks for it
+    return reads.results.get(key) as Value;
   throw new ExternalReadRequired(key, load);
 }

@@ -3,6 +3,17 @@ import type { TelegramButton } from "../modules/outbound/telegram-messages.js";
 import type { CommunityTables } from "../modules/community/community-storage.js";
 import type { NotificationTables } from "../modules/notifications/notification-storage.js";
 import type { ColumnType, Generated, Kysely } from "kysely";
+import type { CommunicationMessage } from "../modules/communications/communication-delivery.js";
+import type {
+  BroadcastAudience,
+  TemplateContent,
+} from "../modules/communications/communications-contract.js";
+import type {
+  BroadcastPart,
+  DeliveryPart,
+  FunnelDraft,
+  IntroSnapshot,
+} from "../modules/communications/funnel-types.js";
 
 import type { MembershipEvidenceSource } from "../modules/membership-evidence/membership-evidence.js";
 
@@ -52,7 +63,7 @@ export interface TelegramUpdatesTable {
   locked_at: Timestamp | null;
   /** The lane whose updates run one at a time, in order; null runs in no lane. */
   lane_key: string | null;
-  payload: unknown | null;
+  payload: unknown;
   process_attempt_count: number;
   processed_at: Timestamp | null;
   received_at: Timestamp;
@@ -83,8 +94,8 @@ export interface BotContactEventsTable {
 export interface StartResponseDeliveriesTable {
   buttons: ColumnType<
     readonly TelegramButton[] | null,
-    readonly TelegramButton[] | null | undefined,
-    readonly TelegramButton[] | null
+    string | null | undefined,
+    string | null
   >;
   edit_message_id: ColumnType<
     string | null,
@@ -287,6 +298,12 @@ export interface SignInSubjectsTable {
   telegram_user_id: BigIntColumn;
 }
 
+/**
+ * A jsonb column that only its owning module writes, as JSON text of this shape; pg parses it
+ * back on read, so the declared type is the persisted shape.
+ */
+export type JsonColumn<Value> = ColumnType<Value, string, string>;
+
 export interface DatabaseSchema
   extends ActivationTables, NotificationTables, CommunityTables {
   communication_author_compositions: {
@@ -323,7 +340,7 @@ export interface DatabaseSchema
     account_ref: string;
     telegram_user_id: BigIntColumn;
     telegram_identity_ref: string;
-    message: unknown;
+    message: JsonColumn<CommunicationMessage>;
     state: "pending" | "sending" | "delivered" | "rejected" | "unknown";
     created_at: Timestamp;
     attempted_at: Timestamp | null;
@@ -338,8 +355,8 @@ export interface DatabaseSchema
     revision: number;
     state:
       "draft" | "scheduled" | "running" | "paused" | "cancelled" | "completed";
-    parts: unknown;
-    audience: unknown;
+    parts: JsonColumn<BroadcastPart[]>;
+    audience: JsonColumn<BroadcastAudience>;
     scheduled_at: Timestamp | null;
     audience_snapshot_id: string | null;
     snapshot_size: number;
@@ -370,14 +387,14 @@ export interface DatabaseSchema
     revision: number;
     published_revision: number | null;
     lifecycle: "draft" | "published" | "paused" | "archived";
-    draft: unknown;
-    published: unknown | null;
+    draft: JsonColumn<FunnelDraft>;
+    published: ColumnType<FunnelDraft | null, string | null, string | null>;
     is_default: boolean;
   };
   communication_publications: {
     funnel_id: string;
     revision: number;
-    snapshot: unknown;
+    snapshot: JsonColumn<FunnelDraft>;
     published_at: Timestamp;
   };
   communication_sources: {
@@ -390,12 +407,12 @@ export interface DatabaseSchema
     funnel_id: string;
     step_id: string;
     first_published_at: Timestamp;
-    part_ids: unknown;
+    part_ids: JsonColumn<readonly string[]>;
   };
   communication_intro: {
     bot_identity: string;
     owner_account_ref: string;
-    snapshot: unknown;
+    snapshot: JsonColumn<IntroSnapshot>;
   };
   communication_contacts: {
     contact_id: string;
@@ -446,8 +463,8 @@ export interface DatabaseSchema
       string | null
     >;
     published_revision: number;
-    snapshot: unknown;
-    parts: unknown;
+    snapshot: JsonColumn<readonly BroadcastPart[]>;
+    parts: JsonColumn<DeliveryPart[]>;
     revision: number;
     due_at: Timestamp;
     created_at: Timestamp;
@@ -479,7 +496,7 @@ export interface DatabaseSchema
     bot_identity: string;
     owner_account_ref: string;
     revision: number;
-    content: unknown;
+    content: JsonColumn<TemplateContent>;
     created_at: Timestamp;
     updated_at: Timestamp;
   };

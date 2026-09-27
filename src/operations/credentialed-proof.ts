@@ -52,15 +52,15 @@ export interface TelegramProofEnvironment {
   readonly botToken: string;
   readonly botUsername: string;
   readonly capturePath: string;
-  readonly chatId?: string;
+  readonly chatId?: string | undefined;
   readonly evidencePath: string;
-  readonly minimumAdminConfirmed?: string;
-  readonly observedAdminRightsAccepted?: string;
-  readonly retryMarker?: string;
-  readonly snapshotLabel?: string;
-  readonly temporaryResourcesDisposed?: string;
-  readonly webhookSecret?: string;
-  readonly webhookUrl?: string;
+  readonly minimumAdminConfirmed?: string | undefined;
+  readonly observedAdminRightsAccepted?: string | undefined;
+  readonly retryMarker?: string | undefined;
+  readonly snapshotLabel?: string | undefined;
+  readonly temporaryResourcesDisposed?: string | undefined;
+  readonly webhookSecret?: string | undefined;
+  readonly webhookUrl?: string | undefined;
 }
 
 export async function runCredentialedProofCommand(
@@ -764,16 +764,10 @@ export function validateReconciliationRepair(
   ) {
     throw new Error("Membership transition evidence is unavailable");
   }
-  const transitions = value as RedactedMembershipTransition[];
-  const removed = currentTransitions(
-    removedValue as RedactedMembershipTransition[],
-  );
-  const rejoined = currentTransitions(
-    rejoinedValue as RedactedMembershipTransition[],
-  );
-  const suppressed = currentTransitions(
-    suppressedValue as RedactedMembershipTransition[],
-  );
+  const transitions = readTransitions(value);
+  const removed = currentTransitions(readTransitions(removedValue));
+  const rejoined = currentTransitions(readTransitions(rejoinedValue));
+  const suppressed = currentTransitions(readTransitions(suppressedValue));
   const targets = [...rejoined.values()].filter((rejoinedTransition) => {
     const removedTransition = removed.get(
       rejoinedTransition.identityFingerprint,
@@ -829,6 +823,50 @@ export function validateReconciliationRepair(
   }
 }
 
+/** Reads recorded transitions back with the field types the proof wrote. */
+function readTransitions(
+  values: readonly unknown[],
+): RedactedMembershipTransition[] {
+  return values.map((value) => {
+    const record = providerRecord(value);
+    const field = <Value>(
+      name: string,
+      accepts: (candidate: unknown) => candidate is Value,
+    ): Value => {
+      const candidate = record[name];
+      if (!accepts(candidate))
+        throw new Error("Membership transition evidence is unavailable");
+      return candidate;
+    };
+    const isText = (v: unknown): v is string => typeof v === "string";
+    const isOptionalText = (v: unknown): v is string | null =>
+      v === null || typeof v === "string";
+    const isFlag = (v: unknown): v is boolean => typeof v === "boolean";
+    const isOptionalFlag = (v: unknown): v is boolean | null =>
+      v === null || typeof v === "boolean";
+    const isCount = (v: unknown): v is number => typeof v === "number";
+    const isOptionalCount = (v: unknown): v is number | null =>
+      v === null || typeof v === "number";
+    return {
+      decision: field("decision", isOptionalText),
+      eventDisposition: field("eventDisposition", isOptionalText),
+      eventKind: field("eventKind", isOptionalText),
+      freshnessBounded: field("freshnessBounded", isFlag),
+      freshnessObserved: field("freshnessObserved", isFlag),
+      identityFingerprint: field("identityFingerprint", isText),
+      isCurrentRevision: field("isCurrentRevision", isFlag),
+      mappingObserved: field("mappingObserved", isFlag),
+      normalizedState: field("normalizedState", isText),
+      rawIsMember: field("rawIsMember", isOptionalFlag),
+      rawStatus: field("rawStatus", isOptionalText),
+      revision: field("revision", isOptionalText),
+      sequence: field("sequence", isCount),
+      source: field("source", isOptionalText),
+      validitySeconds: field("validitySeconds", isOptionalCount),
+    };
+  });
+}
+
 function currentTransitions(
   transitions: readonly RedactedMembershipTransition[],
 ): Map<string, RedactedMembershipTransition> {
@@ -848,7 +886,8 @@ async function findApplicationSnapshot(
   if (!Array.isArray(snapshots)) {
     throw new Error("Credentialed proof application snapshots are unavailable");
   }
-  for (const value of [...snapshots].reverse()) {
+  const recorded: readonly unknown[] = snapshots;
+  for (const value of [...recorded].reverse()) {
     const snapshot = providerRecord(value);
     if (snapshot.label === label) {
       return snapshot;
@@ -961,7 +1000,8 @@ function latestGroupChatId(value: unknown): string {
   if (!Array.isArray(value)) {
     throw new Error("getUpdates did not return an update list");
   }
-  for (const update of [...value].reverse()) {
+  const updates: readonly unknown[] = value;
+  for (const update of [...updates].reverse()) {
     const record = providerRecord(update);
     for (const field of ["message", "my_chat_member", "chat_member"] as const) {
       if (!(field in record)) {
@@ -1002,11 +1042,12 @@ async function appendObservation(
   if (existing !== undefined && !Array.isArray(existing)) {
     throw new Error(`Credentialed proof observation ${name} is not a sequence`);
   }
+  const sequence: readonly unknown[] = existing ?? [];
   await writeEvidence(path, {
     proofVersion: "inside.telegram-credentialed-proof.v1",
     observations: {
       ...observations,
-      [name]: [...(existing ?? []), observation],
+      [name]: [...sequence, observation],
     },
   });
 }
@@ -1084,11 +1125,7 @@ function normalizeUsername(value: string): string {
 }
 
 function isMissingFile(error: unknown): boolean {
-  return (
-    error instanceof Error &&
-    "code" in error &&
-    (error as NodeJS.ErrnoException).code === "ENOENT"
-  );
+  return error instanceof Error && "code" in error && error.code === "ENOENT";
 }
 
 function required(value: string | undefined, name: string): string {
