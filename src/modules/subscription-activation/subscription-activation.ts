@@ -45,7 +45,7 @@ const RETENTION = 30 * 24 * 60 * 60_000;
 const CADENCE = 60_000;
 // A known unfinished outcome may expire. Never discard an uncertain evidence write
 // or a confirmed Enrollment receipt just because the user has not returned. An expired
-// confirmed attempt stops retrying but is kept: the deletions also require no confirmation.
+// confirmed attempt stops retrying and returns to completed; the deletions skip it.
 // Parenthesized as a whole, because callers negate it.
 const expirableAttempt = sql<boolean>`(coalesce(
   (evidence is null and result is null)
