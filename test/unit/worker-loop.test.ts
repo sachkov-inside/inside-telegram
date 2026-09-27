@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { WorkerLoop } from "../../src/operations/worker-loop.js";
+import { required } from "../support/required.js";
 
 describe("WorkerLoop", () => {
   beforeEach(() => {
@@ -18,9 +19,9 @@ describe("WorkerLoop", () => {
     const startedAt: number[] = [];
     const loop = new WorkerLoop(
       "test",
-      async () => {
+      () => {
         startedAt.push(Date.now());
-        return found.shift() ?? false;
+        return Promise.resolve(found.shift() ?? false);
       },
       { busyMs: 100, idleMs: 500 },
     );
@@ -32,7 +33,7 @@ describe("WorkerLoop", () => {
 
     const gaps = startedAt
       .slice(1)
-      .map((time, index) => time - startedAt[index]!);
+      .map((time, index) => time - required(startedAt[index]));
     expect(gaps).toEqual([200, 400, 500, 500, 100]);
   });
 
@@ -40,9 +41,9 @@ describe("WorkerLoop", () => {
     let cycles = 0;
     const loop = new WorkerLoop(
       "test",
-      async () => {
+      () => {
         cycles += 1;
-        return false;
+        return Promise.resolve(false);
       },
       { busyMs: 100, idleMs: 60_000 },
     );
@@ -113,7 +114,7 @@ describe("WorkerLoop", () => {
 
     expect(cycles).toBeGreaterThanOrEqual(2);
     expect(
-      String(vi.mocked(process.stderr.write).mock.calls[0]?.[0]),
+      String(vi.mocked(process.stderr).write.mock.calls[0]?.[0]),
     ).toContain('"failure":"error_range_error"');
   });
 });

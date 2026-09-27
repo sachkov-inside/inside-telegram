@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import { HttpPlatformEvidenceAdapter } from "../../src/adapters/platform/http-platform-evidence.adapter.js";
 import type { PlatformEvidenceDeliveryRequest } from "../../src/modules/membership-evidence/platform-evidence-delivery.js";
+import { requestUrl } from "../support/json.js";
 
 const request: PlatformEvidenceDeliveryRequest = {
   evidence: {
@@ -25,9 +26,9 @@ describe("HttpPlatformEvidenceAdapter", () => {
     const adapter = new HttpPlatformEvidenceAdapter(
       "https://platform.example.test/integrations/telegram/v1/membership-evidence",
       "synthetic_delivery_secret",
-      async (input, init) => {
-        calls.push({ input: String(input), init: init ?? {} });
-        return new Response(undefined, { status: 202 });
+      (input, init) => {
+        calls.push({ input: requestUrl(input), init: init ?? {} });
+        return Promise.resolve(new Response(undefined, { status: 202 }));
       },
     );
 
@@ -57,7 +58,7 @@ describe("HttpPlatformEvidenceAdapter", () => {
     const adapter = new HttpPlatformEvidenceAdapter(
       "https://platform.example.test/evidence",
       "synthetic_delivery_secret",
-      async () => new Response(undefined, { status }),
+      () => Promise.resolve(new Response(undefined, { status })),
     );
 
     await expect(adapter.deliver(request)).resolves.toMatchObject({ kind });

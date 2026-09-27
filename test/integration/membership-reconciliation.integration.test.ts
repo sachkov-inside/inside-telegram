@@ -549,7 +549,7 @@ describe("durable Membership reconciliation", () => {
     });
   });
 
-  it("reports redacted due, success, failure, degraded and backlog metrics", async () => {
+  it("reports redacted due, success, failure, degraded and backlog metrics", () => {
     const metrics = new RuntimeMetrics();
     metrics.recordReconciliation({
       degraded: 1,
@@ -693,20 +693,20 @@ class ControlledTelegramMembership implements TelegramMembership {
   };
   subjectCalls = 0;
 
-  async getBotChatMember(): Promise<TelegramChatMemberResult> {
-    return this.provider;
+  getBotChatMember(): Promise<TelegramChatMemberResult> {
+    return Promise.resolve(this.provider);
   }
 
-  async getChatMember(
+  getChatMember(
     _canonicalChatId: string,
     telegramUserId: string,
   ): Promise<TelegramChatMemberResult> {
     this.subjectCalls += 1;
-    return (
+    return Promise.resolve(
       this.members.get(telegramUserId) ?? {
         diagnosticCode: "synthetic_missing_member",
         kind: "unavailable",
-      }
+      },
     );
   }
 }

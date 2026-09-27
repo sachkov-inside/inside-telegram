@@ -12,6 +12,7 @@ import type { Database } from "../../src/database/database.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
+import { anyString } from "../support/matchers.js";
 
 const databaseUrl = process.env.DATABASE_URL;
 if (!databaseUrl) {
@@ -106,7 +107,7 @@ describe("Platform identity-linking HTTP contract", () => {
     expect(wrong.statusCode).toBe(401);
     const count = await database
       .selectFrom("link_transactions")
-      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .select(({ fn }) => fn.countAll<string>().as("count"))
       .executeTakeFirstOrThrow();
     expect(Number(count.count)).toBe(0);
   });
@@ -194,7 +195,7 @@ describe("Platform identity-linking HTTP contract", () => {
     ]);
     const linksBeforeConfirmation = await database
       .selectFrom("platform_links")
-      .select(({ fn }) => fn.countAll<number>().as("count"))
+      .select(({ fn }) => fn.countAll<string>().as("count"))
       .executeTakeFirstOrThrow();
     expect(Number(linksBeforeConfirmation.count)).toBe(0);
 
@@ -209,7 +210,7 @@ describe("Platform identity-linking HTTP contract", () => {
       linkTransactionRef: challenge.linkTransactionRef,
       returnCorrelation: "return-ref-a",
       status: "linked",
-      telegramIdentityRef: expect.any(String),
+      telegramIdentityRef: anyString(),
     });
   });
 });
@@ -230,19 +231,21 @@ function platformAuthorization() {
   };
 }
 
-async function confirm(
+function confirm(
   linkTransactionRef: string,
   accountRef: string,
   returnCorrelation: string,
 ) {
-  return fastify.inject({
-    headers: platformAuthorization(),
-    method: "POST",
-    payload: {
-      accountRef,
-      contractVersion: "inside.identity-linking.v1",
-      returnCorrelation,
-    },
-    url: `/integrations/platform/v1/identity-links/${linkTransactionRef}/confirm`,
-  });
+  return Promise.resolve(
+    fastify.inject({
+      headers: platformAuthorization(),
+      method: "POST",
+      payload: {
+        accountRef,
+        contractVersion: "inside.identity-linking.v1",
+        returnCorrelation,
+      },
+      url: `/integrations/platform/v1/identity-links/${linkTransactionRef}/confirm`,
+    }),
+  );
 }

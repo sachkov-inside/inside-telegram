@@ -9,6 +9,7 @@ import { loadApplicationConfig } from "../../src/config/application-config.js";
 import { systemClock } from "../../src/shared/clock.js";
 import { seedNotificationRecipient } from "../support/notification-recipient.js";
 import { randomUUID } from "node:crypto";
+import { text as readText } from "node:stream/consumers";
 import { connect, type ChannelModel, type ConfirmChannel } from "amqplib";
 import { sql } from "kysely";
 import {
@@ -25,10 +26,15 @@ import { migrateToLatest } from "../../src/database/migrator.js";
 import { NotificationProvider } from "../../src/modules/notifications/notification-provider.js";
 import { NotificationBroker } from "../../src/adapters/amqp/notification-broker.js";
 import type { NotificationInbox } from "../../src/modules/notifications/notification-ports.js";
-import type { NotificationCommand } from "../../src/modules/notifications/notification-contract.js";
+import {
+  notificationValidator,
+  type NotificationCommand,
+} from "../../src/modules/notifications/notification-contract.js";
 import topology from "../../docs/operations/notification-topology.json" with { type: "json" };
 import fixtures from "../../docs/contracts/notifications-v1/fixtures.json" with { type: "json" };
-const db = createDatabase(process.env.DATABASE_URL!);
+import { required } from "../support/required.js";
+import { conforming, jsonRecord, record } from "../support/json.js";
+const db = createDatabase(required(process.env.DATABASE_URL));
 const vhost = `notification-test-${randomUUID()}`;
 const users = {
   provider: `${vhost}-provider`,
@@ -79,21 +85,24 @@ const provider = new NotificationProvider(
   db,
   "inside",
   clock,
-  { authorize: async () => undefined },
+  { authorize: () => Promise.resolve(undefined) },
   {
-    sendText: async () => {
-      throw new Error("No external sends in broker tests");
+    sendText: () => {
+      return Promise.reject(new Error("No external sends in broker tests"));
     },
-    editText: async () => {
-      throw new Error("No external sends");
+    editText: () => {
+      return Promise.reject(new Error("No external sends"));
     },
   },
   Buffer.alloc(32, 2),
 );
 function command(category: "subscription" | "material" = "subscription") {
-  const c = structuredClone(
-    fixtures.find((f) => f.name === "subscription-telegram")!.value,
-  ) as NotificationCommand;
+  const c = conforming(
+    structuredClone(
+      required(fixtures.find((f) => f.name === "subscription-telegram")).value,
+    ),
+    notificationValidator<NotificationCommand>("telegramDelivery"),
+  );
   c.operationId = randomUUID();
   c.deliveryRef = randomUUID();
   c.notificationRef = randomUUID();
@@ -103,7 +112,8 @@ function command(category: "subscription" | "material" = "subscription") {
 }
 function publish(
   ch: ConfirmChannel,
-  c: NotificationCommand,
+  // A string version lets a test publish a command from an unsupported contract.
+  c: Omit<NotificationCommand, "contractVersion"> & { contractVersion: string },
   exchange = "inside.notifications.telegram.v1",
 ) {
   return new Promise<void>((resolve, reject) => {
@@ -118,7 +128,7 @@ function publish(
         type: c.contractVersion,
         messageId: c.operationId,
       },
-      (error) => (error ? reject(error) : resolve()),
+      (error: Error | null) => (error ? reject(error) : resolve()),
     );
   });
 }
@@ -212,9 +222,7 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
       void authorize(req, res);
     });
     async function authorize(req: IncomingMessage, res: ServerResponse) {
-      const chunks: Buffer[] = [];
-      for await (const chunk of req) chunks.push(Buffer.from(chunk));
-      const request = JSON.parse(Buffer.concat(chunks).toString());
+      const request = jsonRecord(await readText(req));
       authorizations.push(request);
       await new Promise((resolve) => setTimeout(resolve, 80));
       res.setHeader("content-type", "application/json");
@@ -234,7 +242,7 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
     if (!address || typeof address === "string")
       throw new Error("No HTTP test endpoint");
     const config = loadApplicationConfig({
-      DATABASE_URL: process.env.DATABASE_URL!,
+      DATABASE_URL: required(process.env.DATABASE_URL),
       TELEGRAM_BOT_IDENTITY: "inside",
       TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
       TELEGRAM_WEBHOOK_SECRET: "synthetic_webhook_secret_for_tests_only",
@@ -257,12 +265,15 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
       config,
       db,
       {
-        sendText: async (message) => {
+        sendText: (message) => {
           sent.push(message.text);
-          return { kind: "delivered", providerMessageId: String(sent.length) };
+          return Promise.resolve({
+            kind: "delivered",
+            providerMessageId: String(sent.length),
+          });
         },
-        editText: async () => {
-          throw new Error("unused");
+        editText: () => {
+          return Promise.reject(new Error("unused"));
         },
       },
       systemClock,
@@ -430,9 +441,9 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
     const ch = await p.createConfirmChannel();
     let reached = false;
     const broken = await start({
-      receive: async () => {
+      receive: () => {
         reached = true;
-        throw new Error("crashed before commit");
+        return Promise.reject(new Error("crashed before commit"));
       },
     });
     await publish(ch, c);
@@ -446,10 +457,7 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
             .length,
       )
       .toBe(1);
-    await publish(ch, {
-      ...c,
-      contractVersion: "unknown",
-    } as unknown as NotificationCommand);
+    await publish(ch, { ...c, contractVersion: "unknown" });
     await expect
       .poll(
         async () =>
@@ -542,7 +550,7 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
     const result = await ch.get(queue);
     expect(result).toBeTruthy();
     if (result) {
-      expect(JSON.parse(result.content.toString()).state).toBe("accepted");
+      expect(jsonRecord(result.content.toString()).state).toBe("accepted");
       ch.ack(result);
     }
     expect(
@@ -556,15 +564,12 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
   });
   it("real ACL rejects foreign producer, provider writes to command exchange, configure, and foreign queue reads", async () => {
     for (const [user, action] of [
-      [users.rogue, async (ch: ConfirmChannel) => publish(ch, command())],
-      [users.provider, async (ch: ConfirmChannel) => publish(ch, command())],
+      [users.rogue, (ch: ConfirmChannel) => publish(ch, command())],
+      [users.provider, (ch: ConfirmChannel) => publish(ch, command())],
+      [users.provider, (ch: ConfirmChannel) => ch.assertQueue("forbidden")],
       [
         users.provider,
-        async (ch: ConfirmChannel) => ch.assertQueue("forbidden"),
-      ],
-      [
-        users.provider,
-        async (ch: ConfirmChannel) =>
+        (ch: ConfirmChannel) =>
           ch.get("platform.notification-results.telegram.v1"),
       ],
     ] as const) {
@@ -596,7 +601,7 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
             q,
             Buffer.from(String(i)),
             { persistent: true },
-            (e) => (e ? reject(e) : resolve()),
+            (e: Error | null) => (e ? reject(e) : resolve()),
           ),
         );
       } catch {
@@ -609,13 +614,14 @@ describe("real RabbitMQ consumer, confirms, permissions and limits", () => {
     expect(first && first.content.toString()).toBe("0");
     if (first) ch.ack(first);
     for (const queue of topology.queues) {
-      const info = (await (
-        await api(`queues/${vhost}/${queue.name}`, "GET")
-      ).json()) as { arguments: Record<string, unknown> };
-      expect(info.arguments["x-delivery-limit"]).toBe(-1);
-      expect(info.arguments["x-overflow"]).toBe("reject-publish");
-      expect(info.arguments).not.toHaveProperty("x-message-ttl");
-      expect(info.arguments).not.toHaveProperty("x-expires");
+      const info = record(
+        await (await api(`queues/${vhost}/${queue.name}`, "GET")).json(),
+      );
+      const queueArguments = record(info.arguments);
+      expect(queueArguments["x-delivery-limit"]).toBe(-1);
+      expect(queueArguments["x-overflow"]).toBe("reject-publish");
+      expect(queueArguments).not.toHaveProperty("x-message-ttl");
+      expect(queueArguments).not.toHaveProperty("x-expires");
     }
   });
 });

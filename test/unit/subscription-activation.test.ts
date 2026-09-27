@@ -72,19 +72,22 @@ describe("activation ingress and separate source proof", () => {
       const proof = new SourceGroupProof(
         [{ sourceRef: "course", chatId: "-2", policy: "whole_group" }],
         {
-          async getBotChatMember(chat) {
+          getBotChatMember(chat) {
             chats.push(chat);
-            return { kind: "observed", value: { status: "administrator" } };
+            return Promise.resolve({
+              kind: "observed",
+              value: { status: "administrator" },
+            });
           },
-          async getChatMember(chat) {
+          getChatMember(chat) {
             chats.push(chat);
-            return {
+            return Promise.resolve({
               kind: "observed",
               value: {
                 status,
                 ...(isMember !== undefined ? { isMember } : {}),
               },
-            };
+            });
           },
         },
       );
@@ -105,15 +108,15 @@ describe("activation ingress and separate source proof", () => {
         },
       ],
       {
-        async getBotChatMember() {
-          return {
+        getBotChatMember() {
+          return Promise.resolve({
             kind: "unavailable",
             diagnosticCode: "rate_limited",
             retryAfterSeconds: 125,
-          };
+          });
         },
-        async getChatMember() {
-          throw new Error("must not run");
+        getChatMember() {
+          return Promise.reject(new Error("must not run"));
         },
       },
     );

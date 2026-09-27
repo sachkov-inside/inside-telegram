@@ -13,7 +13,6 @@ import {
   type NotificationCommand,
   type DispatchResponse,
   type DispatchRequest,
-  type NotificationResult,
 } from "../../src/modules/notifications/notification-contract.js";
 import type {
   TelegramDeliveryResult,
@@ -21,8 +20,10 @@ import type {
 } from "../../src/modules/outbound/telegram-messages.js";
 import { reserveTelegramSlot } from "../../src/modules/outbound/telegram-transport-slots.js";
 import fixtures from "../../docs/contracts/notifications-v1/fixtures.json" with { type: "json" };
-const db = createDatabase(process.env.DATABASE_URL!);
-const db2 = createDatabase(process.env.DATABASE_URL!);
+import { required } from "../support/required.js";
+import { conforming } from "../support/json.js";
+const db = createDatabase(required(process.env.DATABASE_URL));
+const db2 = createDatabase(required(process.env.DATABASE_URL));
 const clock = {
   value: new Date("2026-09-08T12:00:00Z"),
   now() {
@@ -48,7 +49,7 @@ const transport = {
     sends.push(m);
     return send(m);
   },
-  editText: async () => response,
+  editText: () => Promise.resolve(response),
 };
 const provider = () =>
   new NotificationProvider(
@@ -71,9 +72,12 @@ const concurrent = () =>
 function command(
   category: "subscription" | "material" = "subscription",
 ): NotificationCommand {
-  const c = structuredClone(
-    fixtures.find((f) => f.name === "subscription-telegram")!.value,
-  ) as NotificationCommand;
+  const c = conforming(
+    structuredClone(
+      required(fixtures.find((f) => f.name === "subscription-telegram")).value,
+    ),
+    notificationValidator<NotificationCommand>("telegramDelivery"),
+  );
   c.operationId = randomUUID();
   c.deliveryRef = randomUUID();
   c.notificationRef = randomUUID();
@@ -83,7 +87,7 @@ function command(
   c.notAfter = new Date(clock.now().getTime() + 600000).toISOString();
   return c;
 }
-async function receive(c: NotificationCommand, p = provider()) {
+function receive(c: NotificationCommand, p = provider()) {
   return p.receive(
     Buffer.from(JSON.stringify(c)),
     {
@@ -132,13 +136,14 @@ beforeEach(async () => {
   sends = [];
   calls = [];
   response = { kind: "delivered", providerMessageId: "11" };
-  send = async () => response;
-  preflight = async (r) => ({
-    ...r,
-    status: "allowed",
-    permitRef: randomUUID(),
-    validUntil: new Date(clock.now().getTime() + 5000).toISOString(),
-  });
+  send = () => Promise.resolve(response);
+  preflight = (r) =>
+    Promise.resolve({
+      ...r,
+      status: "allowed",
+      permitRef: randomUUID(),
+      validUntil: new Date(clock.now().getTime() + 5000).toISOString(),
+    });
 });
 describe("Notification provider with real PostgreSQL and synthetic external facets", () => {
   it("disabled or crashed notification workers cannot strand existing traffic behind durable backlog", async () => {
@@ -355,9 +360,10 @@ describe("Notification provider with real PostgreSQL and synthetic external face
     expect(sends).toHaveLength(1);
     finish({ kind: "transport_unknown" });
     await running;
-    const attempt = (
-      (await result(c)) as Extract<NotificationResult, { state: "unknown" }>
-    ).attemptRef;
+    const unknownResult = await result(c);
+    if (unknownResult?.state !== "unknown")
+      throw new Error("Expected an unknown delivery result");
+    const attempt = unknownResult.attemptRef;
     await expect(
       concurrent().settle(c.operationId, randomUUID(), digest(c), response),
     ).rejects.toThrow("correlation");
@@ -385,7 +391,7 @@ describe("Notification provider with real PostgreSQL and synthetic external face
     const c = command();
     await linked(c);
     await receive(c);
-    preflight = async (r) => ({ ...r, status: "denied", reason });
+    preflight = (r) => Promise.resolve({ ...r, status: "denied", reason });
     await provider().processCategory("subscription");
     expect(await result(c)).toMatchObject({ state: "suppressed", reason });
     expect(sends).toHaveLength(0);
@@ -425,22 +431,24 @@ describe("Notification provider with real PostgreSQL and synthetic external face
       const c = command();
       await linked(c);
       await receive(c);
-      preflight = async (r) =>
-        failure === "unavailable"
-          ? undefined
-          : {
-              ...r,
-              deliveryOperationId:
-                failure === "wrong-correlation"
-                  ? randomUUID()
-                  : r.deliveryOperationId,
-              status: "allowed",
-              permitRef: randomUUID(),
-              validUntil: new Date(
-                clock.now().getTime() +
-                  (failure === "expired-permit" ? 0 : 6000),
-              ).toISOString(),
-            };
+      preflight = (r) =>
+        Promise.resolve(
+          failure === "unavailable"
+            ? undefined
+            : {
+                ...r,
+                deliveryOperationId:
+                  failure === "wrong-correlation"
+                    ? randomUUID()
+                    : r.deliveryOperationId,
+                status: "allowed",
+                permitRef: randomUUID(),
+                validUntil: new Date(
+                  clock.now().getTime() +
+                    (failure === "expired-permit" ? 0 : 6000),
+                ).toISOString(),
+              },
+        );
       for (const delay of [0, 1000, 5000, 30000]) {
         advance(delay);
         await provider().processCategory("subscription");
@@ -466,7 +474,7 @@ describe("Notification provider with real PostgreSQL and synthetic external face
     const retry = await result(c);
     expect(retry).toMatchObject({
       state: "retrying",
-      attemptRef: calls[0]!.attemptRef,
+      attemptRef: required(calls[0]).attemptRef,
     });
     const reserved = await db
       .transaction()
@@ -479,7 +487,9 @@ describe("Notification provider with real PostgreSQL and synthetic external face
     await provider().processCategory("subscription");
     expect(sends).toHaveLength(2);
     expect((await result(c)).state).toBe("sent");
-    expect(calls[1]!.attemptRef).not.toBe(calls[0]!.attemptRef);
+    expect(required(calls[1]).attemptRef).not.toBe(
+      required(calls[0]).attemptRef,
+    );
   });
   it.each([500, 502, 504])(
     "ambiguous %s never turns retryable after restart/deadline",
@@ -502,13 +512,14 @@ describe("Notification provider with real PostgreSQL and synthetic external face
     await provider().processCategory("subscription");
     const published: string[] = [];
     await expect(
-      provider().publishResults(async (r) => {
+      provider().publishResults((r) => {
         published.push(r.messageId);
-        throw new Error("lost confirm");
+        return Promise.reject(new Error("lost confirm"));
       }),
     ).rejects.toThrow();
-    await concurrent().publishResults(async (r) => {
+    await concurrent().publishResults((r) => {
       published.push(r.messageId);
+      return Promise.resolve();
     });
     expect(published[0]).toBe(published[1]);
     expect(sends).toHaveLength(1);

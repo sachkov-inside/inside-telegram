@@ -26,6 +26,7 @@ import { SubscriptionActivation } from "../../src/modules/subscription-activatio
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-response-delivery-queue.js";
+import { required } from "../support/required.js";
 
 const bot = `activation-${randomUUID()}`;
 const clock = {
@@ -71,24 +72,31 @@ let source: "member" | "not_member" | "unavailable" = "member";
 let bindingUnavailable = false;
 const rule = { id: randomUUID(), revision: 1, sourceRef: "course" };
 const platform: ActivationPlatform = {
-  async binding(identityRef) {
-    return bindingUnavailable
-      ? { ok: false, error: { code: "unavailable" } }
-      : {
-          ok: true,
-          value: {
-            contractVersion: ACTIVATION_VERSION,
-            ...(bindings.has(identityRef)
-              ? { state: "linked", binding: bindings.get(identityRef)! }
-              : { state: "unlinked" }),
+  binding(identityRef) {
+    return Promise.resolve(
+      bindingUnavailable
+        ? { ok: false, error: { code: "unavailable" } }
+        : {
+            ok: true,
+            value: {
+              contractVersion: ACTIVATION_VERSION,
+              ...(bindings.has(identityRef)
+                ? {
+                    state: "linked",
+                    binding: required(bindings.get(identityRef)),
+                  }
+                : { state: "unlinked" }),
+            },
           },
-        };
+    );
   },
-  async begin(input) {
+  begin(input) {
     begins.push(input.attemptId);
     if (results.has(input.attemptId))
-      return structuredClone(results.get(input.attemptId)!);
-    return {
+      return Promise.resolve(
+        structuredClone(required(results.get(input.attemptId))),
+      );
+    return Promise.resolve({
       ok: true,
       value: {
         contractVersion: ACTIVATION_VERSION,
@@ -97,20 +105,28 @@ const platform: ActivationPlatform = {
         enrollment: null,
         rule,
       },
-    };
+    });
   },
-  async evidence(input) {
+  evidence(input) {
     proofs.push(structuredClone(input));
     if (dropBeforeAccept) {
       dropBeforeAccept = false;
-      return;
+      return Promise.resolve(undefined);
     }
     if (evidenceConflict)
-      return { ok: false, error: { code: "identity_conflict" } };
+      return Promise.resolve({
+        ok: false,
+        error: { code: "identity_conflict" },
+      });
     if (receipts.has(input.evidenceRef))
-      return structuredClone(receipts.get(input.evidenceRef)!);
+      return Promise.resolve(
+        structuredClone(required(receipts.get(input.evidenceRef))),
+      );
     if (Date.parse(input.validUntil) <= clock.now().getTime())
-      return { ok: false, error: { code: "source_not_confirmed" } };
+      return Promise.resolve({
+        ok: false,
+        error: { code: "source_not_confirmed" },
+      });
     if (input.decision === "member")
       granted.add(`${input.sourceRef}:${input.identityRef}`);
     const result: ActivationResult<ActivationResponse> = {
@@ -131,12 +147,12 @@ const platform: ActivationPlatform = {
     receipts.set(input.evidenceRef, structuredClone(result));
     if (loseResponse) {
       loseResponse = false;
-      return;
+      return Promise.resolve(undefined);
     }
-    return result;
+    return Promise.resolve(result);
   },
-  async own() {
-    return {
+  own() {
+    return Promise.resolve({
       ok: true,
       value: {
         contractVersion: ACTIVATION_VERSION,
@@ -144,7 +160,7 @@ const platform: ActivationPlatform = {
         grounds: [],
         admission: { state: "no_access", admissionRestriction: "none" },
       },
-    };
+    });
   },
 };
 beforeAll(async () => {
@@ -288,7 +304,7 @@ describe("durable activation ingress, identity and continuation", () => {
     await link(70002);
     loseResponse = true;
     await worker.processAvailable();
-    const first = proofs.at(-1)!;
+    const first = required(proofs.at(-1));
     expect(first.identityRef).toBe(await identity(70002));
     clock.value = new Date(clock.now().getTime() + 31 * 24 * 60 * 60_000);
     const restarted = new SubscriptionActivation(
@@ -297,11 +313,11 @@ describe("durable activation ingress, identity and continuation", () => {
       clock,
       platform,
       new SourceGroupProof([], {
-        async getBotChatMember() {
-          throw new Error("must replay before recheck");
+        getBotChatMember() {
+          return Promise.reject(new Error("must replay before recheck"));
         },
-        async getChatMember() {
-          throw new Error("must replay before recheck");
+        getChatMember() {
+          return Promise.reject(new Error("must replay before recheck"));
         },
       }),
       app.get(StartResponseDeliveryQueue),
@@ -318,11 +334,11 @@ describe("durable activation ingress, identity and continuation", () => {
     await link(70007);
     dropBeforeAccept = true;
     await worker.processAvailable();
-    const first = proofs.at(-1)!;
+    const first = required(proofs.at(-1));
     clock.value = new Date(clock.now().getTime() + 301_000);
     await worker.processAvailable();
     expect(proofs.at(-2)).toEqual(first);
-    expect(proofs.at(-1)!.evidenceRef).not.toBe(first.evidenceRef);
+    expect(required(proofs.at(-1)).evidenceRef).not.toBe(first.evidenceRef);
     expect(granted.has(`course:${await identity(70007)}`)).toBe(true);
   });
   it("stops identity conflict until an explicit user retry", async () => {
@@ -379,7 +395,7 @@ describe("durable activation ingress, identity and continuation", () => {
     await ingress(70005, "/start a_course");
     await link(70005);
     await worker.processAvailable();
-    const initial = proofs.at(-1)!;
+    const initial = required(proofs.at(-1));
     for (let i = 0; i < 3; i++) {
       clock.value = new Date(clock.now().getTime() + 60_000);
       await worker.processAvailable();
@@ -395,7 +411,7 @@ describe("durable activation ingress, identity and continuation", () => {
     source = "member";
     clock.value = new Date(clock.now().getTime() + 60_000);
     await worker.processAvailable();
-    expect(proofs.at(-1)!.attemptId).not.toBe(initial.attemptId);
+    expect(required(proofs.at(-1)).attemptId).not.toBe(initial.attemptId);
     expect(granted.has(`course:${await identity(70005)}`)).toBe(true);
   });
   it("expires known unavailable work and permits a fresh explicit start", async () => {
@@ -403,7 +419,7 @@ describe("durable activation ingress, identity and continuation", () => {
     await ingress(70011, "/start a_course");
     await link(70011);
     await worker.processAvailable();
-    const first = proofs.at(-1)!;
+    const first = required(proofs.at(-1));
     const calls = { begins: begins.length, proofs: proofs.length };
     clock.value = new Date(clock.now().getTime() + 31 * 24 * 60 * 60_000);
     await worker.processAvailable();
@@ -419,7 +435,7 @@ describe("durable activation ingress, identity and continuation", () => {
     source = "member";
     await ingress(70011, "/start a_course");
     await worker.processAvailable();
-    expect(proofs.at(-1)!.attemptId).not.toBe(first.attemptId);
+    expect(required(proofs.at(-1)).attemptId).not.toBe(first.attemptId);
     expect(granted.has(`course:${await identity(70011)}`)).toBe(true);
   });
   it("resolves expired uncertain evidence before cleanup without starting a new proof", async () => {
@@ -427,7 +443,7 @@ describe("durable activation ingress, identity and continuation", () => {
     await link(70010);
     dropBeforeAccept = true;
     await worker.processAvailable();
-    const first = proofs.at(-1)!;
+    const first = required(proofs.at(-1));
     const beginCount = begins.length;
     clock.value = new Date(clock.now().getTime() + 31 * 24 * 60 * 60_000);
     await worker.processAvailable();
@@ -448,12 +464,12 @@ describe("durable activation ingress, identity and continuation", () => {
     await ingress(70006, "/start a_course");
     await link(70006);
     await worker.processAvailable();
-    const rejected = proofs.at(-1)!;
+    const rejected = required(proofs.at(-1));
     clock.value = new Date(clock.now().getTime() + 31 * 24 * 60 * 60_000);
     source = "member";
     await ingress(70006, "/start a_course");
     await worker.processAvailable();
-    expect(proofs.at(-1)!.attemptId).not.toBe(rejected.attemptId);
+    expect(required(proofs.at(-1)).attemptId).not.toBe(rejected.attemptId);
     expect(granted.has(`course:${await identity(70006)}`)).toBe(true);
   });
   it("purges old unlinked attempts while retaining the stable source identity", async () => {

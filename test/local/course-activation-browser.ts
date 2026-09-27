@@ -1,7 +1,13 @@
 import { AxeBuilder } from "@axe-core/playwright";
 import { mkdir, writeFile } from "node:fs/promises";
 import { resolve } from "node:path";
-import { chromium, expect as baseExpect } from "@playwright/test";
+import {
+  chromium,
+  expect as baseExpect,
+  type APIResponse,
+} from "@playwright/test";
+import { required } from "../support/required.js";
+import { list, record, text } from "../support/json.js";
 
 const expect = baseExpect.configure({ timeout: 30_000 });
 
@@ -55,26 +61,43 @@ interface Message {
   text: string;
   buttons?: { url?: string; callbackData?: string }[];
 }
+async function jsonObject(response: APIResponse) {
+  return record(await response.json());
+}
+function message(value: Record<string, unknown>): Message {
+  const buttons = value.buttons;
+  return {
+    chatId: text(value.chatId),
+    id: text(value.id),
+    text: text(value.text),
+    ...(buttons === undefined
+      ? {}
+      : {
+          buttons: list(buttons).map(({ url, callbackData }) => ({
+            ...(url === undefined ? {} : { url: text(url) }),
+            ...(callbackData === undefined
+              ? {}
+              : { callbackData: text(callbackData) }),
+          })),
+        }),
+  };
+}
 async function messages(): Promise<Message[]> {
-  const state = await (
-    await context.request.get(`${provider}/proof/state`)
-  ).json();
-  return (state.messages as Message[]).filter((m) => m.chatId === String(user));
+  const state = await jsonObject(
+    await context.request.get(`${provider}/proof/state`),
+  );
+  return list(state.messages)
+    .map(message)
+    .filter((m) => m.chatId === String(user));
 }
 async function enrollments() {
   const response = await page.request.get(
     `${web}/api/account/billing/enrollments`,
   );
   expect(response.status()).toBe(200);
-  const state = await response.json();
+  const state = await jsonObject(response);
   expect(state.ok).toBe(true);
-  return state.value.items as {
-    id: string;
-    origin: string;
-    startsAt: string;
-    endsAt: string | null;
-    revision: number;
-  }[];
+  return list(record(state.value).items);
 }
 try {
   await context.request.post(`${provider}/proof/source`, {
@@ -90,10 +113,14 @@ try {
       { timeout: 30_000 },
     )
     .toBe(true);
-  const prompt = (await messages()).find((m) =>
-    m.buttons?.some((b) => b.url === `${web}/account`),
-  )!;
-  await page.goto(prompt.buttons!.find((b) => b.url)!.url!);
+  const prompt = required(
+    (await messages()).find((m) =>
+      m.buttons?.some((b) => b.url === `${web}/account`),
+    ),
+  );
+  await page.goto(
+    required(required(required(prompt.buttons).find((b) => b.url)).url),
+  );
   const signIn = page
     .locator("#content")
     .getByRole("button", { name: "Войти", exact: true });
@@ -109,12 +136,13 @@ try {
   );
   await expect(page.locator("#bot")).toBeVisible();
   const token = new URL(
-    (await page.locator("#bot").getAttribute("href"))!,
+    required(await page.locator("#bot").getAttribute("href")),
   ).searchParams.get("start");
-  const state = await (
-    await page.request.get(`${identity}/api/inside-telegram/status`)
-  ).json();
+  const state = await jsonObject(
+    await page.request.get(`${identity}/api/inside-telegram/status`),
+  );
   expect(state.status).toBe("pending");
+  const requestRef = text(state.requestRef);
   await page.screenshot({
     path: resolve(output, "browser-login.png"),
     fullPage: true,
@@ -125,18 +153,17 @@ try {
       async () =>
         (await messages()).some((m) =>
           m.buttons?.some(
-            (b) =>
-              b.callbackData === `signin:approve:${String(state.requestRef)}`,
+            (b) => b.callbackData === `signin:approve:${requestRef}`,
           ),
         ),
       { timeout: 30_000 },
     )
     .toBe(true);
-  const approval = (await messages()).find((m) =>
-    m.buttons?.some(
-      (b) => b.callbackData === `signin:approve:${String(state.requestRef)}`,
+  const approval = required(
+    (await messages()).find((m) =>
+      m.buttons?.some((b) => b.callbackData === `signin:approve:${requestRef}`),
     ),
-  )!;
+  );
   await webhook({
     callback_query: {
       id: `proof-${String(updateId)}`,
@@ -147,13 +174,13 @@ try {
         date: Math.floor(Date.now() / 1000),
         chat,
       },
-      data: `signin:approve:${String(state.requestRef)}`,
+      data: `signin:approve:${requestRef}`,
     },
   });
   await expect
     .poll(
       async () =>
-        (await (await page.request.get(`${web}/auth/status`)).json()).state,
+        (await jsonObject(await page.request.get(`${web}/auth/status`))).state,
       { timeout: 60_000 },
     )
     .toBe("authenticated");
@@ -269,8 +296,13 @@ try {
     await expect
       .poll(
         async () =>
-          (await (await context.request.get(`${provider}/proof/state`)).json())
-            .members[String(user)],
+          record(
+            (
+              await jsonObject(
+                await context.request.get(`${provider}/proof/state`),
+              )
+            ).members,
+          )[String(user)],
         { timeout: 30_000 },
       )
       .toBe("member");
@@ -295,11 +327,11 @@ try {
       "PASS repeated start and source exit preserve Enrollment identity, revision and dates",
     );
     const unbans = async () =>
-      (
-        await (await context.request.get(`${provider}/proof/state`)).json()
-      ).effects.filter(
-        (effect: { method: string; user?: string }) =>
-          effect.method === "unban" && effect.user === String(user),
+      list(
+        (await jsonObject(await context.request.get(`${provider}/proof/state`)))
+          .effects,
+      ).filter(
+        (effect) => effect.method === "unban" && effect.user === String(user),
       ).length;
     const beforeUnbans = await unbans();
     await context.request.post(`${provider}/proof/source`, {

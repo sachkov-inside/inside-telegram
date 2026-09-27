@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import topology from "../../docs/operations/notification-topology.json" with { type: "json" };
+import { required } from "../support/required.js";
 
 /**
  * Values owned by Platform and vendored here for the joint production release (Platform #527):
@@ -48,10 +49,10 @@ describe("alignment with the Platform production release", () => {
         "PLATFORM_TRACKING_TARGET_PREFIXES",
       ),
     });
-    const redirect = new URL(config.platformTrackingRedirectUrl!);
+    const redirect = new URL(required(config.platformTrackingRedirectUrl));
     expect(redirect.pathname).toBe(PLATFORM_TRACKING_VISIT_PATH);
     expect(
-      config.platformTrackingTargetPrefixes!.map(
+      required(config.platformTrackingTargetPrefixes).map(
         (prefix) => new URL(prefix).pathname,
       ),
     ).toEqual(["/materials/", "/series/"]);

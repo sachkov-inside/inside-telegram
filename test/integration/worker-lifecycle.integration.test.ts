@@ -131,7 +131,8 @@ describe("background worker lifecycle", () => {
     );
     const app = await start({
       sendText,
-      editText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+      editText: () =>
+        Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
     });
     let closed = false;
     try {
@@ -178,8 +179,10 @@ describe("background worker lifecycle", () => {
     );
     const app = await start(
       {
-        sendText: async () => ({ kind: "delivered", providerMessageId: "1" }),
-        editText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+        sendText: () =>
+          Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
+        editText: () =>
+          Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
       },
       undefined,
       { answer: answering },
@@ -239,8 +242,10 @@ describe("background worker lifecycle", () => {
     let statements = 0;
     const app = await start(
       {
-        sendText: async () => ({ kind: "delivered", providerMessageId: "1" }),
-        editText: async () => ({ kind: "delivered", providerMessageId: "1" }),
+        sendText: () =>
+          Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
+        editText: () =>
+          Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
       },
       () => {
         statements += 1;
@@ -268,7 +273,7 @@ async function start(
   },
   onStatement?: () => void,
   callbackAnswers: { answer: () => Promise<void> } = {
-    answer: async () => undefined,
+    answer: () => Promise.resolve(undefined),
   },
 ): Promise<NestFastifyApplication> {
   const counted = new Kysely<DatabaseSchema>({
@@ -290,22 +295,25 @@ async function start(
     .useValue(callbackAnswers)
     .overrideProvider(AUTHOR_TRANSPORT)
     .useValue({
-      send: async () => ({ kind: "delivered", providerMessageId: "1" }),
+      send: () =>
+        Promise.resolve({ kind: "delivered", providerMessageId: "1" }),
     })
     .overrideProvider(TELEGRAM_MEMBERSHIP)
     .useValue({
-      getBotChatMember: async () => ({
-        kind: "observed",
-        value: { status: "administrator" },
-      }),
-      getChatMember: async () => ({
-        kind: "observed",
-        value: { status: "member" },
-      }),
+      getBotChatMember: () =>
+        Promise.resolve({
+          kind: "observed",
+          value: { status: "administrator" },
+        }),
+      getChatMember: () =>
+        Promise.resolve({
+          kind: "observed",
+          value: { status: "member" },
+        }),
     })
     .overrideProvider(PLATFORM_EVIDENCE_DELIVERY)
     .useValue({
-      deliver: async () => ({ kind: "delivered" }),
+      deliver: () => Promise.resolve({ kind: "delivered" }),
     })
     .compile();
   const app = module.createNestApplication<NestFastifyApplication>(

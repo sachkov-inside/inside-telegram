@@ -255,14 +255,14 @@ describe("application configuration", () => {
       TELEGRAM_ACTIVATION_SOURCES: "[]",
     };
     expect(loadApplicationConfig(everyDirection)).toBeDefined();
-    const names = Object.keys(secrets) as (keyof typeof secrets)[];
-    for (const [index, first] of names.entries())
-      for (const second of names.slice(index + 1))
+    const entries = Object.entries(secrets);
+    for (const [index, [first, secret]] of entries.entries())
+      for (const [second] of entries.slice(index + 1))
         expect(
           () =>
             loadApplicationConfig({
               ...everyDirection,
-              [second]: secrets[first],
+              [second]: secret,
             }),
           `${first} reused as ${second}`,
         ).toThrow(/must be separate service secrets/);

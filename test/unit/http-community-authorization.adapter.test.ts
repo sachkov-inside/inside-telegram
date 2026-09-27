@@ -18,11 +18,13 @@ const request: DispatchAuthorizationRequest = {
 };
 
 function respond(body: unknown, status = 200): typeof fetch {
-  return async () =>
-    new Response(JSON.stringify(body), {
-      status,
-      headers: { "content-type": "application/json" },
-    });
+  return () =>
+    Promise.resolve(
+      new Response(JSON.stringify(body), {
+        status,
+        headers: { "content-type": "application/json" },
+      }),
+    );
 }
 
 const allowed = {
@@ -107,25 +109,20 @@ describe("community dispatch authorization", () => {
   });
 
   it("treats a transport failure as no answer", async () => {
-    const adapter = new HttpCommunityAuthorization(
-      "https://p/x",
-      "s",
-      async () => {
-        throw new Error("network");
-      },
-    );
+    const adapter = new HttpCommunityAuthorization("https://p/x", "s", () => {
+      return Promise.reject(new Error("network"));
+    });
     await expect(adapter.authorize(request)).resolves.toBeUndefined();
   });
 
   it("ignores a non-JSON answer", async () => {
-    const adapter = new HttpCommunityAuthorization(
-      "https://p/x",
-      "s",
-      async () =>
+    const adapter = new HttpCommunityAuthorization("https://p/x", "s", () =>
+      Promise.resolve(
         new Response("ok", {
           status: 200,
           headers: { "content-type": "text/plain" },
         }),
+      ),
     );
     await expect(adapter.authorize(request)).resolves.toBeUndefined();
   });

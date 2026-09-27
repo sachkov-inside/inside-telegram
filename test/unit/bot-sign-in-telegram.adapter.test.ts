@@ -12,11 +12,13 @@ describe("Telegram sign-in transport", () => {
   it("acknowledges shared menu callbacks without redirecting the author to website sign-in", async () => {
     let payload: unknown;
     const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
-      async fetch(_url: unknown, options?: { body?: unknown }) {
+      fetch(_url: unknown, options?: { body?: unknown }) {
         payload = JSON.parse(String(options?.body));
-        return new Response(JSON.stringify({ ok: true, result: true }), {
-          headers: { "content-type": "application/json" },
-        });
+        return Promise.resolve(
+          new Response(JSON.stringify({ ok: true, result: true }), {
+            headers: { "content-type": "application/json" },
+          }),
+        );
       },
     });
     await adapter.answer("synthetic-author-callback");
@@ -106,12 +108,12 @@ describe("Telegram sign-in transport", () => {
   it("maps confirmation buttons to inline Telegram callback data", async () => {
     let received: unknown;
     const adapter = new GrammyMessagesAdapter("synthetic", {
-      async editMessageText() {
-        return true;
+      editMessageText() {
+        return Promise.resolve(true);
       },
-      async sendMessage(_chatId, _text, options) {
+      sendMessage(_chatId, _text, options) {
         received = options;
-        return { message_id: 1 };
+        return Promise.resolve({ message_id: 1 });
       },
     });
     await adapter.sendText({
@@ -130,8 +132,8 @@ describe("Telegram sign-in transport", () => {
 
   it("does not undo a durable decision when callback acknowledgement expires", async () => {
     const adapter = new GrammyCallbackAnswersAdapter("synthetic", {
-      async fetch() {
-        throw new Error("Expired synthetic callback");
+      fetch() {
+        return Promise.reject(new Error("Expired synthetic callback"));
       },
     });
     await expect(adapter.answer("synthetic-id")).resolves.toBeUndefined();

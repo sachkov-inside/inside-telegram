@@ -20,19 +20,23 @@ function grammyError(code: number, retryAfter?: number): GrammyError {
   );
 }
 
-function api(overrides: Record<string, unknown> = {}) {
+type CommunityApi = NonNullable<
+  ConstructorParameters<typeof GrammyCommunityChatAdapter>[1]
+>;
+
+function api(overrides: Partial<CommunityApi> = {}): CommunityApi {
   return {
-    getMe: async () => ({ id: 7 }),
-    getChatMember: async () => ({ status: "member" }),
-    unbanChatMember: async () => ({}),
-    createChatInviteLink: async () => ({ invite_link: "https://t.me/+link" }),
-    approveChatJoinRequest: async () => ({}),
-    declineChatJoinRequest: async () => ({}),
-    banChatMember: async () => ({}),
-    revokeChatInviteLink: async () => ({}),
+    getMe: () => Promise.resolve({ id: 7 }),
+    getChatMember: () => Promise.resolve({ status: "member" }),
+    unbanChatMember: () => Promise.resolve({}),
+    createChatInviteLink: () =>
+      Promise.resolve({ invite_link: "https://t.me/+link" }),
+    approveChatJoinRequest: () => Promise.resolve({}),
+    declineChatJoinRequest: () => Promise.resolve({}),
+    banChatMember: () => Promise.resolve({}),
+    revokeChatInviteLink: () => Promise.resolve({}),
     ...overrides,
-    // oxlint-disable-next-line typescript/no-explicit-any
-  } as any;
+  };
 }
 
 describe("canonical chat observation", () => {
@@ -45,7 +49,7 @@ describe("canonical chat observation", () => {
   ])("classifies %s as %s", async (status, expected) => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
-      api({ getChatMember: async () => ({ status }) }),
+      api({ getChatMember: () => Promise.resolve({ status }) }),
     );
     await expect(adapter.observeMember(CHAT, USER)).resolves.toEqual({
       kind: "observed",
@@ -58,10 +62,11 @@ describe("canonical chat observation", () => {
       new GrammyCommunityChatAdapter(
         "token",
         api({
-          getChatMember: async () => ({
-            status: "restricted",
-            is_member: isMember,
-          }),
+          getChatMember: () =>
+            Promise.resolve({
+              status: "restricted",
+              is_member: isMember,
+            }),
         }),
       );
     await expect(restricted(false).observeMember(CHAT, USER)).resolves.toEqual({
@@ -78,8 +83,8 @@ describe("canonical chat observation", () => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
       api({
-        getChatMember: async () => {
-          throw new Error("network");
+        getChatMember: () => {
+          return Promise.reject(new Error("network"));
         },
       }),
     );
@@ -103,7 +108,7 @@ describe("canonical chat capability", () => {
   ])("reports %j as degraded", async (member, diagnosticCode) => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
-      api({ getChatMember: async () => member }),
+      api({ getChatMember: () => Promise.resolve(member) }),
     );
     await expect(adapter.readCapability(CHAT)).resolves.toEqual({
       kind: "degraded",
@@ -115,11 +120,12 @@ describe("canonical chat capability", () => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
       api({
-        getChatMember: async () => ({
-          status: "administrator",
-          can_invite_users: true,
-          can_restrict_members: true,
-        }),
+        getChatMember: () =>
+          Promise.resolve({
+            status: "administrator",
+            can_invite_users: true,
+            can_restrict_members: true,
+          }),
       }),
     );
     await expect(adapter.readCapability(CHAT)).resolves.toEqual({
@@ -134,7 +140,10 @@ describe("canonical chat mutations", () => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
       api({
-        unbanChatMember: async (...args: unknown[]) => calls.push(args),
+        unbanChatMember: (...args: unknown[]) => {
+          calls.push(args);
+          return Promise.resolve(true);
+        },
       }),
     );
     await adapter.unbanMember(CHAT, USER);
@@ -150,9 +159,9 @@ describe("canonical chat mutations", () => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
       api({
-        createChatInviteLink: async (chatId: number, options: unknown) => {
+        createChatInviteLink: (chatId: number, options: unknown) => {
           calls.push([chatId, options]);
-          return { invite_link: "https://t.me/+link" };
+          return Promise.resolve({ invite_link: "https://t.me/+link" });
         },
       }),
     );
@@ -185,8 +194,8 @@ describe("canonical chat mutations", () => {
     const adapter = new GrammyCommunityChatAdapter(
       "token",
       api({
-        banChatMember: async () => {
-          throw error;
+        banChatMember: () => {
+          return Promise.reject(error);
         },
       }),
     );

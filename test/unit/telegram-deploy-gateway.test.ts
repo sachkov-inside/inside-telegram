@@ -14,6 +14,7 @@ import { tmpdir } from "node:os";
 import path from "node:path";
 
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { jsonRecord, record } from "../support/json.js";
 
 const gatewayPath = path.resolve(
   "infra/production/deploy/inside-telegram-deploy",
@@ -575,7 +576,7 @@ describe("inside-telegram-deploy gateway", { timeout: 30_000 }, () => {
 
   it("rejects a self-consistent manifest that is not the GitHub release asset", () => {
     const v1 = publishRelease("v1", identityA);
-    const forged = JSON.parse(v1.manifest) as { image: string };
+    const forged = jsonRecord(v1.manifest);
     forged.image = `ghcr.io/${repository}@sha256:${"9".repeat(64)}`;
 
     const result = run("deploy v1 803", {
@@ -856,11 +857,15 @@ function readState(): {
   current: Record<string, unknown>;
   previous: Record<string, unknown> | null;
 } {
-  return JSON.parse(readFileSync(stateFile(), "utf8")) as never;
+  const state = jsonRecord(readFileSync(stateFile(), "utf8"));
+  return {
+    current: record(state.current),
+    previous: state.previous === null ? null : record(state.previous),
+  };
 }
 
 function readOperation(): Record<string, unknown> {
-  return JSON.parse(
+  return jsonRecord(
     readFileSync(
       path.join(
         root,
@@ -868,7 +873,7 @@ function readOperation(): Record<string, unknown> {
       ),
       "utf8",
     ),
-  ) as never;
+  );
 }
 
 function dockerCalls(): { image: string; command: string }[] {

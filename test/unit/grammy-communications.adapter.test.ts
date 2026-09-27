@@ -1,4 +1,3 @@
-import type { Api } from "grammy";
 import { GrammyError } from "grammy";
 import { describe, expect, it, vi } from "vitest";
 import { GrammyCommunicationsAdapter } from "../../src/adapters/telegram/grammy-communications.adapter.js";
@@ -8,6 +7,7 @@ import {
   prepareTelegramUpdateForInbox,
 } from "../../src/adapters/telegram/grammy-update.adapter.js";
 import { relativeDue } from "../../src/modules/communications/funnel-scheduler.js";
+import { required } from "../support/required.js";
 describe("communication transport", () => {
   for (const [type, method] of [
     ["text", "sendMessage"],
@@ -18,10 +18,14 @@ describe("communication transport", () => {
     ["document", "sendDocument"],
   ] as const)
     it(`translates ${type} snapshot, entities and buttons`, async () => {
-      const send = vi.fn(async () => ({ message_id: 123 }));
-      const adapter = new GrammyCommunicationsAdapter({
-        [method]: send,
-      } as unknown as Api);
+      const send = vi.fn((..._args: unknown[]) =>
+        Promise.resolve({ message_id: 123 }),
+      );
+      const adapter = new GrammyCommunicationsAdapter(
+        telegram({
+          [method]: send,
+        }),
+      );
       const content: TemplateContent = {
         type,
         text: type === "video_note" ? "" : "hello",
@@ -34,7 +38,7 @@ describe("communication transport", () => {
         kind: "delivered",
         providerMessageId: "123",
       });
-      const options = send.mock.calls[0] as unknown as unknown[];
+      const options = required(send.mock.calls[0]);
       expect(options.slice(0, 2)).toEqual([
         "42",
         type === "text" ? "hello" : "synthetic_file",
@@ -68,11 +72,13 @@ describe("communication transport", () => {
       },
     ],
   ] as const)("rejects %s without calling Telegram", async (_, content) => {
-    const send = vi.fn(async () => ({ message_id: 123 }));
-    const adapter = new GrammyCommunicationsAdapter({
-      sendMessage: send,
-      sendPhoto: send,
-    } as unknown as Api);
+    const send = vi.fn(() => Promise.resolve({ message_id: 123 }));
+    const adapter = new GrammyCommunicationsAdapter(
+      telegram({
+        sendMessage: send,
+        sendPhoto: send,
+      }),
+    );
     expect(await adapter.send({ chatId: "42", content })).toEqual({
       kind: "api_rejected",
       providerErrorCode: 400,
@@ -81,9 +87,11 @@ describe("communication transport", () => {
   });
   it("classifies 429, permanent rejection and transport ambiguity without retrying inside adapter", async () => {
     const send = vi.fn();
-    const adapter = new GrammyCommunicationsAdapter({
-      sendMessage: send,
-    } as unknown as Api);
+    const adapter = new GrammyCommunicationsAdapter(
+      telegram({
+        sendMessage: send,
+      }),
+    );
     const message = {
       chatId: "42",
       content: {
@@ -228,10 +236,12 @@ it("accepts only explicit private human stop/resume commands and leaves auth nam
 it("edits author menus and only replaces definitively unavailable messages", async () => {
   const editMessageText = vi.fn().mockResolvedValue({ message_id: 17 });
   const sendMessage = vi.fn().mockResolvedValue({ message_id: 18 });
-  const adapter = new GrammyCommunicationsAdapter({
-    editMessageText,
-    sendMessage,
-  } as unknown as Api);
+  const adapter = new GrammyCommunicationsAdapter(
+    telegram({
+      editMessageText,
+      sendMessage,
+    }),
+  );
   const message = {
     chatId: "42",
     authorMenu: true,
@@ -277,3 +287,16 @@ it("edits author menus and only replaces definitively unavailable messages", asy
   });
   expect(sendMessage).toHaveBeenCalledTimes(1);
 });
+
+/**
+ * A Telegram API double for the adapter. grammY types every method with complete Telegram
+ * objects, while these doubles return only the fields the adapter reads.
+ */
+type TelegramApi = ConstructorParameters<typeof GrammyCommunicationsAdapter>[0];
+
+function telegram(
+  methods: Partial<Record<keyof TelegramApi, unknown>>,
+): TelegramApi {
+  // oxlint-disable-next-line typescript/no-unsafe-type-assertion -- partial grammY double, see above.
+  return methods as TelegramApi;
+}

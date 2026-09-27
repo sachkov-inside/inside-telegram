@@ -2,9 +2,14 @@ import { describe, expect, it } from "vitest";
 import { HttpActivationPlatform } from "../../src/adapters/platform/http-activation-platform.adapter.js";
 import {
   ACTIVATION_VERSION,
+  activationValidator,
   type ActivationEvidence,
 } from "../../src/modules/subscription-activation/activation-contract.js";
 import fixtures from "../../docs/contracts/subscription-activation-v1/fixtures.json" with { type: "json" };
+import { required } from "../support/required.js";
+import { conforming, requestBody } from "../support/json.js";
+
+const validEvidence = activationValidator<ActivationEvidence>("evidence");
 
 describe("activation HTTP consumer", () => {
   for (const fixture of fixtures.filter(
@@ -14,7 +19,7 @@ describe("activation HTTP consumer", () => {
       const adapter = new HttpActivationPlatform(
         "https://platform.example/activation",
         "synthetic-activation-secret",
-        async (url, init) => {
+        (url, init) => {
           expect(url).toBe("https://platform.example/activation/binding");
           expect(init).toMatchObject({
             method: "POST",
@@ -24,11 +29,11 @@ describe("activation HTTP consumer", () => {
               "content-type": "application/json",
             },
           });
-          expect(JSON.parse(String(init?.body))).toEqual({
+          expect(JSON.parse(requestBody(init))).toEqual({
             contractVersion: ACTIVATION_VERSION,
             identityRef: "synthetic-identity",
           });
-          return Response.json(fixture.value);
+          return Promise.resolve(Response.json(fixture.value));
         },
       );
       expect(await adapter.binding("synthetic-identity")).toEqual(
@@ -42,13 +47,18 @@ describe("activation HTTP consumer", () => {
       const adapter = new HttpActivationPlatform(
         "https://platform.example/activation",
         "synthetic-secret",
-        async () =>
-          Response.json(
-            {
-              ok: true,
-              value: { contractVersion: ACTIVATION_VERSION, state: "unlinked" },
-            },
-            { status },
+        () =>
+          Promise.resolve(
+            Response.json(
+              {
+                ok: true,
+                value: {
+                  contractVersion: ACTIVATION_VERSION,
+                  state: "unlinked",
+                },
+              },
+              { status },
+            ),
           ),
       );
       expect(await adapter.binding("synthetic-identity")).toBeUndefined();
@@ -58,18 +68,20 @@ describe("activation HTTP consumer", () => {
     const failed = new HttpActivationPlatform(
       "https://platform.example/activation",
       "synthetic-secret",
-      async () => {
-        throw new Error("synthetic timeout");
+      () => {
+        return Promise.reject(new Error("synthetic timeout"));
       },
     );
     expect(await failed.binding("synthetic-identity")).toBeUndefined();
     const oversized = new HttpActivationPlatform(
       "https://platform.example/activation",
       "synthetic-secret",
-      async () =>
-        new Response(" ".repeat(1_048_577), {
-          headers: { "content-type": "application/json" },
-        }),
+      () =>
+        Promise.resolve(
+          new Response(" ".repeat(1_048_577), {
+            headers: { "content-type": "application/json" },
+          }),
+        ),
     );
     expect(await oversized.binding("synthetic-identity")).toBeUndefined();
   });
@@ -79,25 +91,31 @@ describe("activation HTTP consumer", () => {
       const fixture = fixtures.find(
         (f) => f.name === "tribute-exact-binding-registry-request",
       );
-      const input = { ...fixture?.value, decision } as ActivationEvidence;
+      const input = conforming(
+        { ...required(fixture).value, decision },
+        validEvidence,
+      );
       const bodies: string[] = [];
       const consumer = new HttpActivationPlatform(
         "https://platform.example/activation",
         "synthetic-secret",
-        async (_url, init) => {
-          bodies.push(String(init?.body));
-          return Response.json({ ok: false, error: { code: "unavailable" } });
+        (_url, init) => {
+          bodies.push(requestBody(init));
+          return Promise.resolve(
+            Response.json({ ok: false, error: { code: "unavailable" } }),
+          );
         },
       );
       await consumer.evidence(input);
       await consumer.evidence(
-        Object.fromEntries(
-          Object.entries(input).reverse(),
-        ) as unknown as ActivationEvidence,
+        conforming(
+          Object.fromEntries(Object.entries(input).reverse()),
+          validEvidence,
+        ),
       );
       expect(bodies).toHaveLength(2);
       expect(bodies[0]).toBe(bodies[1]);
-      expect(JSON.parse(bodies[0]!)).toEqual(input);
+      expect(JSON.parse(required(bodies[0]))).toEqual(input);
     },
   );
 });

@@ -2,21 +2,37 @@ import { describe, expect, it } from "vitest";
 import { HttpActivationPlatform } from "../../src/adapters/platform/http-activation-platform.adapter.js";
 import {
   ACTIVATION_VERSION,
-  type ActivationResponse,
-  type EnrollmentView,
+  type ActivationResult,
   type OwnAccess,
+  type EnrollmentView,
   validActivationResponse,
   validOwnAccessResponse,
 } from "../../src/modules/subscription-activation/activation-contract.js";
 import { ownAccessText } from "../../src/modules/subscription-activation/activation-view.js";
 import fixtures from "../../docs/contracts/subscription-activation-v1/fixtures.json" with { type: "json" };
+import { conforming, requestUrl } from "../support/json.js";
+import { required } from "../support/required.js";
 
-const ownFixture = fixtures.find(
-  (fixture) => fixture.name === "own-tribute-pending_verification",
-)?.value as { ok: true; value: OwnAccess };
-const activationFixture = fixtures.find(
-  (fixture) => fixture.name === "nested-enrollment-pending_verification",
-)?.value as { ok: true; value: ActivationResponse };
+const ownFixture = accepted(
+  conforming(
+    required(
+      fixtures.find(
+        (fixture) => fixture.name === "own-tribute-pending_verification",
+      ),
+    ).value,
+    validOwnAccessResponse,
+  ),
+);
+const activationFixture = accepted(
+  conforming(
+    required(
+      fixtures.find(
+        (fixture) => fixture.name === "nested-enrollment-pending_verification",
+      ),
+    ).value,
+    validActivationResponse,
+  ),
+);
 const enrollmentFixture = (() => {
   const enrollment = ownFixture.value.enrollments[0];
   if (!enrollment)
@@ -52,8 +68,12 @@ describe("Platform-owned shared Enrollment state", () => {
     const consumer = new HttpActivationPlatform(
       "https://platform.example/activation",
       "synthetic-secret",
-      async (url) =>
-        Response.json(String(url).endsWith("/own-access") ? own : activation),
+      (url) =>
+        Promise.resolve(
+          Response.json(
+            requestUrl(url).endsWith("/own-access") ? own : activation,
+          ),
+        ),
     );
     expect(await consumer.own(binding)).toEqual(own);
     expect(
@@ -189,3 +209,8 @@ describe("own-access next steps", () => {
     expect(text).toContain("Право на сообщество действует");
   });
 });
+
+function accepted<Value>(result: ActivationResult<Value>) {
+  if (!result.ok) throw new Error("Fixture is not an accepted response");
+  return result;
+}

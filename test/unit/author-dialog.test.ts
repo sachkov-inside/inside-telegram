@@ -9,8 +9,48 @@ import {
   type AuthorState,
 } from "../../src/modules/communications/author-dialog.js";
 import type { TemplateContent } from "../../src/modules/communications/communications-contract.js";
+import { required } from "../support/required.js";
+import { jsonRecord } from "../support/json.js";
 
 const broadcastId = "4f7c1d2e-9a8b-4c3d-8e7f-6a5b4c3d2e1f";
+
+/** The JSON a session store keeps for `state`, as an object a test may rewrite. */
+function storedCopy(state: AuthorState): Record<string, unknown> {
+  return jsonRecord(JSON.stringify(state));
+}
+
+function isRecord(value: unknown): value is Record<string | number, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+type Path = readonly [...(string | number)[], string | number];
+
+/** A copy of `stored` and the object that holds the last key of `path` in that copy. */
+function holderOf(stored: unknown, path: Path) {
+  const copy: unknown = structuredClone(stored);
+  const holder = path
+    .slice(0, -1)
+    .reduce<unknown>(
+      (node, key) => (isRecord(node) ? node[key] : undefined),
+      copy,
+    );
+  if (!isRecord(holder)) throw new Error(`No object holds ${path.join(".")}`);
+  return { copy, holder, key: required(path.at(-1)) };
+}
+
+/** A copy of `stored` with the value at `path` replaced. */
+function replaced(stored: unknown, path: Path, value: unknown): unknown {
+  const { copy, holder, key } = holderOf(stored, path);
+  holder[key] = value;
+  return copy;
+}
+
+/** A copy of `stored` without the value at `path`. */
+function removed(stored: unknown, path: Path): unknown {
+  const { copy, holder, key } = holderOf(stored, path);
+  Reflect.deleteProperty(holder, key);
+  return copy;
+}
 
 function stateWith(actions: AuthorAction[]): AuthorState {
   return { ...emptyAuthorState("menu-token"), actions };
@@ -117,7 +157,7 @@ describe("stored author session", () => {
   });
 
   it("resets a session whose shape the current version cannot trust", () => {
-    const current = JSON.parse(JSON.stringify(stateWith([{ kind: "home" }])));
+    const current = storedCopy(stateWith([{ kind: "home" }]));
     for (const stored of [
       null,
       "state",
@@ -134,7 +174,7 @@ describe("stored author session", () => {
   });
 
   it("resets a session saved with a button or prompt no screen shows any more", () => {
-    const current = JSON.parse(JSON.stringify(stateWith([{ kind: "home" }])));
+    const current = storedCopy(stateWith([{ kind: "home" }]));
     for (const kind of [
       "new",
       "copy-broadcast",
@@ -159,7 +199,7 @@ describe("stored author session", () => {
   });
 
   it("trusts only buttons that carry the data their kind needs", () => {
-    const current = JSON.parse(JSON.stringify(stateWith([])));
+    const current = storedCopy(stateWith([]));
     for (const actions of [
       [{ kind: "read-post" }],
       [{ kind: "f:message", id: "part" }],
@@ -243,25 +283,24 @@ describe("stored author session", () => {
         content,
       },
     };
-    const stored = JSON.parse(JSON.stringify(nested));
+    const stored = storedCopy(nested);
     expect(parseAuthorState(stored)).toEqual(nested);
 
-    const changed = (edit: (copy: typeof stored) => void) => {
-      const copy = structuredClone(stored);
-      edit(copy);
-      return copy;
-    };
     for (const untrusted of [
-      changed((s) => (s.composing.content = { type: "sticker" })),
-      changed((s) => (s.composing.sequence = { lastOffset: "0" })),
-      changed((s) => (s.composing.destination.expectedRevision = "1")),
-      changed((s) => (s.funnelAuthor.funnel.steps[0].parts = [{ partId: 1 }])),
-      changed((s) => (s.funnelAuthor.funnel.lifecycle = "deleted")),
-      changed((s) => (s.funnelAuthor.funnel.sources = [{ code: "x" }])),
-      changed((s) => (s.funnelAuthor.prompt = "title")),
-      changed((s) => (s.broadcast.parts[0].partId = "not-an-id")),
-      changed((s) => (s.broadcast.audience = { kind: "funnels" })),
-      changed((s) => delete s.template.botIdentity),
+      replaced(stored, ["composing", "content"], { type: "sticker" }),
+      replaced(stored, ["composing", "sequence"], { lastOffset: "0" }),
+      replaced(stored, ["composing", "destination", "expectedRevision"], "1"),
+      replaced(
+        stored,
+        ["funnelAuthor", "funnel", "steps", 0, "parts"],
+        [{ partId: 1 }],
+      ),
+      replaced(stored, ["funnelAuthor", "funnel", "lifecycle"], "deleted"),
+      replaced(stored, ["funnelAuthor", "funnel", "sources"], [{ code: "x" }]),
+      replaced(stored, ["funnelAuthor", "prompt"], "title"),
+      replaced(stored, ["broadcast", "parts", 0, "partId"], "not-an-id"),
+      replaced(stored, ["broadcast", "audience"], { kind: "funnels" }),
+      removed(stored, ["template", "botIdentity"]),
     ])
       expect(parseAuthorState(untrusted)).toBeUndefined();
   });
