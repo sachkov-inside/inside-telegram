@@ -14,6 +14,7 @@ import { CLOCK, type Clock } from "../../shared/clock.js";
 import { reserveTelegramIdentity } from "../identity-linking/stable-telegram-identity.js";
 import type { VerifiedPrivateStart } from "../../shared/telegram-contact.js";
 import { StartResponseDeliveryQueue } from "../outbound/start-response-delivery-queue.js";
+import type { TelegramButton } from "../outbound/telegram-messages.js";
 import { CommunityProvider } from "../community/community-provider.js";
 import {
   ACTIVATION_PLATFORM,
@@ -31,6 +32,7 @@ import {
   activationMenu,
   activationMessage,
   NO_KNOWN_GROUND,
+  OWNER_REVIEW,
   ownAccessText,
 } from "./activation-view.js";
 import type { ActivationTables, GroundOutcome } from "./activation-storage.js";
@@ -153,7 +155,7 @@ export class SubscriptionActivation {
     )
       return;
     const now = this.clock.now();
-    const group = randomUUID();
+    const groundCheckId = randomUUID();
     await this.db.transaction().execute(async (tx) => {
       const rows = await tx
         .selectFrom("activation_attempts")
@@ -165,19 +167,16 @@ export class SubscriptionActivation {
         .execute();
       // Rights for a confirmed ground are granted once; repeating the check adds nothing.
       if (rows.some((row) => row.state === "completed")) return;
-      const scheduled = {
-        state: "pending" as const,
-        due_at: now,
-        expires_at: new Date(now.getTime() + RETENTION),
-        ground_check_id: group,
-      };
       for (const code of config.startCodes) {
         const row = rows.find((candidate) => candidate.code === code);
         if (!row) {
           await tx
             .insertInto("activation_attempts")
             .values({
-              ...scheduled,
+              state: "pending",
+              due_at: now,
+              expires_at: new Date(now.getTime() + RETENTION),
+              ground_check_id: groundCheckId,
               attempt_id: randomUUID(),
               bot_identity: contact.botIdentity,
               telegram_user_id: contact.telegramUserId,
@@ -196,24 +195,7 @@ export class SubscriptionActivation {
             .execute();
           continue;
         }
-        const leased = row.lease_until !== null && row.lease_until > now;
-        const fresh =
-          row.result !== null &&
-          ["rejected", "pending_review", "retry"].includes(row.state);
-        await tx
-          .updateTable("activation_attempts")
-          .set(
-            leased
-              ? { ground_check_id: group }
-              : {
-                  ...scheduled,
-                  ...(fresh
-                    ? { attempt_id: randomUUID(), evidence: null, result: null }
-                    : {}),
-                },
-          )
-          .where("attempt_id", "=", row.attempt_id)
-          .execute();
+        await reschedule(tx, row, now, groundCheckId);
       }
     });
   }
@@ -286,26 +268,14 @@ export class SubscriptionActivation {
           .forUpdate()
           .execute();
         // A retried known-ground group answers once again, under a new group.
-        const regroup = randomUUID();
-        for (const row of rows) {
-          if (row.lease_until && row.lease_until > this.clock.now()) continue;
-          const fresh =
-            row.result !== null &&
-            ["rejected", "pending_review", "retry"].includes(row.state);
-          await tx
-            .updateTable("activation_attempts")
-            .set({
-              state: "pending",
-              expires_at: new Date(this.clock.now().getTime() + RETENTION),
-              due_at: this.clock.now(),
-              ...(fresh
-                ? { attempt_id: randomUUID(), evidence: null, result: null }
-                : {}),
-              ...(row.ground_check_id ? { ground_check_id: regroup } : {}),
-            })
-            .where("attempt_id", "=", row.attempt_id)
-            .execute();
-        }
+        const groundCheckId = randomUUID();
+        for (const row of rows)
+          await reschedule(
+            tx,
+            row,
+            this.clock.now(),
+            row.ground_check_id ? groundCheckId : null,
+          );
       });
       await this.reply(
         contact,
@@ -602,6 +572,8 @@ export class SubscriptionActivation {
           result.value.state,
         )
       : result.error.code === "unavailable";
+    const confirmed =
+      result.ok && ["active", "already_active"].includes(result.value.state);
     await this.db.transaction().execute(async (tx) => {
       const stored = await tx
         .updateTable("activation_attempts")
@@ -611,8 +583,7 @@ export class SubscriptionActivation {
             ? "retry"
             : result.ok && result.value.state === "pending_review"
               ? "pending_review"
-              : result.ok &&
-                  ["active", "already_active"].includes(result.value.state)
+              : confirmed
                 ? "completed"
                 : "rejected",
           due_at: new Date(this.clock.now().getTime() + delay),
@@ -622,11 +593,9 @@ export class SubscriptionActivation {
         })
         .where("attempt_id", "=", attempt.attempt_id)
         .where("lease_token", "=", attempt.lease_token)
-        .returning(["attempt_id", "ground_check_id"])
+        .returning(["attempt_id", "ground_check_id", "evidence"])
         .executeTakeFirst();
       if (!stored) return;
-      const confirmed =
-        result.ok && ["active", "already_active"].includes(result.value.state);
       if (confirmed)
         await tx
           .updateTable("activation_review_requests")
@@ -639,10 +608,31 @@ export class SubscriptionActivation {
           .where("telegram_user_id", "=", attempt.telegram_user_id)
           .where("resolved_at", "is", null)
           .execute();
-      if (stored.ground_check_id && !confirmed) {
-        await this.finishGroundCheck(tx, attempt, stored.ground_check_id);
+      if (stored.ground_check_id) {
+        // Every confirmation of one group is the same news: rights are there, join the chat.
+        if (confirmed)
+          await this.replies.enqueue(
+            {
+              ...this.delivery(
+                this.contact(attempt),
+                activationMessage(result),
+              ),
+              sourceKey: `${groundCheckKey(stored.ground_check_id)}:confirmed`,
+              ...this.menu(),
+            },
+            tx,
+          );
+        else await this.finishGroundCheck(tx, attempt, stored.ground_check_id);
         return;
       }
+      // An owner link answers for its own rule; an unconfirmed one also goes to the owner.
+      if (!retry && !confirmed)
+        await this.requestReview(
+          tx,
+          attempt,
+          [{ code: attempt.code, outcome: outcomeOf(result) }],
+          stored.evidence?.accountRef,
+        );
       await this.replies.enqueue(
         {
           ...this.delivery(this.contact(attempt), activationMessage(result)),
@@ -657,9 +647,7 @@ export class SubscriptionActivation {
             .digest(
               "hex",
             )}:${result.ok ? (result.value.state === "pending_review" ? `pending_review:${result.value.enrollment?.state ?? "none"}` : result.value.state) : result.error.code}`,
-          ...(this.config.activation
-            ? { buttons: activationMenu(this.config.activation.accountUrl) }
-            : {}),
+          ...this.menu(),
         },
         tx,
       );
@@ -672,74 +660,89 @@ export class SubscriptionActivation {
   private async finishGroundCheck(
     tx: Transaction<DatabaseSchema>,
     attempt: Attempt,
-    group: string,
+    groundCheckId: string,
   ): Promise<void> {
     // Serializes the group's last two finishers so exactly one of them sees every ground done.
-    await sql`select pg_advisory_xact_lock(hashtextextended(${`activation-ground-check:${group}`}, 0))`.execute(
+    await sql`select pg_advisory_xact_lock(hashtextextended(${groundCheckKey(groundCheckId)}, 0))`.execute(
       tx,
     );
     const grounds = await tx
       .selectFrom("activation_attempts")
       .select(["code", "state", "result", "diagnostic_code", "evidence"])
       .where("bot_identity", "=", attempt.bot_identity)
-      .where("ground_check_id", "=", group)
+      .where("ground_check_id", "=", groundCheckId)
       .orderBy("code")
       .execute();
     if (
       grounds.some(
-        (ground) =>
-          !["completed", "rejected", "pending_review"].includes(ground.state),
-      ) ||
-      grounds.some((ground) => ground.state === "completed")
+        (ground) => !["rejected", "pending_review"].includes(ground.state),
+      )
     )
       return;
+    await this.requestReview(
+      tx,
+      attempt,
+      grounds.map((ground) => ({
+        code: ground.code,
+        outcome: ground.result
+          ? outcomeOf(ground.result)
+          : (ground.diagnostic_code ?? "unknown"),
+      })),
+      grounds.find((ground) => ground.evidence)?.evidence?.accountRef,
+    );
+    // A Tribute ground Platform holds in a nonactive state is shown as it is, not as missing.
+    const held = grounds.find(
+      (ground) => ground.result?.ok && ground.result.value.enrollment,
+    )?.result;
+    await this.replies.enqueue(
+      {
+        ...this.delivery(
+          this.contact(attempt),
+          held ? `${activationMessage(held)} ${OWNER_REVIEW}` : NO_KNOWN_GROUND,
+        ),
+        sourceKey: groundCheckKey(groundCheckId),
+        ...this.menu(),
+      },
+      tx,
+    );
+  }
+  /** One open owner review per person; a new unconfirmed check replaces its outcomes. */
+  private async requestReview(
+    tx: Transaction<DatabaseSchema>,
+    attempt: Attempt,
+    outcomes: readonly GroundOutcome[],
+    /** From the stored row: the claimed attempt predates its evidence. */
+    accountRef: string | undefined,
+  ): Promise<void> {
     const now = this.clock.now();
-    // The claimed row predates its evidence; the stored grounds carry the checked Account.
-    const accountRef =
-      grounds.find((ground) => ground.evidence)?.evidence?.accountRef ?? null;
-    const outcomes: GroundOutcome[] = grounds.map((ground) => ({
-      code: ground.code,
-      outcome: ground.result?.ok
-        ? ground.result.value.state
-        : (ground.result?.error.code ?? ground.diagnostic_code ?? "unknown"),
-    }));
+    const request = {
+      identity_ref: attempt.identity_ref,
+      account_ref: accountRef ?? null,
+      outcomes: JSON.stringify(outcomes),
+      updated_at: now,
+    };
     await tx
       .insertInto("activation_review_requests")
       .values({
+        ...request,
         review_id: randomUUID(),
         bot_identity: attempt.bot_identity,
         telegram_user_id: attempt.telegram_user_id,
-        identity_ref: attempt.identity_ref,
-        account_ref: accountRef,
-        ground_check_id: group,
-        outcomes: JSON.stringify(outcomes),
         requested_at: now,
-        updated_at: now,
         resolved_at: null,
         resolution: null,
       })
       .onConflict((c) =>
-        c.columns(["bot_identity", "telegram_user_id"]).doUpdateSet({
-          identity_ref: attempt.identity_ref,
-          account_ref: accountRef,
-          ground_check_id: group,
-          outcomes: JSON.stringify(outcomes),
-          updated_at: now,
-          resolved_at: null,
-          resolution: null,
-        }),
+        c
+          .columns(["bot_identity", "telegram_user_id"])
+          .doUpdateSet({ ...request, resolved_at: null, resolution: null }),
       )
       .execute();
-    await this.replies.enqueue(
-      {
-        ...this.delivery(this.contact(attempt), NO_KNOWN_GROUND),
-        sourceKey: `activation-ground-check:${group}`,
-        ...(this.config.activation
-          ? { buttons: activationMenu(this.config.activation.accountUrl) }
-          : {}),
-      },
-      tx,
-    );
+  }
+  private menu(): { buttons?: readonly TelegramButton[] } {
+    return this.config.activation
+      ? { buttons: activationMenu(this.config.activation.accountUrl) }
+      : {};
   }
   private async defer(
     attempt: Attempt,
@@ -785,9 +788,7 @@ export class SubscriptionActivation {
   ): Promise<void> {
     await this.replies.enqueue({
       ...this.delivery(contact, text),
-      ...(this.config.activation
-        ? { buttons: activationMenu(this.config.activation.accountUrl) }
-        : {}),
+      ...this.menu(),
     });
   }
   async snapshot(): Promise<{ pending: number; oldestSeconds: number }> {
@@ -808,4 +809,49 @@ export class SubscriptionActivation {
         : 0,
     };
   }
+}
+
+function groundCheckKey(groundCheckId: string): string {
+  return `activation-ground-check:${groundCheckId}`;
+}
+
+/** What one attempt's result says, for the owner's review. */
+function outcomeOf(result: ActivationResult<ActivationResponse>): string {
+  return result.ok ? result.value.state : result.error.code;
+}
+
+/**
+ * Schedules an existing attempt again, joining it to `groundCheckId` when one is given. A leased
+ * attempt keeps running and only joins the group; a known negative result starts a fresh attempt,
+ * while an uncertain evidence write stays for its exact replay.
+ */
+async function reschedule(
+  tx: Transaction<DatabaseSchema>,
+  row: Attempt,
+  now: Date,
+  groundCheckId: string | null,
+): Promise<void> {
+  const group = groundCheckId ? { ground_check_id: groundCheckId } : {};
+  const leased = row.lease_until !== null && row.lease_until > now;
+  if (leased && !groundCheckId) return;
+  const fresh =
+    row.result !== null &&
+    ["rejected", "pending_review", "retry"].includes(row.state);
+  await tx
+    .updateTable("activation_attempts")
+    .set(
+      leased
+        ? group
+        : {
+            ...group,
+            state: "pending",
+            expires_at: new Date(now.getTime() + RETENTION),
+            due_at: now,
+            ...(fresh
+              ? { attempt_id: randomUUID(), evidence: null, result: null }
+              : {}),
+          },
+    )
+    .where("attempt_id", "=", row.attempt_id)
+    .execute();
 }

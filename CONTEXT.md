@@ -112,8 +112,8 @@ configured activation code. The person hears one outcome for the whole group.
 _Avoid_: Reconciliation, owner link, grant
 
 **Activation Review Request**:
-The owner's queue entry for a person whose Known Ground Check confirmed no ground. It records the
-outcomes; the owner's decision is a Platform Direct Right, never a Telegram grant.
+The owner's queue entry for a person whose Known Ground Check or owner link confirmed no ground. It
+records the outcomes; the owner's decision is a Platform Direct Right, never a Telegram grant.
 _Avoid_: Support ticket, rejection, pending_review
 
 **Activation Source**:

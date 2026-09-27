@@ -14,9 +14,11 @@ const enrollmentStates = {
   suspended_source:
     "Источник Tribute завершён, доступ по нему приостановлен. Обратитесь к владельцу для подтверждения нового периода. Повторная проверка и вступление в группу не восстанавливают это основание",
 };
+/** Tells the person that an unconfirmed ground is now in the owner's review queue. */
+export const OWNER_REVIEW =
+  "Запрос передан владельцу: он проверит его вручную.";
 /** The one answer to a known-ground check that confirmed nothing; the owner reviews it. */
-export const NO_KNOWN_GROUND =
-  "Мы не нашли подтверждения прежней покупки курса или подписки Tribute для этого Telegram. Запрос передан владельцу: он проверит его вручную. Если вы покупали курс с другого аккаунта Telegram, нажмите «Нужна помощь». Уже выданные права сохраняются.";
+export const NO_KNOWN_GROUND = `Мы не нашли подтверждения прежней покупки курса или подписки Tribute для этого Telegram. ${OWNER_REVIEW} Если вы покупали курс с другого аккаунта Telegram, нажмите «Нужна помощь». Уже выданные права сохраняются.`;
 export function activationMenu(accountUrl: string): readonly TelegramButton[] {
   return [
     { text: "Открыть платформу", url: accountUrl },

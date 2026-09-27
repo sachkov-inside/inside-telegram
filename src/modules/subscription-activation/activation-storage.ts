@@ -44,7 +44,6 @@ export interface ActivationTables {
     telegram_user_id: string;
     identity_ref: string;
     account_ref: string | null;
-    ground_check_id: string;
     /** Written as JSON text: node-postgres would send a bare array as a PostgreSQL array. */
     outcomes: ColumnType<readonly GroundOutcome[], string, string>;
     requested_at: Timestamp;

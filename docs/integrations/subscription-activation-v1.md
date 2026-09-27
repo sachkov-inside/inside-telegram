@@ -101,11 +101,9 @@ Worker не начинает новую проверку по истёкшему
 
 ## Обычный `/start`
 
-Обычный `/start` связанной TelegramIdentity использует тот же протокол без изменений контракта:
-для каждого кода из `TELEGRAM_ACTIVATION_START_CODES` создаётся та же durable попытка, что и для
-`/start a_<code>`, с теми же `begin`, `binding`, evidence и replay. Попытки одного `/start`
-объединены в группу только внутри Telegram, чтобы человек получил один итог. Без привязки попытки не
-создаются. Поведение и очередь разбора — в
+Обычный `/start` связанной TelegramIdentity создаёт для каждого кода из
+`TELEGRAM_ACTIVATION_START_CODES` ту же попытку, что и `/start a_<code>`: протокол, evidence и
+replay не меняются. Группировка и очередь разбора существуют только внутри Telegram, см.
 [runbook](../operations/course-activation.md#подтверждение-статуса-прежних-участников).
 
 ## Community v2

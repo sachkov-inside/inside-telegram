@@ -36,12 +36,15 @@ Marketing по умолчанию выключен.
 - V1 outbound messages только transactional.
 - В будущем тот же bot владеет communications и marketing capabilities через отдельные specs.
 - Все BotContacts являются будущей messaging audience; отдельного consent/category state нет.
-- Пользователь останавливает delivery через Telegram block; `/stop` не входит.
+- Пользователь останавливает delivery через Telegram block; `/stop` не входит. Заменено: `/stop` и
+  `/resume` реализованы в #29, действующая политика рассылок — в
+  [production.md](../operations/production.md#воронки-и-рассылки).
 - Contact/link/history автоматически не удаляются; повторный `/start` реактивирует contactability.
   Исключение по решению владельца от 2026-09-25 (inside-telegram#91): результаты проверок
   membership и их outbox evidence хранятся 90 дней (`TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS`),
   последняя проверка каждой связанной личности и недоставленное evidence сохраняются. События
   контактов, события связывания, аудит membership и история коммуникаций хранятся бессрочно.
+  Записи очереди разбора оснований (#113), открытые и закрытые, тоже не удаляются автоматически.
 
 ## Membership and authority
 

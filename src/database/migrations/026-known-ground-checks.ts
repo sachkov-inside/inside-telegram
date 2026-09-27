@@ -3,7 +3,7 @@ import type { Migration } from "kysely/migration";
 
 /**
  * An ordinary `/start` checks every known ground as one group, so the person hears one outcome.
- * A group that confirms no ground leaves one review request per person for the owner.
+ * A ground check or owner link that confirms nothing leaves one review request per person.
  */
 export const knownGroundChecksMigration: Migration = {
   async up(db: Kysely<unknown>) {
@@ -17,7 +17,6 @@ export const knownGroundChecksMigration: Migration = {
         telegram_user_id text not null,
         identity_ref text not null,
         account_ref text,
-        ground_check_id uuid not null,
         outcomes jsonb not null,
         requested_at timestamptz not null,
         updated_at timestamptz not null,

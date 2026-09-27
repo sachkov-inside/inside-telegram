@@ -23,7 +23,10 @@ import {
   type ActivationResult,
 } from "../../src/modules/subscription-activation/activation-contract.js";
 import { ActivationReviews } from "../../src/modules/subscription-activation/activation-reviews.js";
-import { NO_KNOWN_GROUND } from "../../src/modules/subscription-activation/activation-view.js";
+import {
+  NO_KNOWN_GROUND,
+  OWNER_REVIEW,
+} from "../../src/modules/subscription-activation/activation-view.js";
 import { SubscriptionActivation } from "../../src/modules/subscription-activation/subscription-activation.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
@@ -80,6 +83,8 @@ const bindings = new Map<string, ActivationBinding>();
 /** Chat members by `${chatId}:${userId}`; the canonical chat is listed to prove it is ignored. */
 const members = new Set<string>();
 const tributeRegistry = new Set<string>();
+/** Identities whose Tribute ground Platform holds as a latched source end. */
+const suspendedTribute = new Set<string>();
 const begins: string[] = [];
 const proofs: ActivationEvidence[] = [];
 const memberLookups: string[] = [];
@@ -127,6 +132,9 @@ const platform: ActivationPlatform = {
     const key = `${input.sourceRef}:${input.identityRef}`;
     const prior = grants.get(key) ?? 0;
     if (confirmed && prior === 0) grants.set(key, 1);
+    const suspended =
+      input.decision === "registry_lookup" &&
+      suspendedTribute.has(input.identityRef);
     const result: ActivationResult<ActivationResponse> = {
       ok: true,
       value: {
@@ -139,7 +147,17 @@ const platform: ActivationPlatform = {
           : input.decision === "registry_lookup"
             ? "pending_review"
             : "rejected",
-        enrollment: null,
+        enrollment: suspended
+          ? {
+              id: randomUUID(),
+              tier: { name: "Inside", benefits: ["materials", "community"] },
+              origin: "tribute",
+              startsAt: "2026-01-01T00:00:00.000Z",
+              endsAt: "2026-06-01T00:00:00.000Z",
+              state: "suspended_source",
+              renewal: "not_applicable",
+            }
+          : null,
       },
     };
     return result;
@@ -412,6 +430,66 @@ describe("ordinary /start checks known grounds of a linked identity", () => {
     expect(grants.get(`tribute-roster:${person.identityRef}`)).toBe(1);
   });
 
+  it("tells once about rights when two grounds confirm in one check", async () => {
+    const person = await linkedPerson();
+    members.add(`${courseChatId}:${person.user}`);
+    tributeRegistry.add(person.identityRef);
+    await send(person.user);
+    await drain();
+    expect(grants.get(`course:${person.identityRef}`)).toBe(1);
+    expect(grants.get(`tribute-roster:${person.identityRef}`)).toBe(1);
+    expect(await activationMessages(person.user)).toHaveLength(1);
+  });
+
+  it("shows a Tribute ground Platform holds as suspended instead of saying nothing was found", async () => {
+    const person = await linkedPerson();
+    suspendedTribute.add(person.identityRef);
+    await send(person.user);
+    await drain();
+    const [message] = await activationMessages(person.user);
+    expect(required(message).message_text).toContain(
+      "Источник Tribute завершён",
+    );
+    expect(required(message).message_text).toContain(OWNER_REVIEW);
+    expect(required(message).message_text).not.toBe(NO_KNOWN_GROUND);
+    expect(await openReviews(person.user)).toHaveLength(1);
+  });
+
+  it("keeps a retried group together, including a ground still being checked", async () => {
+    const person = await linkedPerson();
+    await send(person.user);
+    await drain();
+    // One ground is still leased by a worker when the person presses «Повторить проверку».
+    await db
+      .updateTable("activation_attempts")
+      .set({ lease_until: new Date(clock.now().getTime() + 30_000) })
+      .where("bot_identity", "=", bot)
+      .where("telegram_user_id", "=", String(person.user))
+      .where("code", "=", "course")
+      .execute();
+    await worker.action(
+      {
+        botIdentity: bot,
+        telegramUserId: String(person.user),
+        privateChatId: String(person.user),
+        updateId: String(++updateId),
+        observedAt: clock.now(),
+      },
+      "retry",
+    );
+    const groups = await db
+      .selectFrom("activation_attempts")
+      .select("ground_check_id")
+      .where("bot_identity", "=", bot)
+      .where("telegram_user_id", "=", String(person.user))
+      .execute();
+    expect(new Set(groups.map((row) => row.ground_check_id)).size).toBe(1);
+    clock.value = new Date(clock.now().getTime() + 61_000);
+    await drain();
+    expect(await activationMessages(person.user)).toHaveLength(2);
+    expect(await openReviews(person.user)).toHaveLength(1);
+  });
+
   it("grants once: a repeated /start after leaving the group sends nothing new", async () => {
     const person = await linkedPerson();
     members.add(`${courseChatId}:${person.user}`);
@@ -482,13 +560,20 @@ describe("the owner link", () => {
     expect(grants.get(`course:${person.identityRef}`)).toBe(1);
   });
 
-  it("answers a failed owner link for its own rule without an owner review", async () => {
+  it("answers a failed owner link for its own rule and queues an owner review", async () => {
     const person = await linkedPerson();
     await send(person.user, "/start a_course");
     await drain();
     const messages = await activationMessages(person.user);
-    expect(messages.map((m) => m.message_text)).not.toContain(NO_KNOWN_GROUND);
-    expect(messages.length).toBeGreaterThan(0);
-    expect(await openReviews(person.user)).toEqual([]);
+    expect(messages).toHaveLength(1);
+    expect(required(messages[0]).message_text).toContain(
+      "Автоматическая проверка не подтвердила покупку",
+    );
+    expect(await openReviews(person.user)).toEqual([
+      expect.objectContaining({
+        accountRef: `account-${person.user}`,
+        outcomes: [{ code: "course", outcome: "rejected" }],
+      }),
+    ]);
   });
 });
