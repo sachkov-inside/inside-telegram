@@ -99,26 +99,7 @@ export class SubscriptionActivation {
         .execute();
       await tx
         .insertInto("activation_attempts")
-        .values({
-          attempt_id: randomUUID(),
-          bot_identity: contact.botIdentity,
-          telegram_user_id: contact.telegramUserId,
-          private_chat_id: contact.privateChatId,
-          identity_ref: identity,
-          code,
-          trigger_update_id: contact.updateId,
-          state: "pending",
-          evidence: null,
-          result: null,
-          created_at: now,
-          expires_at: new Date(now.getTime() + RETENTION),
-          due_at: now,
-          lease_token: null,
-          lease_until: null,
-          attempts: 0,
-          diagnostic_code: null,
-          ground_check_id: null,
-        })
+        .values(newAttempt(contact, identity, code, now, null))
         // An explicit owner link answers for its own rule, outside any known-ground group.
         .onConflict((c) =>
           c
@@ -127,7 +108,8 @@ export class SubscriptionActivation {
         )
         .execute();
     });
-    await this.action(contact, "retry");
+    // Only the link's own rule starts again; a known-ground group keeps its own answer.
+    await this.action(contact, "retry", code);
   }
 
   /**
@@ -165,44 +147,34 @@ export class SubscriptionActivation {
         .where("code", "in", config.startCodes)
         .forUpdate()
         .execute();
-      // Rights for a confirmed ground are granted once; repeating the check adds nothing.
+      // Rights for a confirmed ground are granted once, and an owner's decision is final for the
+      // automatic check; repeating it would only queue the person again.
       if (rows.some((row) => row.state === "completed")) return;
+      const decided = await tx
+        .selectFrom("activation_review_requests")
+        .select("review_id")
+        .where("bot_identity", "=", contact.botIdentity)
+        .where("telegram_user_id", "=", contact.telegramUserId)
+        .where("resolution", "=", "owner")
+        .executeTakeFirst();
+      if (decided) return;
       for (const code of config.startCodes) {
         const row = rows.find((candidate) => candidate.code === code);
-        if (!row) {
+        if (row) await reschedule(tx, row, now, groundCheckId);
+        else
           await tx
             .insertInto("activation_attempts")
-            .values({
-              state: "pending",
-              due_at: now,
-              expires_at: new Date(now.getTime() + RETENTION),
-              ground_check_id: groundCheckId,
-              attempt_id: randomUUID(),
-              bot_identity: contact.botIdentity,
-              telegram_user_id: contact.telegramUserId,
-              private_chat_id: contact.privateChatId,
-              identity_ref: identity,
-              code,
-              trigger_update_id: contact.updateId,
-              evidence: null,
-              result: null,
-              created_at: now,
-              lease_token: null,
-              lease_until: null,
-              attempts: 0,
-              diagnostic_code: null,
-            })
+            .values(newAttempt(contact, identity, code, now, groundCheckId))
             .execute();
-          continue;
-        }
-        await reschedule(tx, row, now, groundCheckId);
       }
     });
   }
 
+  /** `onlyCode` limits a retry to one rule, as an owner link does. */
   async action(
     contact: VerifiedPrivateStart,
     action: AccessAction,
+    onlyCode?: string,
   ): Promise<void> {
     const config = this.config.activation;
     if (!config?.enabled) {
@@ -260,20 +232,21 @@ export class SubscriptionActivation {
     }
     if (action === "retry") {
       await this.db.transaction().execute(async (tx) => {
-        const rows = await tx
+        let query = tx
           .selectFrom("activation_attempts")
           .selectAll()
           .where("bot_identity", "=", contact.botIdentity)
-          .where("telegram_user_id", "=", contact.telegramUserId)
-          .forUpdate()
-          .execute();
+          .where("telegram_user_id", "=", contact.telegramUserId);
+        if (onlyCode !== undefined) query = query.where("code", "=", onlyCode);
+        const rows = await query.forUpdate().execute();
         // A retried known-ground group answers once again, under a new group.
         const groundCheckId = randomUUID();
+        const now = this.clock.now();
         for (const row of rows)
           await reschedule(
             tx,
             row,
-            this.clock.now(),
+            now,
             row.ground_check_id ? groundCheckId : null,
           );
       });
@@ -625,8 +598,12 @@ export class SubscriptionActivation {
         else await this.finishGroundCheck(tx, attempt, stored.ground_check_id);
         return;
       }
-      // An owner link answers for its own rule; an unconfirmed one also goes to the owner.
-      if (!retry && !confirmed)
+      // An owner link answers for its own rule; an unconfirmed ground also goes to the owner.
+      const review =
+        !retry &&
+        unconfirmedGround(result) &&
+        !(await this.hasConfirmedGround(tx, attempt));
+      if (review)
         await this.requestReview(
           tx,
           attempt,
@@ -635,7 +612,12 @@ export class SubscriptionActivation {
         );
       await this.replies.enqueue(
         {
-          ...this.delivery(this.contact(attempt), activationMessage(result)),
+          ...this.delivery(
+            this.contact(attempt),
+            review
+              ? `${activationMessage(result)} ${OWNER_REVIEW}`
+              : activationMessage(result),
+          ),
           sourceKey: `activation:${createHash("sha256")
             .update(
               JSON.stringify([
@@ -676,9 +658,30 @@ export class SubscriptionActivation {
     if (
       grounds.some(
         (ground) => !["rejected", "pending_review"].includes(ground.state),
-      )
+      ) ||
+      (await this.hasConfirmedGround(tx, attempt))
     )
       return;
+    // A broken link or paused rule is the owner's setup, not a person to review.
+    if (
+      !grounds.some(
+        (ground) => ground.result && unconfirmedGround(ground.result),
+      )
+    ) {
+      const setup = grounds.find((ground) => ground.result)?.result;
+      await this.replies.enqueue(
+        {
+          ...this.delivery(
+            this.contact(attempt),
+            setup ? activationMessage(setup) : NO_KNOWN_GROUND,
+          ),
+          sourceKey: groundCheckKey(groundCheckId),
+          ...this.menu(),
+        },
+        tx,
+      );
+      return;
+    }
     await this.requestReview(
       tx,
       attempt,
@@ -705,6 +708,20 @@ export class SubscriptionActivation {
       },
       tx,
     );
+  }
+  /** A person with any confirmed ground has rights; a missing other ground is no news for them. */
+  private async hasConfirmedGround(
+    tx: Transaction<DatabaseSchema>,
+    attempt: Attempt,
+  ): Promise<boolean> {
+    const confirmed = await tx
+      .selectFrom("activation_attempts")
+      .select("attempt_id")
+      .where("bot_identity", "=", attempt.bot_identity)
+      .where("telegram_user_id", "=", attempt.telegram_user_id)
+      .where("state", "=", "completed")
+      .executeTakeFirst();
+    return confirmed !== undefined;
   }
   /** One open owner review per person; a new unconfirmed check replaces its outcomes. */
   private async requestReview(
@@ -815,9 +832,48 @@ function groundCheckKey(groundCheckId: string): string {
   return `activation-ground-check:${groundCheckId}`;
 }
 
+/** A ground that was checked and not confirmed, as opposed to a broken link or paused rule. */
+function unconfirmedGround(
+  result: ActivationResult<ActivationResponse>,
+): boolean {
+  return result.ok
+    ? ["rejected", "pending_review"].includes(result.value.state)
+    : ["source_not_confirmed", "identity_conflict"].includes(result.error.code);
+}
+
 /** What one attempt's result says, for the owner's review. */
 function outcomeOf(result: ActivationResult<ActivationResponse>): string {
   return result.ok ? result.value.state : result.error.code;
+}
+
+/** A new attempt due now; `groundCheckId` joins it to an ordinary start's group. */
+function newAttempt(
+  contact: VerifiedPrivateStart,
+  identityRef: string,
+  code: string,
+  now: Date,
+  groundCheckId: string | null,
+) {
+  return {
+    attempt_id: randomUUID(),
+    bot_identity: contact.botIdentity,
+    telegram_user_id: contact.telegramUserId,
+    private_chat_id: contact.privateChatId,
+    identity_ref: identityRef,
+    code,
+    trigger_update_id: contact.updateId,
+    state: "pending" as const,
+    evidence: null,
+    result: null,
+    created_at: now,
+    expires_at: new Date(now.getTime() + RETENTION),
+    due_at: now,
+    lease_token: null,
+    lease_until: null,
+    attempts: 0,
+    diagnostic_code: null,
+    ground_check_id: groundCheckId,
+  };
 }
 
 /**

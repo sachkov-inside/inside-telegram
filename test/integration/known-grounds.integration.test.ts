@@ -107,7 +107,8 @@ const platform: ActivationPlatform = {
     const code = Object.keys(rules).find(
       (key): key is Code => key === input.code,
     );
-    if (!code) throw new Error(`Unexpected activation code ${input.code}`);
+    if (!code)
+      return Promise.resolve({ ok: false, error: { code: "not_found" } });
     return Promise.resolve({
       ok: true,
       value: {
@@ -458,36 +459,48 @@ describe("ordinary /start checks known grounds of a linked identity", () => {
   it("keeps a retried group together, including a ground still being checked", async () => {
     const person = await linkedPerson();
     await send(person.user);
+    const opened = signal();
+    const gate = { waiting: 0, open: opened.promise };
+    barrier = gate;
+    let checking: Promise<number> | undefined;
+    try {
+      // One ground is leased by a worker when the person presses «Повторить проверку».
+      checking = worker.processAvailable(1);
+      await expect.poll(() => gate.waiting).toBe(1);
+      await worker.action(
+        {
+          botIdentity: bot,
+          telegramUserId: String(person.user),
+          privateChatId: String(person.user),
+          updateId: String(++updateId),
+          observedAt: clock.now(),
+        },
+        "retry",
+      );
+    } finally {
+      barrier = undefined;
+      opened.resolve();
+    }
+    await checking;
     await drain();
-    // One ground is still leased by a worker when the person presses «Повторить проверку».
-    await db
-      .updateTable("activation_attempts")
-      .set({ lease_until: new Date(clock.now().getTime() + 30_000) })
-      .where("bot_identity", "=", bot)
-      .where("telegram_user_id", "=", String(person.user))
-      .where("code", "=", "course")
-      .execute();
-    await worker.action(
-      {
-        botIdentity: bot,
-        telegramUserId: String(person.user),
-        privateChatId: String(person.user),
-        updateId: String(++updateId),
-        observedAt: clock.now(),
-      },
-      "retry",
-    );
-    const groups = await db
-      .selectFrom("activation_attempts")
-      .select("ground_check_id")
-      .where("bot_identity", "=", bot)
-      .where("telegram_user_id", "=", String(person.user))
-      .execute();
-    expect(new Set(groups.map((row) => row.ground_check_id)).size).toBe(1);
-    clock.value = new Date(clock.now().getTime() + 61_000);
-    await drain();
-    expect(await activationMessages(person.user)).toHaveLength(2);
+    expect(await activationMessages(person.user)).toEqual([
+      expect.objectContaining({ message_text: NO_KNOWN_GROUND }),
+    ]);
     expect(await openReviews(person.user)).toHaveLength(1);
+  });
+
+  it("keeps an owner's decision: a later ordinary /start does not queue the person again", async () => {
+    const person = await linkedPerson();
+    await send(person.user);
+    await drain();
+    const [review] = await openReviews(person.user);
+    expect(await reviews.resolve(required(review).reviewId)).toBe("resolved");
+    begins.length = 0;
+    await send(person.user);
+    await drain();
+    expect(begins).toEqual([]);
+    expect(await activationMessages(person.user)).toHaveLength(1);
+    expect(await openReviews(person.user)).toEqual([]);
   });
 
   it("grants once: a repeated /start after leaving the group sends nothing new", async () => {
@@ -569,11 +582,61 @@ describe("the owner link", () => {
     expect(required(messages[0]).message_text).toContain(
       "Автоматическая проверка не подтвердила покупку",
     );
+    expect(required(messages[0]).message_text).toContain(OWNER_REVIEW);
     expect(await openReviews(person.user)).toEqual([
       expect.objectContaining({
         accountRef: `account-${person.user}`,
         outcomes: [{ code: "course", outcome: "rejected" }],
       }),
     ]);
+  });
+
+  it("confirms by owner link after a failed ordinary check without contradicting itself", async () => {
+    const person = await linkedPerson();
+    await send(person.user);
+    await drain();
+    expect(await openReviews(person.user)).toHaveLength(1);
+    members.add(`${courseChatId}:${person.user}`);
+    begins.length = 0;
+    await send(person.user, "/start a_course");
+    await drain();
+    // The link starts only its own rule again, not the group's other grounds.
+    expect(begins).toEqual(["course"]);
+    const texts = (await activationMessages(person.user)).map(
+      (m) => m.message_text,
+    );
+    expect(texts.filter((text) => text === NO_KNOWN_GROUND)).toHaveLength(1);
+    expect(texts.at(-1)).toContain("Назначение тарифа подтверждено");
+    expect(await openReviews(person.user)).toEqual([]);
+    // The group's other ground no longer answers or queues for a person who has rights.
+    await worker.action(
+      {
+        botIdentity: bot,
+        telegramUserId: String(person.user),
+        privateChatId: String(person.user),
+        updateId: String(++updateId),
+        observedAt: clock.now(),
+      },
+      "retry",
+    );
+    clock.value = new Date(clock.now().getTime() + 61_000);
+    await drain();
+    expect(
+      (await activationMessages(person.user)).filter(
+        (m) => m.message_text === NO_KNOWN_GROUND,
+      ),
+    ).toHaveLength(1);
+    expect(await openReviews(person.user)).toEqual([]);
+  });
+
+  it("answers a link to an unknown rule without queueing an owner review", async () => {
+    const person = await linkedPerson();
+    await send(person.user, "/start a_typo");
+    await drain();
+    const [message] = await activationMessages(person.user);
+    expect(required(message).message_text).toBe(
+      "Правило активации не найдено. Проверьте ссылку у владельца.",
+    );
+    expect(await openReviews(person.user)).toEqual([]);
   });
 });
