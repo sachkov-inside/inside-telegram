@@ -35,6 +35,14 @@ services:
     profiles: [operations]
     restart: "no"
 
+  # Owner review queue of unconfirmed known grounds: run --rm -T activation-review --list
+  activation-review:
+    <<: *runtime
+    entrypoint: [node, dist/operations/activation-review-cli.js]
+    networks: [database]
+    profiles: [operations]
+    restart: "no"
+
   # Reads the bot token and webhook secret from application.env; the expected URL is passed with -e.
   webhook-registration:
     <<: *runtime

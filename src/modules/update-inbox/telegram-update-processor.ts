@@ -58,7 +58,7 @@ export class TelegramUpdateProcessor {
     @Inject(SubscriptionActivation)
     private readonly activation: Pick<
       SubscriptionActivation,
-      "start" | "action"
+      "start" | "action" | "checkKnownGrounds"
     >,
     @Inject(TelegramUpdateInbox) private readonly inbox: TelegramUpdateInbox,
     @Inject(APPLICATION_CONFIG) private readonly config: ApplicationConfig,
@@ -256,10 +256,11 @@ export class TelegramUpdateProcessor {
     if (
       start.activationCode === undefined &&
       !start.linkToken &&
-      !start.signInToken &&
-      this.marketing.enabled()
+      !start.signInToken
     ) {
-      await this.marketing.enter(start.contact, start.marketingSource);
+      await this.activation.checkKnownGrounds(start.contact);
+      if (this.marketing.enabled())
+        await this.marketing.enter(start.contact, start.marketingSource);
     }
   }
 

@@ -446,6 +446,7 @@ describe("bot sign-in provider", () => {
         {
           start: () => Promise.resolve(),
           action: () => Promise.resolve(),
+          checkKnownGrounds: () => Promise.resolve(),
         },
         inbox,
         config,

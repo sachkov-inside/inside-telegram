@@ -11,7 +11,7 @@
 ## Состав
 
 - `app` — HTTP, webhook inbox и все workers; порт только на `127.0.0.1`.
-- `migrate`, `community-restriction`, `webhook-registration` — одноразовые команды профиля
+- `migrate`, `community-restriction`, `activation-review`, `webhook-registration` — одноразовые команды профиля
   `operations` из того же образа. В образе нет pnpm; `pnpm owner:*` — только в checkout разработчика.
 - PostgreSQL 18: отдельная база Telegram в общем кластере.
 - RabbitMQ: брокер Platform на том же VPS ([Platform #527](https://github.com/sachkov-inside/platform/issues/527)).
@@ -50,7 +50,7 @@ Git; зашифруйте файлы для host и отдельного recover
 | Сообщество v2 | `TELEGRAM_COMMUNITY_CONTRACT_VERSION`, `TELEGRAM_COMMUNITY_MODE`, `TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS`, `TELEGRAM_COMMUNITY_REMOVALS_ENABLED`, `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | `inside.community-entitlement.v2`, `live`, `60000`, `false`, id бота Tribute | `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2` |
 | Сообщество: входящие команды | `PLATFORM_COMMUNITY_INTEGRATION_SECRET` | секрет | `TELEGRAM_COMMUNITY_ENTITLEMENT_SECRET`, `TELEGRAM_COMMUNITY_ENTITLEMENT_ENDPOINT=https://<telegram>/integrations/platform/v1/community-entitlements` |
 | Сообщество: разрешение эффекта | `PLATFORM_COMMUNITY_DISPATCH_URL`, `PLATFORM_COMMUNITY_DISPATCH_SECRET` | `https://<platform>/internal/billing-dispatch/authorize` | `TELEGRAM_COMMUNITY_DISPATCH_SECRET` |
-| Активация курса и Tribute | `TELEGRAM_ACTIVATION_ENABLED`, `PLATFORM_ACTIVATION_URL`, `PLATFORM_ACTIVATION_SECRET`, `PLATFORM_ACCOUNT_URL`, `TELEGRAM_ACTIVATION_SOURCES` | `https://<platform>/integrations/telegram/v1/subscription-activation`; Account URL; реестр групп курса | `TELEGRAM_ACTIVATION_INGRESS_SECRET` |
+| Активация курса и Tribute | `TELEGRAM_ACTIVATION_ENABLED`, `PLATFORM_ACTIVATION_URL`, `PLATFORM_ACTIVATION_SECRET`, `PLATFORM_ACCOUNT_URL`, `TELEGRAM_ACTIVATION_SOURCES`, `TELEGRAM_ACTIVATION_START_CODES` | `https://<platform>/integrations/telegram/v1/subscription-activation`; Account URL; реестр групп курса; коды правил для обычного `/start` ([подтверждение статуса](course-activation.md#подтверждение-статуса-прежних-участников)) | `TELEGRAM_ACTIVATION_INGRESS_SECRET` |
 | Уведомления | `TELEGRAM_NOTIFICATIONS_ENABLED`, `NOTIFICATION_AMQP_URL`, `NOTIFICATION_AUTHORIZE_URL`, `NOTIFICATION_AUTHORIZE_SECRET`, `NOTIFICATION_QUARANTINE_KEY`, `NOTIFICATION_PREFETCH`, `NOTIFICATION_BATCH_SIZE` | AMQPS principal Telegram; `https://<platform>/internal/notifications/dispatch/authorize`; ключ 64 hex | `NOTIFICATIONS_TELEGRAM_SECRET`; principal и vhost из topology Platform |
 | Авторское меню, воронки, рассылки | `PLATFORM_AUTHOR_AUTHORIZATION_URL`, `PLATFORM_AUTHOR_AUTHORIZATION_SECRET`, `PLATFORM_AUTHOR_CONTENT_VALIDATION_URL`, `TELEGRAM_MARKETING_ENABLED` | `https://<platform>/integrations/telegram/v1/communications/authorize` и `/validate-content`; `false` | `TELEGRAM_AUTHOR_AUTHORIZATION_SECRET`, `TELEGRAM_COMMUNICATIONS_BOT_IDENTITY` |
 | Переходы по ссылкам | `PLATFORM_TRACKING_REDIRECT_URL`, `PLATFORM_TRACKING_TARGET_PREFIXES` | `PLATFORM_TRACKING_REDIRECT_URL=https://<platform>/communications/visit`; `["https://<platform>/materials/","https://<platform>/series/"]` | `TELEGRAM_TRACKING_ORIGIN=https://<platform>` |
@@ -92,11 +92,26 @@ Base URL обоих клиентов — `https://<telegram-domain>`. Серве
 единственный app. Отключение — `TELEGRAM_SIGN_IN_ENABLED=false` с перезапуском; не удаляйте
 sign-in subjects или связи. Уже открытые запросы окончательно истекают через пять минут.
 
-### Воронки
+### Воронки и рассылки
 
-`TELEGRAM_MARKETING_ENABLED=true` включает воронки и marketing entry. Это отдельное решение владельца
-в [Workspace #184](https://github.com/sachkov-inside/workspace/issues/184). Уведомления о подписке и
-материалах от marketing не зависят.
+`TELEGRAM_MARKETING_ENABLED=true` включает воронки, marketing entry и доставку рассылок. Это
+отдельное решение владельца в [Workspace #184](https://github.com/sachkov-inside/workspace/issues/184).
+Уведомления о подписке и материалах от marketing не зависят.
+
+Политика рассылок курса ([Workspace #238](https://github.com/sachkov-inside/workspace/issues/238)):
+
+- аудитория рассылки `all` — каждый BotContact, запускавший бота, кроме отписавшихся `/stop` и
+  заблокировавших бота; снимок аудитории берётся в момент запуска;
+- `/start` — согласие на сообщения бота по
+  [принятому пути согласий](https://github.com/sachkov-inside/workspace/blob/main/product/legal/consents-unified-path.md);
+  `/stop` отписывает от всех маркетинговых сообщений, `/resume` возвращает будущие сообщения без
+  пропущенных;
+- флаг включает только владелец; каждую рассылку запускает только пользователь с правом
+  `communications:manage`. Агент может подготовить черновик, но не запускает рассылку и не
+  отправляет внешние сообщения.
+
+Аудиторию и `/stop`/`/resume` через настоящие команды бота проверяет
+`test/integration/broadcasts.integration.test.ts`.
 
 ## Права ботов
 
@@ -468,10 +483,12 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
 | --- | --- |
 | `run --rm --interactive=false migrate` | migrations собственной базы |
 | `run --rm -T community-restriction --preview < decision.json` | hold/restore по решению владельца, см. [course-activation.md](course-activation.md#разбор-ограничений-и-неизвестного-исхода) |
+| `run --rm -T activation-review --list` | очередь разбора неподтверждённых оснований, см. [course-activation.md](course-activation.md#подтверждение-статуса-прежних-участников) |
 | `run --rm -T -e TELEGRAM_WEBHOOK_URL=… webhook-registration --preview` | список обновлений webhook |
 
 Каждая команда вызывается как `"${telegram_compose[@]}" --profile operations …` и не открывает порты.
-`community-restriction` видит только сеть базы, `webhook-registration` — только внешнюю сеть.
+`community-restriction` и `activation-review` видят только сеть базы, `webhook-registration` — только
+внешнюю сеть.
 
 ## Совместная выкладка с Platform
 
@@ -509,8 +526,9 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
    v2, рестарт api и billing-worker. Проверка: метрики `community_*` без роста `community_effects_unknown`,
    нет diagnostic прав бота; тестовая покупка владельца даёт личную ссылку и вступление.
 10. **Активация.** Platform `TELEGRAM_ACTIVATION_INGRESS_SECRET`, затем Telegram
-    `TELEGRAM_ACTIVATION_ENABLED=true` с URL, секретом, `PLATFORM_ACCOUNT_URL` и реестром. Проверка:
-    `/start a_<code>` владельца.
+    `TELEGRAM_ACTIVATION_ENABLED=true` с URL, секретом, `PLATFORM_ACCOUNT_URL`, реестром и
+    `TELEGRAM_ACTIVATION_START_CODES`. Проверка: `/start a_<code>` владельца и обычный `/start`
+    связанного тестового контакта.
 11. **Уведомления.** Platform notifications-worker подключён к брокеру с шага 5. Telegram
     `TELEGRAM_NOTIFICATIONS_ENABLED=true`, рестарт. Проверка: у очередей
     `telegram.notifications.subscription.v1` и `.material.v1` есть consumer, тестовое уведомление
