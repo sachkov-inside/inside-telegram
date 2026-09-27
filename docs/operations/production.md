@@ -530,6 +530,8 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
 10. **Активация.** Platform `TELEGRAM_ACTIVATION_INGRESS_SECRET`, затем Telegram
     `TELEGRAM_ACTIVATION_ENABLED=true` с URL, секретом, `PLATFORM_ACCOUNT_URL` и реестром. Проверка:
     `/start a_<code>` владельца; сообщение с кнопкой в группе курса отправляет только владелец.
+    `TELEGRAM_ACTIVATION_START_CODES` больше не читается (#115): если она есть в `application.env`,
+    удалите её.
 11. **Уведомления.** Platform notifications-worker подключён к брокеру с шага 5. Telegram
     `TELEGRAM_NOTIFICATIONS_ENABLED=true`, рестарт. Проверка: у очередей
     `telegram.notifications.subscription.v1` и `.material.v1` есть consumer, тестовое уведомление

@@ -2,7 +2,10 @@ import "../config/load-environment.js";
 import { Api } from "grammy";
 import { GrammyMessagesAdapter } from "../adapters/telegram/grammy-messages.adapter.js";
 import { loadApplicationConfig } from "../config/application-config.js";
-import { announceActivation } from "../modules/subscription-activation/activation-announcement.js";
+import {
+  announceActivation,
+  type ActivationAnnouncementInput,
+} from "../modules/subscription-activation/activation-announcement.js";
 
 const [mode, sourceRef, code, ...rest] = process.argv.slice(2);
 if (
@@ -39,7 +42,7 @@ if (
 
 async function announce(
   token: string,
-  input: Parameters<typeof announceActivation>[0],
+  input: ActivationAnnouncementInput,
 ): Promise<void> {
   const api = new Api(token, { timeoutSeconds: 10 });
   const messages = new GrammyMessagesAdapter(token, api);

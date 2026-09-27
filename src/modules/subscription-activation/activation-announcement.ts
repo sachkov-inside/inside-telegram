@@ -20,6 +20,14 @@ export interface ActivationAnnouncementTelegram {
   sendText(message: TelegramTextMessage): Promise<TelegramDeliveryResult>;
 }
 
+export interface ActivationAnnouncementInput {
+  readonly activation: ActivationConfig | undefined;
+  readonly sourceRef: string;
+  readonly code: string;
+  /** False only previews the text and the button. */
+  readonly send: boolean;
+}
+
 export type ActivationAnnouncementResult =
   | {
       readonly status: "ready" | "sent";
@@ -44,12 +52,7 @@ export type ActivationAnnouncementResult =
  * themselves come from the owner link's Platform rule when a member presses the button.
  */
 export async function announceActivation(
-  input: {
-    readonly activation: ActivationConfig | undefined;
-    readonly sourceRef: string;
-    readonly code: string;
-    readonly send: boolean;
-  },
+  input: ActivationAnnouncementInput,
   telegram: ActivationAnnouncementTelegram,
 ): Promise<ActivationAnnouncementResult> {
   if (!input.activation?.enabled)
