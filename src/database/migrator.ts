@@ -1,3 +1,4 @@
+import { ownerLinkActivationMigration } from "./migrations/027-owner-link-activation.js";
 import { knownGroundChecksMigration } from "./migrations/026-known-ground-checks.js";
 import { updateLanesMigration } from "./migrations/025-update-lanes.js";
 import { membershipCheckRetentionMigration } from "./migrations/024-membership-check-retention.js";
@@ -35,6 +36,7 @@ import { communicationsTemplatesMigration } from "./migrations/010-communication
 import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
+  "027-owner-link-activation": ownerLinkActivationMigration,
   "026-known-ground-checks": knownGroundChecksMigration,
   "025-update-lanes": updateLanesMigration,
   "024-membership-check-retention": membershipCheckRetentionMigration,

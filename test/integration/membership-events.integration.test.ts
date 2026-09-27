@@ -383,7 +383,6 @@ describe("durable Membership events", () => {
       {
         start: () => Promise.resolve(),
         action: () => Promise.resolve(),
-        checkKnownGrounds: () => Promise.resolve(),
       },
       inbox,
       config,

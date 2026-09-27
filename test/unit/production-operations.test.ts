@@ -27,6 +27,10 @@ describe("production operations in the runtime image", () => {
   it.each([
     ["community-restriction", "dist/operations/community-restriction-cli.js"],
     ["activation-review", "dist/operations/activation-review-cli.js"],
+    [
+      "activation-announcement",
+      "dist/operations/activation-announcement-cli.js",
+    ],
     ["webhook-registration", "dist/operations/webhook-registration-cli.js"],
   ])(
     "offers %s as an operations-only command without pnpm",
