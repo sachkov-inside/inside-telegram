@@ -18,30 +18,39 @@ if (
 } else {
   try {
     const config = loadApplicationConfig(process.env);
-    const token = config.botToken;
-    if (!token) throw new Error("TELEGRAM_BOT_TOKEN is required");
-    const api = new Api(token, { timeoutSeconds: 10 });
-    const messages = new GrammyMessagesAdapter(token, api);
-    const result = await announceActivation(
-      {
+    if (config.botToken)
+      await announce(config.botToken, {
         activation: config.activation,
         sourceRef,
         code,
         send: mode === "--send",
-      },
-      {
-        botUsername: async () => (await api.getMe()).username,
-        sendText: (message) => messages.sendText(message),
-      },
-    );
-    // The chat id stays in the protected configuration; the output names only the source.
-    process.stdout.write(JSON.stringify({ ...result, sourceRef }) + "\n");
-    if (result.status !== "ready" && result.status !== "sent")
-      process.exitCode = 2;
+      });
+    else {
+      process.stderr.write("TELEGRAM_BOT_TOKEN is required.\n");
+      process.exitCode = 1;
+    }
   } catch {
     process.stderr.write(
       "Activation announcement stopped; no token or chat id printed.\n",
     );
     process.exitCode = 1;
   }
+}
+
+async function announce(
+  token: string,
+  input: Parameters<typeof announceActivation>[0],
+): Promise<void> {
+  const api = new Api(token, { timeoutSeconds: 10 });
+  const messages = new GrammyMessagesAdapter(token, api);
+  const result = await announceActivation(input, {
+    botUsername: async () => (await api.getMe()).username,
+    sendText: (message) => messages.sendText(message),
+  });
+  // The chat id stays in the protected configuration; the output names only the source.
+  process.stdout.write(
+    JSON.stringify({ ...result, sourceRef: input.sourceRef }) + "\n",
+  );
+  if (result.status !== "ready" && result.status !== "sent")
+    process.exitCode = 2;
 }

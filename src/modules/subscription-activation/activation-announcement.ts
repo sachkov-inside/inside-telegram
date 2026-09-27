@@ -11,7 +11,7 @@ export const ACTIVATION_ANNOUNCEMENT_TEXT =
 export const ACTIVATION_ANNOUNCEMENT_BUTTON = "Получить доступ";
 
 /** The same code shape the bot accepts in `/start a_<code>`. */
-const CODE = /^[A-Za-z0-9_-]{1,40}$/;
+const ACTIVATION_CODE = /^[A-Za-z0-9_-]{1,40}$/;
 const BOT_USERNAME = /^[A-Za-z][A-Za-z0-9_]{3,31}$/;
 
 export interface ActivationAnnouncementTelegram {
@@ -54,7 +54,7 @@ export async function announceActivation(
 ): Promise<ActivationAnnouncementResult> {
   if (!input.activation?.enabled)
     return { status: "refused", reason: "activation_disabled" };
-  if (!CODE.test(input.code))
+  if (!ACTIVATION_CODE.test(input.code))
     return { status: "refused", reason: "invalid_code" };
   const source = input.activation.sources.find(
     (candidate) => candidate.sourceRef === input.sourceRef,
