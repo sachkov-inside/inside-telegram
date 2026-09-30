@@ -1,3 +1,6 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+
 import Ajv from "ajv";
 import addFormats from "ajv-formats";
 import { describe, expect, it } from "vitest";
@@ -6,6 +9,7 @@ import { HttpSalesFunnelAdapter } from "../../src/adapters/platform/http-sales-f
 import { GrammyUpdateAdapter } from "../../src/adapters/telegram/grammy-update.adapter.js";
 import { loadApplicationConfig } from "../../src/config/application-config.js";
 import fixtures from "../../src/contracts/inside-sales-funnel-events-v1/fixtures.json" with { type: "json" };
+import provenance from "../../src/contracts/inside-sales-funnel-events-v1/provenance.json" with { type: "json" };
 import schema from "../../src/contracts/inside-sales-funnel-events-v1/schema.json" with { type: "json" };
 import {
   SALES_FUNNEL_EVENTS_VERSION,
@@ -32,6 +36,17 @@ const event: SalesFunnelEvent = {
 };
 
 describe("inside.sales-funnel-events.v1 contract", () => {
+  it("keeps the vendored files as recorded in their provenance", () => {
+    for (const [file, sha256] of Object.entries(provenance.files))
+      expect(
+        createHash("sha256")
+          .update(
+            readFileSync(`src/contracts/inside-sales-funnel-events-v1/${file}`),
+          )
+          .digest("hex"),
+      ).toBe(sha256);
+  });
+
   it.each(fixtures.valid)("Platform accepts $name", ({ event: value }) => {
     expect(validRequest(envelope(value))).toBe(true);
   });

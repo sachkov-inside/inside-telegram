@@ -6,7 +6,9 @@ import {
   retryDelay,
   settle,
   type DurableQueue,
+  type QueueValues,
 } from "../../database/durable-queue.js";
+import { unhandled } from "../../shared/unhandled.js";
 import {
   reportCondition,
   reportFailure,
@@ -70,30 +72,15 @@ export class SalesFunnelDeliveryProcessor {
         diagnosticCode: "platform_transport_unavailable",
       };
     }
-    if (result.kind === "conflict")
+    const settled = await settle(this.database, eventOutbox, claimed, {
+      ...outcome(result, now, claimed.attempt),
+      locked_at: null,
+    });
+    // A lease lost to another worker leaves the report to the holder that settles the row.
+    if (settled && result.kind === "conflict")
       reportCondition("sales-funnel.delivery", "event_conflict", {
         event_id: claimed.row.event_id,
       });
-    await settle(this.database, eventOutbox, claimed, {
-      state:
-        result.kind === "delivered"
-          ? "delivered"
-          : result.kind === "conflict"
-            ? "rejected"
-            : "retry_scheduled",
-      available_at:
-        result.kind === "retryable"
-          ? new Date(now.getTime() + retryDelay(eventOutbox, claimed.attempt))
-          : now,
-      delivered_at: result.kind === "delivered" ? now : null,
-      diagnostic_code:
-        result.kind === "retryable"
-          ? result.diagnosticCode
-          : result.kind === "conflict"
-            ? "platform_event_conflict"
-            : null,
-      locked_at: null,
-    });
     return result.kind;
   }
 
@@ -103,5 +90,37 @@ export class SalesFunnelDeliveryProcessor {
       if (!(await this.processNext(now))) break;
     }
     return processed;
+  }
+}
+
+function outcome(
+  result: SalesFunnelDeliveryResult,
+  now: Date,
+  attempt: number,
+): QueueValues<"sales_funnel_event_outbox"> {
+  switch (result.kind) {
+    case "delivered":
+      return {
+        state: "delivered",
+        available_at: now,
+        delivered_at: now,
+        diagnostic_code: null,
+      };
+    case "conflict":
+      return {
+        state: "rejected",
+        available_at: now,
+        diagnostic_code: "platform_event_conflict",
+      };
+    case "retryable":
+      return {
+        state: "retry_scheduled",
+        available_at: new Date(
+          now.getTime() + retryDelay(eventOutbox, attempt),
+        ),
+        diagnostic_code: result.diagnosticCode,
+      };
+    default:
+      return unhandled(result, "sales funnel delivery result");
   }
 }

@@ -117,6 +117,22 @@ sign-in subjects или связи. Уже открытые запросы ок�
 Аудиторию и `/stop`/`/resume` через настоящие команды бота проверяет
 `test/integration/broadcasts.integration.test.ts`.
 
+### События воронки продаж
+
+Воркер `sales-funnel` работает только при `PLATFORM_SALES_FUNNEL_DELIVERY_MODE=live`; до этого
+события копятся в `sales_funnel_event_outbox` и уходят после включения. Состояние очереди:
+
+```sql
+select state, diagnostic_code, count(*) from sales_funnel_event_outbox group by 1, 2;
+```
+
+- `retry_scheduled` с `platform_http_401` — секрет не совпадает с `TELEGRAM_SALES_FUNNEL_INGRESS_SECRET`
+  Platform; с `platform_http_400` — Platform не принимает конверт, сверить версию контракта.
+  Повторы идут сами, после исправления настройки очередь дойдёт без вмешательства.
+- `rejected` с `platform_event_conflict` — Platform уже хранит этот `eventId` с другим содержимым
+  (в журнале `event_conflict` с `event_id`). Это ошибка контракта: строку не переотправлять,
+  сравнить с записью Platform и завести issue.
+
 ## Права ботов
 
 **Бот Inside в общей группе** — administrator с двумя правами:
