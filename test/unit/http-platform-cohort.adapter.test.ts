@@ -118,18 +118,19 @@ describe("Platform current stream of the course", () => {
   });
 
   it("leaves the date out when the course has no stream or the stream no date", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
     for (const items of [
       [],
       [cohort({ guideId: "00000000-0000-4000-8000-000000000001" })],
       [cohort({ stage: "between", startsOn: null, nextEvent: "Скоро" })],
-      [cohort({ startsOn: "2026-02-30" })],
-      [cohort({ startsOn: "20 октября" })],
     ])
       expect(
         await adapter(() =>
           Promise.resolve(Response.json({ items })),
         ).source.read(),
       ).toEqual({});
+    // An absent stream or date is an ordinary catalogue state, not a failure.
+    expect(stderr).not.toHaveBeenCalled();
   });
 
   it("answers without a date when Platform is unavailable, slow or malformed", async () => {
@@ -145,11 +146,22 @@ describe("Platform current stream of the course", () => {
       () => Promise.reject(timeout),
       () => Promise.resolve(new Response("not json", { status: 200 })),
       () => Promise.resolve(Response.json({ items: "none" })),
+      () =>
+        Promise.resolve(
+          Response.json({ items: [cohort({ startsOn: "2026-02-30" })] }),
+        ),
+      () =>
+        Promise.resolve(
+          Response.json({ items: [cohort({ startsOn: "20 октября" })] }),
+        ),
     ])
       expect(await adapter(response).source.read()).toEqual({});
 
     const failures = stderr.mock.calls.map((call) => String(call[0]));
     expect(failures.join("")).toContain('"failure":"platform_http_503"');
     expect(failures.join("")).toContain('"failure":"timeout"');
+    expect(
+      failures.filter((line) => line.includes("platform_response_invalid")),
+    ).toHaveLength(3);
   });
 });

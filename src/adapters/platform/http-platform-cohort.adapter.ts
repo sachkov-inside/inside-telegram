@@ -48,10 +48,14 @@ export class HttpPlatformCohortAdapter implements CommunityWelcomeDetailsSource 
       return {};
     }
     const startsOn = this.startsOn(body);
+    // A body outside the contract is noticed, not shown: the welcome still goes without a date.
+    if (startsOn === undefined)
+      reportCondition("platform.cohort-read", "platform_response_invalid");
     return startsOn ? { streamStartsOn: startsOn } : {};
   }
 
-  private startsOn(body: unknown): string | undefined {
+  /** The course's start date, `null` without a stream or date, `undefined` for a foreign body. */
+  private startsOn(body: unknown): string | null | undefined {
     if (typeof body !== "object" || body === null || !("items" in body))
       return undefined;
     const { items } = body;
@@ -64,8 +68,15 @@ export class HttpPlatformCohortAdapter implements CommunityWelcomeDetailsSource 
         typeof item.guideId === "string" &&
         item.guideId.toLowerCase() === this.guideId,
     );
-    if (typeof cohort !== "object" || cohort === null) return undefined;
-    const startsOn = "startsOn" in cohort ? cohort.startsOn : undefined;
+    if (cohort === undefined) return null;
+    if (
+      typeof cohort !== "object" ||
+      cohort === null ||
+      !("startsOn" in cohort)
+    )
+      return undefined;
+    const { startsOn } = cohort;
+    if (startsOn === null) return null;
     return typeof startsOn === "string" && calendarDate(startsOn)
       ? startsOn
       : undefined;
