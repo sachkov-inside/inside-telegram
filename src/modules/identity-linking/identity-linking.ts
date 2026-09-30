@@ -1,3 +1,5 @@
+import { recordAccountLinked } from "../sales-funnel/sales-funnel-events.js";
+import { findPlatformLink } from "./platform-links.js";
 import { reserveTelegramIdentity } from "./stable-telegram-identity.js";
 import { randomUUID } from "node:crypto";
 
@@ -410,6 +412,10 @@ export class IdentityLinking {
         link.telegram_identity_ref,
         this.clock.now(),
       );
+      const current = await findPlatformLink(transaction, {
+        telegramIdentityRef: link.telegram_identity_ref,
+      });
+      if (current) await recordAccountLinked(transaction, current);
       return {
         ...base,
         status: inserted ? "linked" : "idempotent",

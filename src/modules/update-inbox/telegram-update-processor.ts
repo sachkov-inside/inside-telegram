@@ -182,7 +182,10 @@ export class TelegramUpdateProcessor {
         await this.marketing.setPreference(
           command.value.contact,
           command.value.enabled,
+          command.value.via,
         );
+        if (command.callbackQueryId)
+          await this.callbackAnswers.answer(command.callbackQueryId);
         return;
       case "start":
         return this.start(command.value);
@@ -313,6 +316,10 @@ function userRequest(command: TelegramUpdateCommand): UserRequest | undefined {
         callbackQueryId: command.value.callbackQueryId,
       };
     case "marketing_preference":
+      return {
+        ...contactOf(command.value.contact),
+        callbackQueryId: command.callbackQueryId,
+      };
     case "start":
       return contactOf(command.value.contact);
     case "community-request":

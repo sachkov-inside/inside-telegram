@@ -8,6 +8,7 @@ import {
   type IdentityLinkRecoveriesTable,
 } from "../../database/database.js";
 import { CLOCK, type Clock } from "../../shared/clock.js";
+import { recordAccountLinked } from "../sales-funnel/sales-funnel-events.js";
 import { lockIdentityLinkAccount } from "./identity-link-account-lock.js";
 import { isOpaqueRef } from "./identity-linking-validation.js";
 
@@ -153,6 +154,13 @@ export class IdentityLinkRecovery {
         })
         .execute();
 
+      await recordAccountLinked(transaction, {
+        botIdentity: ready.transfer.botIdentity,
+        telegramUserId: ready.transfer.telegramUserId,
+        telegramIdentityRef: ready.transfer.telegramIdentityRef,
+        linkTransactionRef: ready.transfer.targetLinkTransactionRef,
+        linkedAt: targetLinkedAt,
+      });
       return { ...ready, outcome: "transferred" };
     });
   }

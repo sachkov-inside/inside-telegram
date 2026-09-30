@@ -1,5 +1,6 @@
 import type { ActivationTables } from "../modules/subscription-activation/activation-storage.js";
 import type { TelegramButton } from "../modules/outbound/telegram-messages.js";
+import type { SalesFunnelTables } from "../modules/sales-funnel/sales-funnel-storage.js";
 import type { CommunityTables } from "../modules/community/community-storage.js";
 import type { NotificationTables } from "../modules/notifications/notification-storage.js";
 import type { ColumnType, Generated, Kysely } from "kysely";
@@ -305,7 +306,11 @@ export interface SignInSubjectsTable {
 export type JsonColumn<Value> = ColumnType<Value, string, string>;
 
 export interface DatabaseSchema
-  extends ActivationTables, NotificationTables, CommunityTables {
+  extends
+    ActivationTables,
+    NotificationTables,
+    CommunityTables,
+    SalesFunnelTables {
   communication_author_compositions: {
     bot_identity: string;
     owner_account_ref: string;

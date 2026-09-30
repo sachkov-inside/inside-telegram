@@ -15,6 +15,8 @@ the authority for Accounts, permissions, entitlements, profiles, and every conte
   `docs/specifications/community-and-notifications-v1.md`.
 - For author templates, communications API or Platform authorization, read
   `docs/integrations/communications-v1.md`.
+- For sales funnel events to Platform, source labels or the consent step, read
+  `docs/integrations/sales-funnel-events-v1.md`.
 - For confirmed bootstrap stack, credentialed-proof gates, and unresolved setup decisions, read
   `docs/decisions/seed-decisions.md`.
 - For canonical terms, read `CONTEXT.md` when it exists.
