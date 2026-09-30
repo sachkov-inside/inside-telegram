@@ -51,7 +51,7 @@ import {
 import type {
   CommunityDispatchAuthorization,
   CommunityObservation,
-  CommunityReadmissionReplies,
+  CommunityPrivateNotice,
   TelegramCommunityChat,
 } from "./community-ports.js";
 import {
@@ -105,15 +105,9 @@ export interface CommunityProviderOptions {
   readonly botTelegramUserId?: string | undefined;
   /** Removals by this bot end the Tribute basis only; they are never moderation. */
   readonly tributeBotTelegramUserId?: string;
-  readonly readmission?: {
-    readonly replies: CommunityReadmissionReplies;
-    readonly text: string;
-  };
+  readonly readmission?: CommunityPrivateNotice;
   /** Sent privately with the first link after an Account's first community right. */
-  readonly welcome?: {
-    readonly replies: CommunityReadmissionReplies;
-    readonly text: string;
-  };
+  readonly welcome?: CommunityPrivateNotice;
 }
 
 /**

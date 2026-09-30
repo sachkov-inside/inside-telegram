@@ -5,10 +5,16 @@ import type {
 } from "./community-contract.js";
 
 /** The durable private-chat outbox; the provider enqueues inside its own transaction. */
-export type CommunityReadmissionReplies = Pick<
+export type CommunityPrivateReplies = Pick<
   StartResponseDeliveryQueue,
   "enqueue"
 >;
+
+/** A private message the provider sends with a personal link, and the outbox it goes through. */
+export interface CommunityPrivateNotice {
+  readonly replies: CommunityPrivateReplies;
+  readonly text: string;
+}
 
 export interface CommunityDispatchAuthorization {
   authorize(
