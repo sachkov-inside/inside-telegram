@@ -34,9 +34,10 @@ so every confirmed link is reported.
 `TELEGRAM_MARKETING_CONSENT_CONFIRMATION` are set together or not at all. When set, every marketing
 entry into a published funnel sends the prompt with one button to a contact whose marketing is on
 and whose latest explicit choice is not consent. The button (`marketing:consent`) records the same
-preference as `/resume`, reports `granted: true` and answers with the confirmation text. The step is
-a mechanism only: it does not hold back funnel messages, and its wording, placement and effect on
-delivery are decided with the funnel content in
+preference as `/resume`, so it also turns marketing back on after `/stop`; it reports
+`granted: true` and answers with the confirmation text. The step is a mechanism only: a contact
+who has not pressed it still receives funnel messages, as before. Its wording, its placement in the
+funnel and whether funnel messages should wait for it are decided with the funnel content in
 [ai-engineering#189](https://github.com/sachkov-inside/ai-engineering/issues/189). Without the
 texts no prompt is sent; `/stop` and `/resume` are still reported.
 

@@ -53,8 +53,8 @@ _Avoid_: Consent, Membership, active subscription
 
 **Marketing consent**:
 A BotContact's explicit choice about marketing messages: the consent button or `/resume` grants
-it, `/stop` withdraws it. Marketing enabled by default is not Marketing consent. It is reported to
-Platform's sales funnel and does not by itself change delivery.
+it and turns marketing on, `/stop` withdraws it and turns marketing off. Marketing enabled by
+default is not Marketing consent. Each choice is reported to Platform's sales funnel.
 _Avoid_: Contactability, opt-in by `/start`
 
 
