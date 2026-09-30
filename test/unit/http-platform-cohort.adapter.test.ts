@@ -1,5 +1,14 @@
+import { createHash } from "node:crypto";
+import { readFileSync } from "node:fs";
+
+import Ajv from "ajv";
+import addFormats from "ajv-formats";
 import { afterEach, describe, expect, it, vi } from "vitest";
+
 import { HttpPlatformCohortAdapter } from "../../src/adapters/platform/http-platform-cohort.adapter.js";
+import fixtures from "../../src/contracts/platform-billing-cohorts/fixtures.json" with { type: "json" };
+import provenance from "../../src/contracts/platform-billing-cohorts/provenance.json" with { type: "json" };
+import schema from "../../src/contracts/platform-billing-cohorts/schema.json" with { type: "json" };
 
 const endpoint = "https://platform.test/billing/cohorts";
 const guideId = "5f0c2a4e-8d1b-4c3a-9e7f-1a2b3c4d5e6f";
@@ -22,6 +31,66 @@ const adapter = (response: () => Promise<Response>) => {
 
 afterEach(() => {
   vi.restoreAllMocks();
+});
+
+const ajv = new Ajv.default({ allErrors: true, strict: false });
+addFormats.default(ajv);
+// Platform's OpenAPI 3.0 writes `exclusiveMinimum: true` beside `minimum`; Ajv reads the numeric form.
+const validResponse = ajv.compile(
+  JSON.parse(JSON.stringify(schema.response), (_key, value: unknown) => {
+    if (
+      typeof value !== "object" ||
+      value === null ||
+      !("exclusiveMinimum" in value) ||
+      value.exclusiveMinimum !== true ||
+      !("minimum" in value)
+    )
+      return value;
+    const { minimum, ...rest } = value;
+    return { ...rest, exclusiveMinimum: minimum };
+  }),
+);
+
+describe("Platform GET /billing/cohorts contract", () => {
+  it("keeps the vendored files as recorded in their provenance", () => {
+    for (const [file, sha256] of Object.entries(provenance.files))
+      expect(
+        createHash("sha256")
+          .update(
+            readFileSync(`src/contracts/platform-billing-cohorts/${file}`),
+          )
+          .digest("hex"),
+      ).toBe(sha256);
+  });
+
+  it("rejects a response Platform would never send", () => {
+    const [first] = fixtures.valid;
+    const item = first?.response.items[0];
+    for (const invalid of [
+      { items: [{ ...item, startsOn: "20 октября" }] },
+      { items: [{ ...item, revision: 0 }] },
+      { items: [{ ...item, stage: "sold_out" }] },
+      { items: [item], total: 1 },
+    ])
+      expect(validResponse(invalid)).toBe(false);
+  });
+
+  it.each(fixtures.valid)(
+    "Platform may answer $name, and the welcome takes its date",
+    async (fixture) => {
+      expect(validResponse(fixture.response)).toBe(true);
+      const source = new HttpPlatformCohortAdapter(
+        endpoint,
+        fixtures.courseGuideId,
+        () => Promise.resolve(Response.json(fixture.response)),
+      );
+      expect(await source.read()).toEqual(
+        "streamStartsOn" in fixture
+          ? { streamStartsOn: fixture.streamStartsOn }
+          : {},
+      );
+    },
+  );
 });
 
 describe("Platform current stream of the course", () => {

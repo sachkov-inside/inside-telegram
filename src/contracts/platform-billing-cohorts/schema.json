@@ -1,0 +1,57 @@
+{
+  "response": {
+    "additionalProperties": false,
+    "properties": {
+      "items": {
+        "items": {
+          "additionalProperties": false,
+          "properties": {
+            "guideId": {
+              "format": "uuid",
+              "pattern": "^([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[1-8][0-9a-fA-F]{3}-[89abAB][0-9a-fA-F]{3}-[0-9a-fA-F]{12}|00000000-0000-0000-0000-000000000000|ffffffff-ffff-ffff-ffff-ffffffffffff)$",
+              "type": "string"
+            },
+            "name": {
+              "maxLength": 120,
+              "minLength": 1,
+              "type": "string"
+            },
+            "nextEvent": {
+              "maxLength": 200,
+              "type": "string"
+            },
+            "revision": {
+              "exclusiveMinimum": true,
+              "maximum": 2147483647,
+              "minimum": 0,
+              "type": "integer"
+            },
+            "stage": {
+              "enum": ["announcement", "preorder", "running", "between"],
+              "type": "string"
+            },
+            "startsOn": {
+              "format": "date",
+              "nullable": true,
+              "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))$",
+              "type": "string"
+            }
+          },
+          "required": [
+            "guideId",
+            "name",
+            "stage",
+            "startsOn",
+            "nextEvent",
+            "revision"
+          ],
+          "type": "object"
+        },
+        "maxItems": 100,
+        "type": "array"
+      }
+    },
+    "required": ["items"],
+    "type": "object"
+  }
+}

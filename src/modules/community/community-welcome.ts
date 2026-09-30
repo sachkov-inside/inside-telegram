@@ -5,8 +5,8 @@ export interface CommunityWelcomeDetails {
 }
 
 /**
- * Reads the course's current stream at the moment the welcome goes. It never throws: an
- * absent stream, an absent date or an unavailable Platform all mean a welcome without details.
+ * Reads the course's current stream at the moment the welcome goes. An absent stream, an absent
+ * date or an unavailable Platform all mean a welcome without details.
  */
 export interface CommunityWelcomeDetailsSource {
   read(): Promise<CommunityWelcomeDetails>;

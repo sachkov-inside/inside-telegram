@@ -12,7 +12,7 @@ const READ_TIMEOUT_MILLISECONDS = 2_000;
 const CALENDAR_DATE = /^\d{4}-\d{2}-\d{2}$/;
 
 /**
- * Public `GET /billing/cohorts` of Platform: the current stream of every product. The course
+ * Public `GET /billing/cohorts` of Platform, vendored in `src/contracts/platform-billing-cohorts`: the current stream of every product. The course
  * is found by its Platform product UUID, because the response carries no slug.
  */
 export class HttpPlatformCohortAdapter implements CommunityWelcomeDetailsSource {
