@@ -57,7 +57,9 @@ import type {
 import {
   RESTORABLE_REMOVAL_ORIGINS,
   type CommunityMutation,
+  type CommunityWelcomeState,
 } from "./community-storage.js";
+import { communityWelcomeMessage } from "./community-welcome.js";
 import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const ATTEMPT_BUDGET = 5;
@@ -104,6 +106,11 @@ export interface CommunityProviderOptions {
   /** Removals by this bot end the Tribute basis only; they are never moderation. */
   readonly tributeBotTelegramUserId?: string;
   readonly readmission?: {
+    readonly replies: CommunityReadmissionReplies;
+    readonly text: string;
+  };
+  /** Sent privately with the first link after an Account's first community right. */
+  readonly welcome?: {
     readonly replies: CommunityReadmissionReplies;
     readonly text: string;
   };
@@ -265,11 +272,23 @@ export class CommunityProvider {
           invite_state: "none",
           invite_expires_at: null,
           invite_revision: null,
+          welcome_state: allows ? "requested" : "not_due",
           ...state,
         })
         .onConflict((c) =>
           // A stored link keeps its own revision, so a newer right never reuses it.
-          c.columns(["bot_identity", "account_ref"]).doUpdateSet(state),
+          c.columns(["bot_identity", "account_ref"]).doUpdateSet({
+            ...state,
+            // Only the first right welcomes; renewals and later rights do not.
+            ...(allows
+              ? {
+                  welcome_state: sql<CommunityWelcomeState>`case
+                    when community_desired_states.welcome_state = 'not_due'
+                    then 'requested'
+                    else community_desired_states.welcome_state end`,
+                }
+              : {}),
+          }),
         )
         .execute();
 
@@ -1249,13 +1268,14 @@ export class CommunityProvider {
           { status: "waiting_for_join" },
           now,
         );
-        await this.offerReadmission(
-          tx,
-          desired,
-          effectRef,
-          outcome.inviteLink,
-          now,
-        );
+        if (!(await this.offerWelcome(tx, desired, outcome.inviteLink, now)))
+          await this.offerReadmission(
+            tx,
+            desired,
+            effectRef,
+            outcome.inviteLink,
+            now,
+          );
         return;
       }
       if (outcome.kind === "unknown") {
@@ -1377,6 +1397,70 @@ export class CommunityProvider {
   }
 
   /**
+   * The first link after an Account's first right goes privately with the welcome, so a buyer
+   * need not know about /community. Without a reachable BotContact the link stays available
+   * through /community; either way the welcome is offered once and replaces a pending
+   * readmission notice. Returns whether the welcome was due.
+   */
+  private async offerWelcome(
+    tx: Tx,
+    desired: DesiredRow,
+    inviteLink: string,
+    now: Date,
+  ): Promise<boolean> {
+    const welcome = this.options.welcome;
+    if (!welcome || desired.welcome_state !== "requested") return false;
+    const contact = await this.reachableContact(tx, desired);
+    if (contact)
+      await welcome.replies.enqueue(
+        {
+          botIdentity: this.bot,
+          telegramUserId: contact.telegramUserId,
+          privateChatId: contact.privateChatId,
+          // Platform stream facts (platform#814) join here once a contract carries them.
+          messageText: communityWelcomeMessage(welcome.text, inviteLink),
+          sourceKey: `community-welcome:${this.bot}:${desired.account_ref}`,
+          now,
+        },
+        tx,
+      );
+    await tx
+      .updateTable("community_desired_states")
+      .set({ welcome_state: "offered", readmission_requested_at: null })
+      .where("bot_identity", "=", this.bot)
+      .where("account_ref", "=", desired.account_ref)
+      .execute();
+    return true;
+  }
+
+  private async reachableContact(
+    tx: Tx,
+    desired: DesiredRow,
+  ): Promise<
+    | { readonly telegramUserId: string; readonly privateChatId: string }
+    | undefined
+  > {
+    const telegramUserId = await resolveIdentity(
+      tx,
+      this.bot,
+      desired.account_ref,
+      desired.telegram_identity_ref,
+      false,
+    );
+    if (!telegramUserId) return;
+    const contact = await tx
+      .selectFrom("bot_contacts")
+      .select("private_chat_id")
+      .where("bot_identity", "=", this.bot)
+      .where("telegram_user_id", "=", telegramUserId)
+      .where("contactability", "=", "reachable")
+      .executeTakeFirst();
+    return contact
+      ? { telegramUserId, privateChatId: contact.private_chat_id }
+      : undefined;
+  }
+
+  /**
    * A person removed by Tribute does not come back on their own, so the first link
    * created for them is also sent privately. Without a reachable BotContact the link
    * stays available through /community; either way the request is answered once.
@@ -1390,28 +1474,13 @@ export class CommunityProvider {
   ): Promise<void> {
     const readmission = this.options.readmission;
     if (!readmission || desired.readmission_requested_at === null) return;
-    const telegramUserId = await resolveIdentity(
-      tx,
-      this.bot,
-      desired.account_ref,
-      desired.telegram_identity_ref,
-      false,
-    );
-    const contact = telegramUserId
-      ? await tx
-          .selectFrom("bot_contacts")
-          .select("private_chat_id")
-          .where("bot_identity", "=", this.bot)
-          .where("telegram_user_id", "=", telegramUserId)
-          .where("contactability", "=", "reachable")
-          .executeTakeFirst()
-      : undefined;
-    if (telegramUserId && contact)
+    const contact = await this.reachableContact(tx, desired);
+    if (contact)
       await readmission.replies.enqueue(
         {
           botIdentity: this.bot,
-          telegramUserId,
-          privateChatId: contact.private_chat_id,
+          telegramUserId: contact.telegramUserId,
+          privateChatId: contact.privateChatId,
           messageText: `${readmission.text}\n${inviteLink}`,
           sourceKey: `community-readmission:${this.bot}:${effectRef}`,
           ...(desired.last_membership_update_id
@@ -1472,6 +1541,14 @@ export class CommunityProvider {
       const current = await desiredFor(tx, this.bot, effect.account_ref);
       if (!sameDesiredSnapshot(current, desired)) return;
       await closeEffect(tx, this.clock, effect.effect_ref, "completed", null);
+      // A person already in the chat needs no link, so the first right leaves no welcome behind.
+      if (observed === "member" && current.welcome_state === "requested")
+        await tx
+          .updateTable("community_desired_states")
+          .set({ welcome_state: "offered" })
+          .where("bot_identity", "=", this.bot)
+          .where("account_ref", "=", current.account_ref)
+          .execute();
       await setDesired(
         tx,
         this.bot,

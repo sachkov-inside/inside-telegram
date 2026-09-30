@@ -24,6 +24,8 @@ export interface CommunityTexts {
   readonly unavailable: string;
   /** Sent with a fresh link to a person whom Tribute removed while a Platform right is current. */
   readonly readmission: string;
+  /** Sent with the first link after an Account's first community right. */
+  readonly welcome: string;
 }
 
 /** How many private-chat requests one user may make within a sliding window. */
@@ -220,6 +222,9 @@ export function loadApplicationConfig(
     readmission:
       environment.TELEGRAM_COMMUNITY_READMISSION_TEXT?.trim() ||
       "Ваше участие в сообществе Inside продолжается. Вернуться можно по личной ссылке, она действует несколько минут. Если не успеете, отправьте /community.",
+    welcome:
+      environment.TELEGRAM_COMMUNITY_WELCOME_TEXT?.trim() ||
+      "Добро пожаловать в Sachkov Inside, доступ открыт.\n\nВступите в группу сообщества по личной ссылке ниже. Она действует несколько минут; если не успеете, отправьте /community.\n\nМатериалы открываются в личном кабинете Inside. Вопросы задавайте @sachkova_mng.",
   });
   const communityIntegrationSecret =
     environment.PLATFORM_COMMUNITY_INTEGRATION_SECRET?.trim() || undefined;
