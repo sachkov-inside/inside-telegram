@@ -29,7 +29,10 @@ export type TelegramUpdateCommand =
       readonly value: {
         readonly contact: VerifiedPrivateStart;
         readonly enabled: boolean;
+        /** `consent` is the consent button; `command` is `/stop` or `/resume`. */
+        readonly via: "command" | "consent";
       };
+      readonly callbackQueryId?: string;
     }
   | {
       readonly kind: "contactability";

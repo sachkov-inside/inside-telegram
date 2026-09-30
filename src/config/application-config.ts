@@ -7,10 +7,17 @@ import {
   type CommunityVersion,
 } from "../modules/community/community-contract.js";
 import {
+  loadSalesFunnelConfig,
+  type SalesFunnelConfig,
+} from "./sales-funnel-config.js";
+import {
   loadNotificationConfig,
   type NotificationConfig,
 } from "./notification-config.js";
-import { assertServiceSecret } from "./service-secret.js";
+import {
+  assertServiceEndpoint,
+  assertServiceSecret,
+} from "./service-secret.js";
 export type DeliveryMode = "disabled" | "live";
 export type EvidenceDeliveryMode = "disabled" | "live";
 export type MembershipMode = "disabled" | "live";
@@ -80,6 +87,8 @@ export interface ApplicationConfig {
   readonly platformTrackingRedirectUrl?: string | undefined;
   readonly platformTrackingTargetPrefixes?: readonly string[] | undefined;
   readonly port: number;
+  /** Absent in a partial test configuration: no consent prompt, no delivery. */
+  readonly salesFunnel?: SalesFunnelConfig | undefined;
   /** Absent means `DEFAULT_SENDER_RATE`. */
   readonly senderRate?: SenderRate | undefined;
   readonly signInEnabled?: boolean | undefined;
@@ -384,6 +393,7 @@ export function loadApplicationConfig(
   }
   const activation = loadActivationConfig(environment, canonicalChatId);
   const notifications = loadNotificationConfig(environment);
+  const salesFunnel = loadSalesFunnelConfig(environment);
   // Each direction keeps its own secret: a leak in one never authorizes another.
   assertSeparateServiceSecrets({
     TELEGRAM_WEBHOOK_SECRET: webhookSecret,
@@ -396,6 +406,7 @@ export function loadApplicationConfig(
     PLATFORM_AUTHOR_AUTHORIZATION_SECRET: platformAuthorAuthorizationSecret,
     NOTIFICATION_AUTHORIZE_SECRET: notifications?.authorizeSecret,
     PLATFORM_ACTIVATION_SECRET: activation?.secret,
+    PLATFORM_SALES_FUNNEL_EVENTS_SECRET: salesFunnel.delivery?.secret,
   });
   return Object.freeze({
     ...(activation ? { activation } : {}),
@@ -452,6 +463,7 @@ export function loadApplicationConfig(
     ...(platformEvidenceDeliveryUrl ? { platformEvidenceDeliveryUrl } : {}),
     platformIntegrationSecret,
     port: parsePort(environment.PORT),
+    salesFunnel,
     signInEnabled,
     ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
     webhookSecret,
@@ -487,18 +499,6 @@ function isSafeTelegramId(value: string): boolean {
   return Number.isSafeInteger(Number(value));
 }
 
-function assertHttpUrl(value: string, name: string): void {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    throw new Error(`${name} must be an HTTP URL`);
-  }
-  if (url.protocol !== "http:" && url.protocol !== "https:") {
-    throw new Error(`${name} must be an HTTP URL`);
-  }
-}
-
 function assertSeparateServiceSecrets(
   secrets: Readonly<Record<string, string | undefined>>,
 ): void {
@@ -510,23 +510,6 @@ function assertSeparateServiceSecrets(
       throw new Error(`${owner} and ${name} must be separate service secrets`);
     owners.set(value, name);
   }
-}
-
-/** A service credential travels only over TLS, except to a loopback peer. */
-function assertServiceEndpoint(value: string, name: string): void {
-  assertHttpUrl(value, name);
-  const url = new URL(value);
-  if (
-    url.username ||
-    url.password ||
-    url.search ||
-    url.hash ||
-    (url.protocol !== "https:" &&
-      !["localhost", "127.0.0.1", "[::1]"].includes(url.hostname))
-  )
-    throw new Error(
-      `${name} requires HTTPS (HTTP only on loopback), without credentials, query or fragment`,
-    );
 }
 
 function required(environment: NodeJS.ProcessEnv, name: string): string {

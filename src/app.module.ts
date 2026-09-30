@@ -54,6 +54,12 @@ import {
   TELEGRAM_CALLBACK_ANSWERS,
   DisabledTelegramCallbackAnswers,
 } from "./modules/bot-sign-in/telegram-callback-answers.js";
+import { HttpSalesFunnelAdapter } from "./adapters/platform/http-sales-funnel.adapter.js";
+import {
+  SALES_FUNNEL_DELIVERY,
+  type SalesFunnelDelivery,
+} from "./modules/sales-funnel/sales-funnel-delivery.js";
+import { SalesFunnelDeliveryProcessor } from "./modules/sales-funnel/sales-funnel-delivery-processor.js";
 import { HttpPlatformEvidenceAdapter } from "./adapters/platform/http-platform-evidence.adapter.js";
 import {
   botTelegramUserIdFromToken,
@@ -298,6 +304,26 @@ export class AppModule {
             return new DisabledPlatformEvidenceDelivery();
           },
         },
+        {
+          provide: SALES_FUNNEL_DELIVERY,
+          inject: [APPLICATION_CONFIG],
+          useFactory: (
+            applicationConfig: ApplicationConfig,
+          ): SalesFunnelDelivery => {
+            const delivery = applicationConfig.salesFunnel?.delivery;
+            // Without a configured ingress no worker delivers; events stay queued.
+            return delivery
+              ? new HttpSalesFunnelAdapter(delivery.url, delivery.secret)
+              : {
+                  deliver: () =>
+                    Promise.resolve({
+                      kind: "retryable",
+                      diagnosticCode: "sales_funnel_delivery_disabled",
+                    }),
+                };
+          },
+        },
+        SalesFunnelDeliveryProcessor,
         AuthorAdmin,
         AuthorDelivery,
         {

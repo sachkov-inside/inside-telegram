@@ -23,6 +23,7 @@ import { telegramTurnPending } from "../modules/outbound/telegram-transport-slot
 import { StartResponseDeliveryProcessor } from "../modules/outbound/start-response-delivery-processor.js";
 import { TelegramUpdateInbox } from "../modules/update-inbox/telegram-update-inbox.js";
 import { TelegramUpdateProcessor } from "../modules/update-inbox/telegram-update-processor.js";
+import { SalesFunnelDeliveryProcessor } from "../modules/sales-funnel/sales-funnel-delivery-processor.js";
 import { RuntimeMetrics } from "./runtime-metrics.js";
 import { WorkerLoop, type WorkerPacing } from "./worker-loop.js";
 
@@ -78,6 +79,8 @@ export class BackgroundWorkers
     @Inject(MembershipEvidenceProvider)
     private readonly membershipEvidence: MembershipEvidenceProvider,
     @Inject(CommunityProvider) private readonly community: CommunityProvider,
+    @Inject(SalesFunnelDeliveryProcessor)
+    private readonly salesFunnel: SalesFunnelDeliveryProcessor,
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
   ) {}
 
@@ -179,6 +182,14 @@ export class BackgroundWorkers
         "evidence",
         BACKGROUND,
         async () => (await this.evidenceDeliveries.processAvailable()) > 0,
+      );
+    }
+
+    if (this.config.salesFunnel?.delivery) {
+      add(
+        "sales-funnel",
+        BACKGROUND,
+        async () => (await this.salesFunnel.processAvailable()) > 0,
       );
     }
 

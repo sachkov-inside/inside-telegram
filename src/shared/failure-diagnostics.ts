@@ -48,6 +48,7 @@ export type FailureReferences = Readonly<
       | "attempt_id"
       | "check_id"
       | "delivery_id"
+      | "event_id"
       | "operation_id"
       | "update_id",
       string | number

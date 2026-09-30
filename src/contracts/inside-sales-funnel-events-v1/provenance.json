@@ -1,0 +1,12 @@
+{
+  "providerCommit": "a2a671ed2d3c55a37954e141a3956cc6f68bfdae",
+  "remoteBranch": "feat/816-sales-funnel-report",
+  "pullRequest": "https://github.com/sachkov-inside/platform/pull/820",
+  "source": "apps/backend/openapi/platform-api.json, operation recordSalesFunnelBotEvents: request body and 200 response schemas",
+  "status": "schema.json is verbatim from the provider commit; fixtures.json is written in Telegram because Platform publishes no fixtures",
+  "platformAccepted": false,
+  "files": {
+    "schema.json": "e98a0279bfa8650042c04762e6a2afaf471213b1101b8ac2e9087bf690be45dc",
+    "fixtures.json": "8d48d700b95b69ef74abd7ccfe915f3bd7ff1e2faec5de80e4ede5f548465eb2"
+  }
+}

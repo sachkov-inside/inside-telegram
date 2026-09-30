@@ -51,6 +51,12 @@ The current ability to deliver bot messages to a BotContact through Telegram. Bl
 changes Contactability without deleting the BotContact, PlatformLink, or Membership history.
 _Avoid_: Consent, Membership, active subscription
 
+**Marketing consent**:
+A BotContact's explicit choice about marketing messages: the consent button or `/resume` grants
+it and turns marketing on, `/stop` withdraws it and turns marketing off. Marketing enabled by
+default is not Marketing consent. Each choice is reported to Platform's sales funnel.
+_Avoid_: Contactability, opt-in by `/start`
+
 
 **CommunicationTemplate**:
 An author's saved message snapshot that can be reused in communication steps and broadcasts.

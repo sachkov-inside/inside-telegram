@@ -13,6 +13,8 @@ export interface PlatformLink {
   readonly botIdentity: string;
   readonly telegramUserId: string;
   readonly telegramIdentityRef: string;
+  /** The link transaction that confirmed the current Account. */
+  readonly linkTransactionRef: string;
   readonly linkedAt: Date;
   /** Revision of the latest Membership Evidence published for this identity. */
   readonly evidenceVersion: string;
@@ -92,6 +94,7 @@ function platformLink(row: Selectable<PlatformLinksTable>): PlatformLink {
     botIdentity: row.bot_identity,
     telegramUserId: row.telegram_user_id,
     telegramIdentityRef: row.telegram_identity_ref,
+    linkTransactionRef: row.link_transaction_ref,
     linkedAt: row.linked_at,
     evidenceVersion: row.evidence_version,
     lastMembershipObservationAt: row.last_membership_observation_at,

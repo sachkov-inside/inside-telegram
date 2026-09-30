@@ -1,0 +1,87 @@
+{
+  "valid": [
+    {
+      "name": "bot-entered-labelled",
+      "event": {
+        "eventId": "3f1c2d4e-5a6b-8c7d-9e0f-112233445566",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:15:00.000Z",
+        "kind": "bot_entered",
+        "sourceCode": "m_survey"
+      }
+    },
+    {
+      "name": "bot-entered-unlabelled",
+      "event": {
+        "eventId": "4a2b3c4d-5e6f-8a7b-8c9d-0e1f2a3b4c5d",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:15:00.000Z",
+        "kind": "bot_entered",
+        "sourceCode": null
+      }
+    },
+    {
+      "name": "consent-granted",
+      "event": {
+        "eventId": "5b3c4d5e-6f7a-8b8c-9d0e-1f2a3b4c5d6e",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:16:00.000Z",
+        "kind": "marketing_consent",
+        "granted": true
+      }
+    },
+    {
+      "name": "consent-withdrawn",
+      "event": {
+        "eventId": "6c4d5e6f-7a8b-8c9d-ae1f-2a3b4c5d6e7f",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:17:00.000Z",
+        "kind": "marketing_consent",
+        "granted": false
+      }
+    },
+    {
+      "name": "account-linked",
+      "event": {
+        "eventId": "7d5e6f7a-8b9c-8d0e-bf2a-3b4c5d6e7f8a",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:18:00.000Z",
+        "kind": "account_linked",
+        "telegramIdentityRef": "9e8d7c6b-5a4f-4e3d-8c2b-1a0f9e8d7c6b"
+      }
+    }
+  ],
+  "invalid": [
+    {
+      "name": "telegram-user-id",
+      "event": {
+        "eventId": "3f1c2d4e-5a6b-8c7d-9e0f-112233445566",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:15:00.000Z",
+        "kind": "bot_entered",
+        "sourceCode": null,
+        "telegramUserId": "123456789"
+      }
+    },
+    {
+      "name": "source-with-space",
+      "event": {
+        "eventId": "3f1c2d4e-5a6b-8c7d-9e0f-112233445566",
+        "contactRef": "0b7e4c1a-2f3d-4e5f-8a9b-0c1d2e3f4a5b",
+        "occurredAt": "2026-09-30T10:15:00.000Z",
+        "kind": "bot_entered",
+        "sourceCode": "m_x y"
+      }
+    },
+    {
+      "name": "contact-not-uuid",
+      "event": {
+        "eventId": "3f1c2d4e-5a6b-8c7d-9e0f-112233445566",
+        "contactRef": "123456789",
+        "occurredAt": "2026-09-30T10:15:00.000Z",
+        "kind": "marketing_consent",
+        "granted": true
+      }
+    }
+  ]
+}
