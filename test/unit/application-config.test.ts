@@ -416,6 +416,41 @@ describe("application configuration", () => {
     }
   });
 
+  it("reads the welcome stream date only with both the cohorts endpoint and the course UUID", () => {
+    const guideId = "5f0c2a4e-8d1b-4c3a-9e7f-1a2b3c4d5e6f";
+    expect(
+      loadApplicationConfig(validEnvironment).communityWelcomeCohort,
+    ).toBeUndefined();
+    expect(
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COHORTS_URL: "https://platform.test/billing/cohorts",
+        PLATFORM_COHORT_GUIDE_ID: guideId,
+      }).communityWelcomeCohort,
+    ).toEqual({ url: "https://platform.test/billing/cohorts", guideId });
+    for (const partial of [
+      { PLATFORM_COHORTS_URL: "https://platform.test/billing/cohorts" },
+      { PLATFORM_COHORT_GUIDE_ID: guideId },
+    ])
+      expect(() =>
+        loadApplicationConfig({ ...validEnvironment, ...partial }),
+      ).toThrow("PLATFORM_COHORTS_URL and PLATFORM_COHORT_GUIDE_ID");
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COHORTS_URL: "https://platform.test/billing/cohorts",
+        PLATFORM_COHORT_GUIDE_ID: "ai-engineering",
+      }),
+    ).toThrow("PLATFORM_COHORT_GUIDE_ID must be a UUID");
+    expect(() =>
+      loadApplicationConfig({
+        ...validEnvironment,
+        PLATFORM_COHORTS_URL: "http://platform.test/billing/cohorts",
+        PLATFORM_COHORT_GUIDE_ID: guideId,
+      }),
+    ).toThrow("PLATFORM_COHORTS_URL");
+  });
+
   it("keeps membership check history for the owner's 90 days unless configured within bounds", () => {
     expect(
       loadApplicationConfig(validEnvironment).membershipCheckRetentionDays,

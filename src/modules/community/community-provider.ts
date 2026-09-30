@@ -59,7 +59,11 @@ import {
   type CommunityMutation,
   type CommunityWelcomeState,
 } from "./community-storage.js";
-import { communityWelcomeMessage } from "./community-welcome.js";
+import {
+  communityWelcomeMessage,
+  type CommunityWelcomeDetails,
+  type CommunityWelcomeDetailsSource,
+} from "./community-welcome.js";
 import { reportFailure } from "../../shared/failure-diagnostics.js";
 
 const ATTEMPT_BUDGET = 5;
@@ -108,6 +112,8 @@ export interface CommunityProviderOptions {
   readonly readmission?: CommunityPrivateNotice;
   /** Sent privately with the first link after an Account's first community right. */
   readonly welcome?: CommunityPrivateNotice;
+  /** Platform's current stream of the course; absent means a welcome without a start date. */
+  readonly welcomeDetails?: CommunityWelcomeDetailsSource;
 }
 
 /**
@@ -1100,6 +1106,7 @@ export class CommunityProvider {
             : until,
         inviteLink: state.invite_link,
         inviteExpiresAt,
+        welcomeDue: state.welcome_state === "requested",
       };
     });
     if (!started) return;
@@ -1117,7 +1124,29 @@ export class CommunityProvider {
       started.inviteLink,
       started.inviteExpiresAt,
     );
-    await this.settle(effect.effect_ref, request.attemptId, action, outcome);
+    // Read outside the account lock: a slow Platform delays one welcome, never other effects.
+    const details =
+      outcome.kind === "created" && started.welcomeDue
+        ? await this.welcomeDetails()
+        : {};
+    await this.settle(
+      effect.effect_ref,
+      request.attemptId,
+      action,
+      outcome,
+      details,
+    );
+  }
+
+  private async welcomeDetails(): Promise<CommunityWelcomeDetails> {
+    const source = this.options.welcomeDetails;
+    if (!this.options.welcome || !source) return {};
+    try {
+      return await source.read();
+    } catch (error) {
+      reportFailure("community.welcome-details", error);
+      return {};
+    }
   }
 
   private async call(
@@ -1167,6 +1196,7 @@ export class CommunityProvider {
     attemptId: string,
     action: CommunityMutation,
     outcome: CallResult,
+    welcomeDetails: CommunityWelcomeDetails = {},
   ): Promise<void> {
     await this.db.transaction().execute(async (tx) => {
       const found = await tx
@@ -1262,7 +1292,15 @@ export class CommunityProvider {
           { status: "waiting_for_join" },
           now,
         );
-        if (!(await this.offerWelcome(tx, desired, outcome.inviteLink, now)))
+        if (
+          !(await this.offerWelcome(
+            tx,
+            desired,
+            outcome.inviteLink,
+            welcomeDetails,
+            now,
+          ))
+        )
           await this.offerReadmission(
             tx,
             desired,
@@ -1400,6 +1438,7 @@ export class CommunityProvider {
     tx: Tx,
     desired: DesiredRow,
     inviteLink: string,
+    details: CommunityWelcomeDetails,
     now: Date,
   ): Promise<boolean> {
     const welcome = this.options.welcome;
@@ -1411,8 +1450,11 @@ export class CommunityProvider {
           botIdentity: this.bot,
           telegramUserId: contact.telegramUserId,
           privateChatId: contact.privateChatId,
-          // Platform stream facts (platform#814) join here once a contract carries them.
-          messageText: communityWelcomeMessage(welcome.text, inviteLink),
+          messageText: communityWelcomeMessage(
+            welcome.text,
+            inviteLink,
+            details,
+          ),
           sourceKey: `community-welcome:${this.bot}:${desired.account_ref}`,
           now,
         },

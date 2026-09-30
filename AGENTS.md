@@ -46,7 +46,9 @@ test -f .inside-harness/skills/REGISTRY.md
 worktree running `pnpm infra:up` takes over another session's containers. While another session
 owns them, start your own PostgreSQL and RabbitMQ on other loopback ports and point
 `DATABASE_URL`, `NOTIFICATION_TEST_AMQP_URL` and `NOTIFICATION_TEST_MANAGEMENT_URL` at them; give
-that RabbitMQ a non-`guest` user, because `guest` connects only from inside its container.
+that RabbitMQ a non-`guest` user, because `guest` connects only from inside its container. Put the
+user only into `NOTIFICATION_TEST_AMQP_URL`: the broker test takes it from there, and `fetch`
+refuses a `NOTIFICATION_TEST_MANAGEMENT_URL` that carries credentials.
 
 Use `pnpm infra:down` when the local PostgreSQL service is no longer needed. `pnpm check` runs all
 checks that do not require PostgreSQL; `pnpm test:integration` always uses a real PostgreSQL

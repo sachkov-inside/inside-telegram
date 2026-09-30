@@ -51,6 +51,7 @@ Git; зашифруйте файлы для host и отдельного recover
 | Сообщество v2 | `TELEGRAM_COMMUNITY_CONTRACT_VERSION`, `TELEGRAM_COMMUNITY_MODE`, `TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS`, `TELEGRAM_COMMUNITY_REMOVALS_ENABLED`, `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | `inside.community-entitlement.v2`, `live`, `60000`, `false`, id бота Tribute | `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2` |
 | Сообщество: входящие команды | `PLATFORM_COMMUNITY_INTEGRATION_SECRET` | секрет | `TELEGRAM_COMMUNITY_ENTITLEMENT_SECRET`, `TELEGRAM_COMMUNITY_ENTITLEMENT_ENDPOINT=https://<telegram>/integrations/platform/v1/community-entitlements` |
 | Сообщество: разрешение эффекта | `PLATFORM_COMMUNITY_DISPATCH_URL`, `PLATFORM_COMMUNITY_DISPATCH_SECRET` | `https://<platform>/internal/billing-dispatch/authorize` | `TELEGRAM_COMMUNITY_DISPATCH_SECRET` |
+| Сообщество: дата старта в приветствии | `PLATFORM_COHORTS_URL`, `PLATFORM_COHORT_GUIDE_ID` ([приветствие](../integrations/community-entitlements-v1.md)) | `https://<platform>/billing/cohorts`; UUID продукта курса в каталоге Platform. Без обеих — приветствие без даты | — (публичное чтение без секрета) |
 | Активация курса и Tribute | `TELEGRAM_ACTIVATION_ENABLED`, `PLATFORM_ACTIVATION_URL`, `PLATFORM_ACTIVATION_SECRET`, `PLATFORM_ACCOUNT_URL`, `TELEGRAM_ACTIVATION_SOURCES` | `https://<platform>/integrations/telegram/v1/subscription-activation`; Account URL; реестр групп курса ([подтверждение статуса](course-activation.md#подтверждение-статуса-прежних-участников)) | `TELEGRAM_ACTIVATION_INGRESS_SECRET` |
 | Уведомления | `TELEGRAM_NOTIFICATIONS_ENABLED`, `NOTIFICATION_AMQP_URL`, `NOTIFICATION_AUTHORIZE_URL`, `NOTIFICATION_AUTHORIZE_SECRET`, `NOTIFICATION_QUARANTINE_KEY`, `NOTIFICATION_PREFETCH`, `NOTIFICATION_BATCH_SIZE` | AMQPS principal Telegram; `https://<platform>/internal/notifications/dispatch/authorize`; ключ 64 hex | `NOTIFICATIONS_TELEGRAM_SECRET`; principal и vhost из topology Platform |
 | Авторское меню, воронки, рассылки | `PLATFORM_AUTHOR_AUTHORIZATION_URL`, `PLATFORM_AUTHOR_AUTHORIZATION_SECRET`, `PLATFORM_AUTHOR_CONTENT_VALIDATION_URL`, `TELEGRAM_MARKETING_ENABLED` | `https://<platform>/integrations/telegram/v1/communications/authorize` и `/validate-content`; `false` | `TELEGRAM_AUTHOR_AUTHORIZATION_SECRET`, `TELEGRAM_COMMUNICATIONS_BOT_IDENTITY` |
@@ -64,7 +65,9 @@ Git; зашифруйте файлы для host и отдельного recover
 - секрет короче 32 символов, включая `TELEGRAM_WEBHOOK_SECRET`;
 - live-режим без токена бота; неполная пара URL и секрета; HTTP вне loopback, учётные данные,
   query или fragment в URL сервиса, включая `PLATFORM_EVIDENCE_DELIVERY_URL` и
-  `PLATFORM_SALES_FUNNEL_EVENTS_URL`;
+  `PLATFORM_SALES_FUNNEL_EVENTS_URL` и `PLATFORM_COHORTS_URL`;
+- только одна из `PLATFORM_COHORTS_URL` и `PLATFORM_COHORT_GUIDE_ID`, или `PLATFORM_COHORT_GUIDE_ID`
+  не UUID;
 - неполный набор из трёх текстов согласия `TELEGRAM_MARKETING_CONSENT_*`;
 - `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID`, совпадающий с id самого бота или не числовой;
 - один и тот же секрет в двух направлениях: ошибка называет обе переменные;

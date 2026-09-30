@@ -1,11 +1,15 @@
-/**
- * Stream facts that Platform owns and that the welcome may show. None reaches Telegram yet:
- * the stream start date waits for a Platform contract (platform#814), so every current
- * welcome goes without it.
- */
+/** Stream facts that Platform owns and that the welcome may show. */
 export interface CommunityWelcomeDetails {
   /** Calendar date of the stream start as `YYYY-MM-DD`. */
   readonly streamStartsOn?: string;
+}
+
+/**
+ * Reads the course's current stream at the moment the welcome goes. It never throws: an
+ * absent stream, an absent date or an unavailable Platform all mean a welcome without details.
+ */
+export interface CommunityWelcomeDetailsSource {
+  read(): Promise<CommunityWelcomeDetails>;
 }
 
 const STREAM_START = new Intl.DateTimeFormat("ru-RU", {
