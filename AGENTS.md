@@ -42,6 +42,12 @@ test "$(readlink .claude/skills)" = "../.inside-harness/skills"
 test -f .inside-harness/skills/REGISTRY.md
 ```
 
+`compose.yaml` fixes the project name `inside-telegram` and ports 5433/5673/15673, so a second
+worktree running `pnpm infra:up` takes over another session's containers. While another session
+owns them, start your own PostgreSQL and RabbitMQ on other loopback ports and point
+`DATABASE_URL`, `NOTIFICATION_TEST_AMQP_URL` and `NOTIFICATION_TEST_MANAGEMENT_URL` at them; give
+that RabbitMQ a non-`guest` user, because `guest` connects only from inside its container.
+
 Use `pnpm infra:down` when the local PostgreSQL service is no longer needed. `pnpm check` runs all
 checks that do not require PostgreSQL; `pnpm test:integration` always uses a real PostgreSQL
 database through `DATABASE_URL`.
