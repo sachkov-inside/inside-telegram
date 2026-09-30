@@ -1,4 +1,5 @@
 import { salesFunnelEventsMigration } from "./migrations/029-sales-funnel-events.js";
+import { communityWelcomeMigration } from "./migrations/028-community-welcome.js";
 import { ownerLinkActivationMigration } from "./migrations/027-owner-link-activation.js";
 import { knownGroundChecksMigration } from "./migrations/026-known-ground-checks.js";
 import { updateLanesMigration } from "./migrations/025-update-lanes.js";
@@ -38,6 +39,7 @@ import { authorAdminMigration } from "./migrations/014-author-admin.js";
 
 const migrations = {
   "029-sales-funnel-events": salesFunnelEventsMigration,
+  "028-community-welcome": communityWelcomeMigration,
   "027-owner-link-activation": ownerLinkActivationMigration,
   "026-known-ground-checks": knownGroundChecksMigration,
   "025-update-lanes": updateLanesMigration,

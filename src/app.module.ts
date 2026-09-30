@@ -276,6 +276,10 @@ export class AppModule {
                       },
                     }
                   : {}),
+                welcome: {
+                  replies,
+                  text: applicationConfig.communityTexts.welcome,
+                },
                 reconciliationCadenceMs:
                   applicationConfig.communityReconciliationCadenceMilliseconds,
               },
