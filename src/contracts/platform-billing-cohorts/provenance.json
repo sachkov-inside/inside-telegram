@@ -1,0 +1,12 @@
+{
+  "providerCommit": "1a60a1dc1756d8bdcf526dd774035665b609c019",
+  "pullRequest": "https://github.com/sachkov-inside/platform/pull/832",
+  "source": "apps/backend/openapi/platform-api.json, operation billingGuideCohorts (GET /billing/cohorts): 200 response schema",
+  "status": "schema.json holds the provider's 200 response schema unchanged under \"response\", formatted by Prettier; fixtures.json is written in Telegram because Platform publishes no fixtures. The endpoint carries no contract version, so the directory is pinned by providerCommit instead of a version suffix",
+  "platformAccepted": true,
+  "extraction": "gh api 'repos/sachkov-inside/platform/contents/apps/backend/openapi/platform-api.json?ref=<providerCommit>' -H 'Accept: application/vnd.github.raw' | jq '{response: .paths[\"/billing/cohorts\"].get.responses[\"200\"].content[\"application/json\"].schema}', then prettier --write",
+  "files": {
+    "schema.json": "b62d69158c446a9bf4636a690bef2fd92cedbb1dafd0415ee0dea338350b787c",
+    "fixtures.json": "b456b33c9b4b7c0d99b05a6ecac0134699ba608c1ff0b3040a873dc6e5f44b72"
+  }
+}

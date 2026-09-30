@@ -1,0 +1,52 @@
+{
+  "courseGuideId": "5f0c2a4e-8d1b-4c3a-9e7f-1a2b3c4d5e6f",
+  "valid": [
+    {
+      "name": "preorder-with-start",
+      "streamStartsOn": "2026-10-20",
+      "response": {
+        "items": [
+          {
+            "guideId": "5f0c2a4e-8d1b-4c3a-9e7f-1a2b3c4d5e6f",
+            "revision": 1,
+            "name": "Поток 1",
+            "stage": "preorder",
+            "startsOn": "2026-10-20",
+            "nextEvent": ""
+          }
+        ]
+      }
+    },
+    {
+      "name": "between-without-start",
+      "response": {
+        "items": [
+          {
+            "guideId": "5f0c2a4e-8d1b-4c3a-9e7f-1a2b3c4d5e6f",
+            "revision": 3,
+            "name": "Поток 2",
+            "stage": "between",
+            "startsOn": null,
+            "nextEvent": "Набор откроется в декабре"
+          }
+        ]
+      }
+    },
+    {
+      "name": "other-product-only",
+      "response": {
+        "items": [
+          {
+            "guideId": "0d9e8f7a-6b5c-4d3e-8f1a-2b3c4d5e6f7a",
+            "revision": 2,
+            "name": "Поток 1",
+            "stage": "running",
+            "startsOn": "2026-09-01",
+            "nextEvent": ""
+          }
+        ]
+      }
+    },
+    { "name": "no-streams", "response": { "items": [] } }
+  ]
+}

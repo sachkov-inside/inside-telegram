@@ -47,6 +47,14 @@ export const DEFAULT_SENDER_RATE: SenderRate = Object.freeze({
   windowMs: 10_000,
 });
 
+/** Where the welcome reads the course's current stream in Platform. */
+export interface CommunityWelcomeCohort {
+  /** Public `GET /billing/cohorts` of Platform. */
+  readonly url: string;
+  /** The course's product UUID in Platform: the response names products only by it. */
+  readonly guideId: string;
+}
+
 export interface ApplicationConfig {
   readonly activation?: ActivationConfig | undefined;
   readonly notifications?: NotificationConfig | undefined;
@@ -63,6 +71,8 @@ export interface ApplicationConfig {
   readonly communityDispatchSecret?: string | undefined;
   readonly communityReconciliationCadenceMilliseconds: number;
   readonly communityTexts: CommunityTexts;
+  /** Platform's public current streams and the course's product UUID; absent: no start date. */
+  readonly communityWelcomeCohort?: CommunityWelcomeCohort | undefined;
   /** Authenticates Platform calls to the communications API; absent keeps that API closed. */
   readonly communicationsSecret?: string | undefined;
   readonly databaseUrl: string;
@@ -253,6 +263,7 @@ export function loadApplicationConfig(
       "PLATFORM_COMMUNITY_DISPATCH_URL",
     );
   }
+  const communityWelcomeCohort = loadCommunityWelcomeCohort(environment);
   if (communityMode === "live") {
     if (!botToken) {
       throw new Error(
@@ -434,6 +445,7 @@ export function loadApplicationConfig(
     ...(communityDispatchSecret ? { communityDispatchSecret } : {}),
     communityReconciliationCadenceMilliseconds,
     communityTexts,
+    ...(communityWelcomeCohort ? { communityWelcomeCohort } : {}),
     ...(communicationsSecret ? { communicationsSecret } : {}),
     databaseUrl,
     deliveryMode,
@@ -570,4 +582,24 @@ function parseBoundedInteger(
     throw new Error(`${name} must be an integer from ${minimum} to ${maximum}`);
   }
   return parsed;
+}
+
+function loadCommunityWelcomeCohort(
+  environment: NodeJS.ProcessEnv,
+): CommunityWelcomeCohort | undefined {
+  const url = environment.PLATFORM_COHORTS_URL?.trim() || undefined;
+  const guideId = environment.PLATFORM_COHORT_GUIDE_ID?.trim() || undefined;
+  if (!url && !guideId) return undefined;
+  if (!url || !guideId)
+    throw new Error(
+      "PLATFORM_COHORTS_URL and PLATFORM_COHORT_GUIDE_ID are set together",
+    );
+  assertServiceEndpoint(url, "PLATFORM_COHORTS_URL");
+  if (
+    !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+      guideId,
+    )
+  )
+    throw new Error("PLATFORM_COHORT_GUIDE_ID must be a UUID");
+  return { url, guideId };
 }

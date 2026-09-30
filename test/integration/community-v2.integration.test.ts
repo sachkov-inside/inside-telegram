@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { createDatabase } from "../../src/database/create-database.js";
 import { migrateToLatest } from "../../src/database/migrator.js";
 import { CommunityProvider } from "../../src/modules/community/community-provider.js";
@@ -10,6 +10,7 @@ import {
   type DispatchAuthorizationRequest,
   type DispatchAuthorizationResponse,
 } from "../../src/modules/community/community-contract.js";
+import type { CommunityWelcomeDetailsSource } from "../../src/modules/community/community-welcome.js";
 import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-response-delivery-queue.js";
 import { digest } from "../../src/security/payload-digest.js";
 import { seedCommunityBinding } from "../support/community-binding.js";
@@ -27,6 +28,7 @@ async function stand(
     readonly removalsEnabled?: boolean;
     readonly tributeBotTelegramUserId?: string;
     readonly welcome?: boolean;
+    readonly welcomeDetails?: CommunityWelcomeDetailsSource;
   } = {},
 ) {
   const bot = `v2-${randomUUID()}`;
@@ -94,6 +96,9 @@ async function stand(
               text: "Synthetic welcome",
             },
           }
+        : {}),
+      ...(options.welcomeDetails
+        ? { welcomeDetails: options.welcomeDetails }
         : {}),
     });
   let revision = 0;
@@ -873,6 +878,48 @@ describe("community v2 welcome after the first right", () => {
 
     expect(s.chat.count("create_invite")).toBeGreaterThan(1);
     expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+  });
+
+  it("names the Platform stream start before the link and reads it only for the welcome", async () => {
+    const read = vi.fn(() => Promise.resolve({ streamStartsOn: "2026-10-20" }));
+    const s = await stand({ welcome: true, welcomeDetails: { read } });
+    await s.set();
+    await sweep(s);
+
+    const dated = {
+      text: "Synthetic welcome\nСтарт потока: 20 октября 2026 г.\nhttps://t.me/+synthetic",
+      source: "community-welcome",
+    };
+    expect(await messages(s)).toEqual([{ chat: s.user, ...dated }]);
+    expect(read).toHaveBeenCalledTimes(1);
+
+    // A renewal creates a fresh link without a welcome, so Platform is not asked again.
+    await s.set({ kind: "finite", validUntil: "2099-01-01T00:00:00Z" });
+    advance(s, 600_001);
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBeGreaterThan(1);
+    expect(read).toHaveBeenCalledTimes(1);
+    expect(await messages(s)).toEqual([{ chat: s.user, ...dated }]);
+  });
+
+  it("sends the welcome once without a date when Platform has none or fails", async () => {
+    const stderr = vi.spyOn(process.stderr, "write").mockReturnValue(true);
+    try {
+      for (const read of [
+        () => Promise.resolve({}),
+        () => Promise.reject(new Error("Platform unavailable")),
+      ]) {
+        const s = await stand({ welcome: true, welcomeDetails: { read } });
+        await s.set();
+        await sweep(s);
+
+        expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+        expect((await s.row()).welcome_state).toBe("offered");
+      }
+    } finally {
+      stderr.mockRestore();
+    }
   });
 
   it("does not greet again when a right ends and a new one appears", async () => {
