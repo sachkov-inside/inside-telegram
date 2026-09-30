@@ -69,6 +69,7 @@ const config: ApplicationConfig = {
     member: "Synthetic community member",
     unavailable: "Synthetic community unavailable",
     readmission: "Synthetic community readmission",
+    welcome: "Synthetic community welcome",
   },
   membershipCheckRetentionDays: 90,
   membershipMode: "disabled",

@@ -32,6 +32,7 @@ export type CommunityEffectState =
   "pending" | "started" | "unknown" | "completed" | "superseded" | "failed";
 
 export type CommunityInviteState = "none" | "unknown" | "created" | "revoked";
+export type CommunityWelcomeState = "not_due" | "requested" | "offered";
 
 /** Only a real external mutation becomes an attempt; observing is not one. */
 export type CommunityMutation = Exclude<
@@ -114,6 +115,15 @@ export interface CommunityTables {
       Date | null,
       Date | null | undefined,
       Date | null
+    >;
+    /**
+     * `requested` from the first right until the welcome goes with the first link or the
+     * person is seen in the chat; `not_due` while the Account has never had a right.
+     */
+    welcome_state: ColumnType<
+      CommunityWelcomeState,
+      CommunityWelcomeState,
+      CommunityWelcomeState
     >;
     admission_restriction: ColumnType<
       AdmissionRestriction,

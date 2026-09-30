@@ -17,6 +17,7 @@
 | `TELEGRAM_COMMUNITY_REMOVALS_ENABLED` | `false` до переноса участников (#150): бот Inside никого не исключает |
 | `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | Числовой id бота Tribute; его исключения — окончание подписки Tribute, а не модерация |
 | `TELEGRAM_COMMUNITY_READMISSION_TEXT` | Необязательный текст личного сообщения со ссылкой для возвращения |
+| `TELEGRAM_COMMUNITY_WELCOME_TEXT` | Необязательный текст приветствия со ссылкой после первого права на сообщество ([интеграция](../integrations/community-entitlements-v1.md#приветствие-после-первого-права)) |
 
 Остальные настройки и пары секретов с Platform — в [production.md](production.md#конфигурация).
 Source chat identifiers, id ботов и списки identity находятся только в защищённой конфигурации,

@@ -26,6 +26,7 @@ async function stand(
   options: {
     readonly removalsEnabled?: boolean;
     readonly tributeBotTelegramUserId?: string;
+    readonly welcome?: boolean;
   } = {},
 ) {
   const bot = `v2-${randomUUID()}`;
@@ -83,6 +84,14 @@ async function stand(
             readmission: {
               replies: new StartResponseDeliveryQueue(db),
               text: "Synthetic readmission",
+            },
+          }
+        : {}),
+      ...(options.welcome
+        ? {
+            welcome: {
+              replies: new StartResponseDeliveryQueue(db),
+              text: "Synthetic welcome",
             },
           }
         : {}),
@@ -815,5 +824,148 @@ describe("community v2 removal by the configured Tribute bot", () => {
       kind: "link",
       inviteLink: "https://t.me/+synthetic",
     });
+  });
+});
+
+describe("community v2 welcome after the first right", () => {
+  type Stand = Awaited<ReturnType<typeof stand>>;
+  const messages = async (s: Stand) =>
+    (
+      await db
+        .selectFrom("start_response_deliveries")
+        .select(["private_chat_id", "message_text", "source_key"])
+        .where("bot_identity", "=", s.bot)
+        .execute()
+    ).map((row) => ({
+      chat: row.private_chat_id,
+      text: row.message_text,
+      source: row.source_key.split(":")[0],
+    }));
+  const welcome = {
+    text: "Synthetic welcome\nhttps://t.me/+synthetic",
+    source: "community-welcome",
+  };
+  const advance = (s: Stand, milliseconds: number) => {
+    s.clock.value = new Date(s.clock.now().getTime() + milliseconds);
+  };
+  async function sweep(s: Stand) {
+    await s.provider().reconcileDueStates();
+    await s.provider().processDueEffects();
+    await s.provider().processDueEffects();
+  }
+
+  it("sends one welcome with the first personal link and never repeats it", async () => {
+    const s = await stand({ welcome: true });
+    const first = await s.set();
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+    expect((await s.row()).welcome_state).toBe("offered");
+
+    // A replayed purchase event is the same operation and changes nothing.
+    expect((await s.provider().handle(first)).status).toBe(200);
+    // A renewal is a new revision with a fresh link, still without a second welcome.
+    await s.set({ kind: "finite", validUntil: "2099-01-01T00:00:00Z" });
+    expect((await s.row()).welcome_state).toBe("offered");
+    advance(s, 600_001);
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBeGreaterThan(1);
+    expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+  });
+
+  it("does not greet again when a right ends and a new one appears", async () => {
+    const s = await stand({ welcome: true });
+    await s.set();
+    await sweep(s);
+    await s.set({ kind: "denied" });
+    await sweep(s);
+    await s.set();
+    expect((await s.row()).welcome_state).toBe("offered");
+    advance(s, 1000);
+    await sweep(s);
+
+    expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+  });
+
+  it("waits for the first allowing right when Platform first reports none", async () => {
+    const s = await stand({ welcome: true });
+    await s.set({ kind: "denied" });
+    await sweep(s);
+    expect((await s.row()).welcome_state).toBe("not_due");
+    expect(await messages(s)).toEqual([]);
+
+    await s.set();
+    await sweep(s);
+
+    expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+  });
+
+  it("sends nothing to a person already in the chat", async () => {
+    const s = await stand({ welcome: true });
+    s.chat.membership = "member";
+    await s.set();
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBe(0);
+    expect((await s.row()).welcome_state).toBe("offered");
+    s.chat.membership = "not_member";
+    advance(s, 60_000);
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await messages(s)).toEqual([]);
+  });
+
+  it("leaves the link in /community for a person who never reached the bot", async () => {
+    const s = await stand({ welcome: true });
+    await db
+      .updateTable("bot_contacts")
+      .set({ contactability: "blocked" })
+      .where("bot_identity", "=", s.bot)
+      .execute();
+    await s.set();
+    await sweep(s);
+
+    expect(await messages(s)).toEqual([]);
+    expect((await s.row()).welcome_state).toBe("offered");
+    expect(await s.provider().admissionFor(s.user)).toEqual({
+      kind: "link",
+      inviteLink: "https://t.me/+synthetic",
+    });
+  });
+
+  it("replaces a pending Tribute return notice with the welcome, so one message goes", async () => {
+    const tribute = "7000001";
+    const s = await stand({
+      welcome: true,
+      tributeBotTelegramUserId: tribute,
+      removalsEnabled: false,
+    });
+    s.chat.membership = "member";
+    await s.set({ kind: "denied" });
+    await s.provider().processDueEffects();
+    advance(s, 1000);
+    s.chat.membership = "banned";
+    await s.provider().observeMembershipEvent({
+      kind: "subject",
+      botIdentity: s.bot,
+      canonicalChatId: "-1000000000000",
+      subjectTelegramUserId: s.user,
+      actorIsSubject: false,
+      actorIsBot: true,
+      actorTelegramUserId: tribute,
+      chatMember: { status: "kicked" },
+      eventAt: s.clock.now(),
+      updateId: "300",
+    });
+    advance(s, 60_000);
+    await s.set();
+    await sweep(s);
+
+    expect(s.chat.count("create_invite")).toBe(1);
+    expect(await messages(s)).toEqual([{ chat: s.user, ...welcome }]);
+    expect((await s.row()).readmission_requested_at).toBeNull();
   });
 });
