@@ -379,7 +379,8 @@ test -f /etc/inside/telegram/compose.override.yaml
 При ошибке migration или readiness остановитесь и сохраните диагностику без секретов. Старые
 workers должны быть остановлены до migration: два поколения не работают одновременно.
 `restart: unless-stopped` возвращает запущенный сервис после reboot; явно остановленный
-maintenance-сервис требует явного `up`.
+maintenance-сервис требует явного `up`. После reboot выполните
+[проверку relay](#проверка-после-перезапуска-docker-или-сервера).
 
 ### Сеть до брокера
 
@@ -404,18 +405,77 @@ networks:
 `NODE_EXTRA_CA_CERTS` добавляет только доверие к CA; проверка сертификата и hostname остаётся
 включённой. Если брокер предъявляет публично доверенный сертификат, CA и volume не нужны.
 
+### Исходящий relay до Telegram
+
+На production исходящий трафик к `api.telegram.org` идёт через контейнер `telegram-transport`. Его
+добавляет host-owned override вместе с внутренней сетью `telegram-transport`; `app` получает запись
+в `/etc/hosts` с адресом relay. Это отдельный маршрут от входного [webhook relay](webhook-relay.md).
+Конфигурация самого relay остаётся на сервере вне Git.
+
+У обоих постоянных контейнеров адрес в этой сети закреплён:
+
+```yaml
+services:
+  app:
+    extra_hosts:
+      - "api.telegram.org:172.30.244.2"
+    networks:
+      telegram-transport:
+        ipv4_address: 172.30.244.3
+    depends_on:
+      telegram-transport:
+        condition: service_started
+  telegram-transport:
+    restart: unless-stopped
+    networks:
+      egress: {}
+      telegram-transport:
+        ipv4_address: 172.30.244.2
+networks:
+  telegram-transport:
+    internal: true
+    ipam:
+      config:
+        - subnet: 172.30.244.0/29
+```
+
+Адрес `app` закреплён намеренно. Docker выдаёт адрес без `ipv4_address` в порядке запуска, а после
+перезапуска демона или сервера запускает контейнеры сам, не учитывая `depends_on`. Если `app`
+поднимается первым, он занимает `172.30.244.2`, relay останавливается с `Address already in use`, и
+`restart: unless-stopped` его больше не запускает
+([#126](https://github.com/sachkov-inside/inside-telegram/issues/126)). Каждый новый постоянный
+сервис в этой сети получает свой `ipv4_address`. Одноразовые команды берут свободный адрес и
+запускаются, когда `app` и relay работают.
+
+#### Проверка после перезапуска Docker или сервера
+
+После `systemctl restart docker`, перезагрузки сервера или восстановления host проверьте:
+
+```bash
+docker ps --all --filter label=com.docker.compose.project=inside-production-telegram \
+  --format '{{.Names}}\t{{.Status}}'
+docker network inspect inside-production-telegram_telegram-transport \
+  --format '{{range .Containers}}{{.Name}} {{.IPv4Address}}{{println}}{{end}}'
+curl --silent --output /dev/null --write-out '%{http_code}\n' \
+  "http://127.0.0.1:$(sed -n 's/^TELEGRAM_LOOPBACK_PORT=//p' /etc/inside/telegram/compose.env)/ready"
+```
+
+Ожидается: оба контейнера `Up`, relay на `172.30.244.2`, `app` на `172.30.244.3`, `/ready` отвечает
+`200`. Если relay в `Exited`, а его адрес занят другим контейнером, освободите адрес и верните
+порядок: `docker stop` для `app`, `docker start` для relay, `docker start` для `app`, затем
+повторите проверку. Пока relay не работает, бот не связывается с Telegram, а входящие события
+ждут в очереди Telegram.
+
 ### Relay для operations-команд
 
-На production исходящий трафик к `api.telegram.org` идёт через relay `telegram-transport`
-([webhook-relay.md](webhook-relay.md)): override добавляет `app` запись в `/etc/hosts` и сеть
-relay. Одноразовые команды профиля `operations`, которые обращаются к Bot API, получают тот же
-маршрут, иначе они не доходят до Telegram и останавливаются без подробностей:
+Одноразовые команды профиля `operations`, которые обращаются к Bot API, получают тот же маршрут,
+что и `app`, иначе они не доходят до Telegram и останавливаются без подробностей:
 
 ```yaml
 services:
   webhook-registration:
     extra_hosts:
-      - "api.telegram.org:<адрес relay, как у app>"
+      - "api.telegram.org:172.30.244.2"
     networks:
       egress: {}
       telegram-transport: {}
