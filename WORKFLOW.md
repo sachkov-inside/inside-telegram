@@ -46,7 +46,7 @@ the first write:
 
 ```bash
 git ls-remote --heads origin | grep -E "/[a-z]+/<issue>-"
-gh issue view <issue> --json closedByPullRequestsReferences
+gh pr list --state open --search "<issue> in:body"
 ```
 
 Nothing protects the gap between the start and the first push.
@@ -61,7 +61,7 @@ Nothing protects the gap between the start and the first push.
 - Worktree place: `worktrees/<repo>-<task>` at the Workspace root for a checkout under
   `repositories/`; `<parent>/<repo>.worktrees/<task>` for a standalone checkout. `<task>` is the
   branch without its type prefix.
-- One task has one branch, one writing worktree and one pull request. Another session's worktree,
+- One task has one branch, one writing worktree and one open pull request. Another session's worktree,
   branch, containers, volumes and stash entries are live state: leave them alone.
 - After the first commit, push and open a draft pull request with `Closes #<issue>`. When one task
   needs several pull requests, only the last one closes it; the others say `Part of #<issue>`.
