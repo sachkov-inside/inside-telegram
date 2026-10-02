@@ -13,7 +13,6 @@
   "ignorePatterns": [
     ".agents/**",
     ".claude/**",
-    ".inside-harness/**",
     "coverage/**",
     "dist/**",
     "test/architecture/fixtures/**"

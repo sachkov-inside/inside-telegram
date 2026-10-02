@@ -2,7 +2,6 @@ import { readdirSync, readFileSync } from "node:fs";
 
 import { describe, expect, it } from "vitest";
 
-import harness from "../../.inside-harness/product-harness.json" with { type: "json" };
 import { required } from "../support/required.js";
 
 /** A third-party action runs with the job token, so only an immutable commit may be referenced. */
@@ -15,11 +14,9 @@ function unpinnedActions(workflow: string): string[] {
     );
 }
 
-// Managed harness workflows are pinned in the canonical Workspace package.
-const managed = new Set(harness.managedFiles);
 const workflows = readdirSync(".github/workflows")
   .map((name) => `.github/workflows/${name}`)
-  .filter((path) => /\.ya?ml$/.test(path) && !managed.has(path));
+  .filter((path) => /\.ya?ml$/.test(path));
 
 describe("workflow action pinning", () => {
   it.each(workflows)("%s references every action by commit SHA", (path) => {

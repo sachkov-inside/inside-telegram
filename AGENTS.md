@@ -19,16 +19,16 @@ the authority for Accounts, permissions, entitlements, profiles, and every conte
   `docs/integrations/sales-funnel-events-v1.md`.
 - For confirmed bootstrap stack, credentialed-proof gates, and unresolved setup decisions, read
   `docs/decisions/seed-decisions.md`.
-- For canonical terms, read `CONTEXT.md` when it exists.
-- For GitHub issue routing, Project fields, or Wayfinder operations, read
-  `docs/agents/issue-tracker.md`.
+- For canonical terms, read `GLOSSARY.md`.
+- For GitHub issue routing or Wayfinder operations, read `docs/agents/issue-tracker.md`.
 - For readiness-label triage, read `docs/agents/triage-labels.md`.
 - For repository ownership or ADR placement, read `docs/agents/domain.md`.
 - For which document owns a changed fact, read `docs/agents/documentation-maintenance.md`.
 
-## Current verification
+## Commands
 
-Run from this repository with Node from `.node-version`:
+`pnpm check:full` is the check that defines done: it must be green on the final head. Run from this
+repository with Node from `.node-version`:
 
 ```bash
 pnpm install --frozen-lockfile
@@ -36,10 +36,7 @@ pnpm infra:up
 DATABASE_URL=postgresql://inside:inside@127.0.0.1:5433/inside_telegram pnpm check:full
 git diff --check
 git diff --cached --check
-git diff --check origin/main...HEAD -- . ':(exclude).inside-harness/skills/**'
-test "$(readlink .agents/skills)" = "../.inside-harness/skills"
-test "$(readlink .claude/skills)" = "../.inside-harness/skills"
-test -f .inside-harness/skills/REGISTRY.md
+git diff --check origin/main...HEAD -- . ':(exclude).agents/skills/**'
 ```
 
 `compose.yaml` fixes the project name `inside-telegram` and ports 5433/5673/15673, so a second
@@ -52,16 +49,6 @@ Use `pnpm infra:down` when the local PostgreSQL service is no longer needed. `pn
 checks that do not require PostgreSQL; `pnpm test:integration` always uses a real PostgreSQL
 database through `DATABASE_URL`.
 
-For a managed harness change, additionally run from the canonical Workspace root:
-
-```bash
-harness/bin/inside-harness health repositories/telegram
-harness/bin/inside-harness diff repositories/telegram
-```
-
-The Workspace commands verify package provenance; application build, test and runtime remain
-self-contained in this repository.
-
 ## Boundaries
 
 - Keep this repository autonomous: vendor versioned cross-repository schemas and fixtures for
@@ -69,16 +56,23 @@ self-contained in this repository.
 - Keep bot tokens, webhook secrets, chat identifiers, user data, and provider payloads out of Git
   and redacted from logs, fixtures, issue bodies, and pull-request evidence.
 - Treat BotFather writes, chat administrator changes, credentials, external messages, marketing
-  enablement, releases, and every pull-request merge as explicit owner gates.
+  enablement, and releases as explicit owner gates; `Owner gates` in `WORKFLOW.md` lists the rest.
 - First delivery is the Membership bridge in the product brief. Communications and marketing use
   later Specifications and do not expand bridge tickets implicitly.
 
-<!-- inside-product-harness:start -->
-## Inside product harness
+## Process
 
-This repository uses the versioned Sachkov Inside product harness.
+- The developer process is `WORKFLOW.md` plus the skills in `.agents/skills`; `.claude/skills` is a
+  symlink to them. Both are a byte-for-byte copy from `platform`. Do not edit them here: change
+  them in `platform` and run its `scripts/copy-process.sh` against this repository.
+- Read `WORKFLOW.md` when the task touches issues, branches, pull requests, review, readiness, or
+  merge.
+- The owner starts grilling, the specification and the ticket breakdown, each with its own command.
+  A `ready-for-agent` implementation task runs to a ready pull request without stopping.
+- Start a development session in this repository so its rules and skills load; a parent directory
+  does not carry them.
 
-### Human communication
+## Human communication
 
 - Speak to the user in their language. In Russian, prefer ordinary Russian words over optional
   English terms. Keep code, commands, exact product or API names, and established project terms
@@ -91,27 +85,3 @@ This repository uses the versioned Sachkov Inside product harness.
   one sentence explaining what it changes. Mark the recommendation and explain its reason plainly.
 - When a choice depends on facts not yet measured, state the criterion that decides it and what
   each outcome of the measurement means, so whoever measures can apply it without a new decision.
-
-- For shared delivery rules and owner gates, read the repository-local `WORKFLOW.md` when the task
-  touches issues, branches, pull requests, review, readiness, or merge.
-- Native runtimes discover the selected skill profile through `.agents/skills` or `.claude/skills`.
-  Fallback runtimes use `.inside-harness/skills/REGISTRY.md`: route by intent only to `Model` rows;
-  open a `User` row only when the user names that skill.
-- Managed skills and workflow files change in the canonical package and arrive through the harness
-  lifecycle. Repository-specific skills stay local under unique names.
-- Keep build, test, run, deploy, and agent work repository-local. Project-owned integrations may
-  use native config; record them in `.inside-harness/integrations.json` without credentials.
-
-### Pipeline stages
-
-- The developer pipeline runs in owner-driven stages: sharpen the idea, then Specification, then
-  Ticket breakdown, then Implementation. The owner starts each stage explicitly.
-- Do not chain stages. Finish a stage with its outcome, the next stage you recommend, and any
-  decision needed, then stop and wait. Start the next stage only after the owner asks for it; a
-  request that names several stages or a range of them asks for each. This holds even when a
-  runtime does not honor a skill's user-only invocation marker.
-- Keep an owner approval for the scope it names instead of asking again; `Owner gates` in
-  `WORKFLOW.md` defines its limits.
-- Start a development session in the repository that owns the outcome so its rules and skills load;
-  a parent navigation directory does not carry the project pipeline.
-<!-- inside-product-harness:end -->

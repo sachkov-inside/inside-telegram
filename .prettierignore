@@ -1,4 +1,6 @@
-.inside-harness/
+# Skills are a byte-for-byte copy from platform.
+.agents/
+.claude/
 *.md
 coverage/
 dist/
