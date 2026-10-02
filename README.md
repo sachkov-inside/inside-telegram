@@ -187,7 +187,7 @@ and remaining Platform integration gates are in
   confirmed product outcome and v1 boundary.
 - [`docs/decisions/seed-decisions.md`](docs/decisions/seed-decisions.md) — confirmed decisions and
   unresolved inputs for the next artifact.
-- [`CONTEXT.md`](CONTEXT.md) — canonical application terminology.
+- [`GLOSSARY.md`](GLOSSARY.md) — canonical application terminology.
 - [`docs/research/telegram-bot-membership-v1.md`](docs/research/telegram-bot-membership-v1.md) —
   official Telegram Bot API and grammY facts plus credentialed proof gaps.
 - [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md) —
@@ -205,10 +205,9 @@ and remaining Platform integration gates are in
 
 ## Delivery
 
-Issues and pull requests are projected into
-[Inside — Developer Pipeline](https://github.com/orgs/sachkov-inside/projects/1). Read
+State of a task is the issue, its labels and its linked pull request. Read
 [`AGENTS.md`](AGENTS.md) first, then [`WORKFLOW.md`](WORKFLOW.md) for branch, pull-request,
-verification and owner-merge rules. The active delivery chain is rooted at
+verification and merge rules. The active delivery chain is rooted at
 [#1: Telegram Membership bridge v1](https://github.com/sachkov-inside/inside-telegram/issues/1).
 
 ## Local development
@@ -247,24 +246,14 @@ lock for up, down and targeted commands. Rollback follows actual application ord
 regressions cover both historical deployment orders, preserve existing data during backfill and
 reject a missing dependent sign-in migration. Do not rename applied keys or edit the ledger.
 
-The application CI runs the same command on Node 24 with PostgreSQL 18. The repository harness is
-verified with:
+The application CI runs the same command on Node 24 with PostgreSQL 18.
+
+The developer process (`WORKFLOW.md`, `.agents/skills`, `docs/agents/triage-labels.md`) is a
+byte-for-byte copy from `platform`. Check it from a `platform` checkout:
 
 ```bash
-git diff --check origin/main...HEAD -- . ':(exclude).inside-harness/skills/**'
-test "$(readlink .agents/skills)" = "../.inside-harness/skills"
-test "$(readlink .claude/skills)" = "../.inside-harness/skills"
-test -f .inside-harness/skills/REGISTRY.md
+bash scripts/copy-process.sh --check <path to this repository>
 ```
-
-A managed harness release is additionally checked from the canonical Workspace root:
-
-```bash
-harness/bin/inside-harness health repositories/telegram
-harness/bin/inside-harness diff repositories/telegram
-```
-
-These Workspace-only harness checks do not create an application build/runtime dependency.
 
 ## Repository boundary
 

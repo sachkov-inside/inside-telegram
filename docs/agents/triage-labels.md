@@ -10,9 +10,6 @@ Use the canonical roles from `mattpocock/skills` without renaming them.
 | `ready-for-human` | `ready-for-human` | Human implementation or judgment is required |
 | `wontfix` | `wontfix` | The work will not be actioned |
 
-Every triaged delivery issue has exactly one role from this table. A Workspace owner-facing issue
-labelled `backlog:human` is an input to delivery rather than an implementation issue: it carries no
-readiness role until an agent promotes its outcome into repository-owned Specifications and
-Tickets. `backlog:human` routes the issue between Projects and never substitutes for readiness.
-The kind of work is the issue's native type defined in `WORKFLOW.md`, not a category label; it is
-independent from readiness.
+Every triaged issue has exactly one role from this table. `ready-for-human` is only for work a
+human does. The `wayfinder` skill adds its own `wayfinder:*` labels. There are no other labels for
+the kind of work, and no issue types.

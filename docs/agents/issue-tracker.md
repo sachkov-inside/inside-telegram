@@ -3,26 +3,17 @@
 Issues and Specifications for this repository live in `sachkov-inside/inside-telegram` GitHub
 Issues. Run `gh` inside this clone so repository identity comes from `git remote`.
 
-Shared product and cross-repository decisions remain in `sachkov-inside/workspace`; link the
-Workspace parent rather than duplicating its discussion. Platform implementation remains in
+State of a task is the issue, its labels and its linked pull request; there are no Project boards.
+A specification is an issue and its tasks are its sub-issues. Platform implementation remains in
 `sachkov-inside/platform`. Tracked pull requests use `Closes #<number>`.
-
-## Project routing
-
-- Repository-owned Specifications, Tickets, and pull requests belong to
-  [Inside — Developer Pipeline](https://github.com/orgs/sachkov-inside/projects/1).
-- Owner-facing goals stay in Workspace and
-  [Inside — Human Backlog](https://github.com/orgs/sachkov-inside/projects/2).
-- The repository issue or pull-request state is authoritative when it conflicts with a Project
-  field.
 
 ## Wayfinder
 
 - A map is an issue labelled `wayfinder:map`; its decision tickets are native sub-issues labelled
   `wayfinder:research|prototype|grilling|task`.
 - Use native dependencies for blocking and native parent/sub-issues for hierarchy.
-- Follow `docs/agents/tracker-automation.md` for session claims. Assignee records the responsible human.
-- A candidate becomes writable only after a successful start receipt; preserve legacy assigned work.
+- A ticket is taken when the remote has its branch or a linked open pull request; `WORKFLOW.md`
+  names the check. Assignee records the responsible human.
 - Resolve a decision with a durable comment, close its issue, and link the result from its parent.
 
 ## Cross-repository hierarchy
