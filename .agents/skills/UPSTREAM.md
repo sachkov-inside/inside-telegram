@@ -40,7 +40,8 @@ done
 ## Копия в другой репозиторий
 
 `platform` — источник процесса. `inside-telegram` получает `WORKFLOW.md`, skills без
-frontend-набора, `docs/agents/triage-labels.md` и labels одной командой из `platform`:
+frontend-набора, `docs/agents/triage-labels.md` и labels одной командой. Команда есть только в
+`platform` и запускается из его checkout:
 
 ```bash
 bash scripts/copy-process.sh <путь к репозиторию>

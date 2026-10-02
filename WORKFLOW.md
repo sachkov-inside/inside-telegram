@@ -46,7 +46,7 @@ the first write:
 
 ```bash
 git ls-remote --heads origin | grep -E "/[a-z]+/<issue>-"
-gh pr list --state open --search "<issue> in:title,body"
+gh issue view <issue> --json closedByPullRequestsReferences
 ```
 
 Nothing protects the gap between the start and the first push.
@@ -63,7 +63,8 @@ Nothing protects the gap between the start and the first push.
   branch without its type prefix.
 - One task has one branch, one writing worktree and one pull request. Another session's worktree,
   branch, containers, volumes and stash entries are live state: leave them alone.
-- After the first commit, push and open a draft pull request with `Closes #<issue>`.
+- After the first commit, push and open a draft pull request with `Closes #<issue>`. When one task
+  needs several pull requests, only the last one closes it; the others say `Part of #<issue>`.
 - Once the branch is pushed, integrate `origin/main` by merge; do not rebase or force-push.
 - The skill `pr` sets the form of the pull request body.
 
@@ -110,8 +111,8 @@ If a check cannot run, name what was not run.
 
 Owner corrections go through the upstream `retro`, without a journal. A mechanical mistake becomes
 an automatic check: a test, a lint rule, a type or a guardrail. A judgement call becomes a rule in
-`CODING_STANDARDS.md`, which the reviewer reads. When that file is longer than 200 lines,
-`docs:check` prints a warning; open a task to turn rules into checks.
+`CODING_STANDARDS.md`, which the reviewer reads. When a `CODING_STANDARDS.md` file, root or nested,
+is longer than 200 lines, `docs:check` prints a warning; open a task to turn rules into checks.
 
 ## Owner gates
 
