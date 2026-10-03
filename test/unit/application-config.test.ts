@@ -98,6 +98,35 @@ describe("application configuration", () => {
     ).toThrow("TELEGRAM_SIGN_IN_ENABLED");
   });
 
+  it("accepts an optional public sign-in return URL independently of activation", () => {
+    expect(
+      loadApplicationConfig(validEnvironment).signInReturnUrl,
+    ).toBeUndefined();
+    for (const url of ["https://platform.test/", "http://127.0.0.1:3000/"]) {
+      const config = loadApplicationConfig({
+        ...validEnvironment,
+        TELEGRAM_SIGN_IN_RETURN_URL: url,
+      });
+      expect(config.signInReturnUrl).toBe(url);
+      expect(config.activation).toBeUndefined();
+    }
+    for (const url of [
+      "broken",
+      "http://platform.test/",
+      "https://user:password@platform.test/",
+      "https://platform.test/?browserSecret=synthetic",
+      "https://platform.test/#token",
+      "javascript:alert(1)",
+    ]) {
+      expect(() =>
+        loadApplicationConfig({
+          ...validEnvironment,
+          TELEGRAM_SIGN_IN_RETURN_URL: url,
+        }),
+      ).toThrow("TELEGRAM_SIGN_IN_RETURN_URL");
+    }
+  });
+
   it("requires a complete secure author authorization endpoint while defaulting to disabled", () => {
     expect(
       loadApplicationConfig(validEnvironment).platformAuthorAuthorizationUrl,

@@ -47,7 +47,7 @@ Git; зашифруйте файлы для host и отдельного recover
 | Привязка | `PLATFORM_INTEGRATION_SECRET` | секрет | `TELEGRAM_LINKING_SECRET`; `TELEGRAM_LINKING_ENDPOINT=https://<telegram>/integrations/platform/v1/identity-links` |
 | Communications API | `PLATFORM_COMMUNICATIONS_SECRET` | отдельный секрет; без него API отвечает 401 | `TELEGRAM_COMMUNICATIONS_SECRET`; `TELEGRAM_COMMUNICATIONS_ENDPOINT=https://<telegram>/integrations/platform/v1/communications` |
 | Membership Evidence | `TELEGRAM_MEMBERSHIP_MODE`, `TELEGRAM_MEMBERSHIP_RECONCILIATION_CADENCE_MS`, `TELEGRAM_MEMBERSHIP_CHECK_RETENTION_DAYS`, `PLATFORM_EVIDENCE_DELIVERY_MODE`, `PLATFORM_EVIDENCE_DELIVERY_URL`, `PLATFORM_EVIDENCE_DELIVERY_SECRET` | `live`, `240000`, `90`, `live`, `https://<platform>/integrations/telegram/v1/membership-evidence` | `TELEGRAM_EVIDENCE_INGRESS_SECRET` |
-| Вход через бота | `TELEGRAM_SIGN_IN_ENABLED`, `TELEGRAM_SIGN_IN_INTEGRATION_SECRET` | `false` до готовности Logto и Platform | `TELEGRAM_SIGN_IN_INTEGRATION_SECRET` |
+| Вход через бота | `TELEGRAM_SIGN_IN_ENABLED`, `TELEGRAM_SIGN_IN_INTEGRATION_SECRET`, `TELEGRAM_SIGN_IN_RETURN_URL` | `false` до готовности Logto и Platform; optional публичный URL сайта для «Открыть Inside» после успеха | `TELEGRAM_SIGN_IN_INTEGRATION_SECRET` |
 | Сообщество v2 | `TELEGRAM_COMMUNITY_CONTRACT_VERSION`, `TELEGRAM_COMMUNITY_MODE`, `TELEGRAM_COMMUNITY_RECONCILIATION_CADENCE_MS`, `TELEGRAM_COMMUNITY_REMOVALS_ENABLED`, `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | `inside.community-entitlement.v2`, `live`, `60000`, `false`, id бота Tribute | `TELEGRAM_COMMUNITY_CONTRACT_VERSION=inside.community-entitlement.v2` |
 | Сообщество: входящие команды | `PLATFORM_COMMUNITY_INTEGRATION_SECRET` | секрет | `TELEGRAM_COMMUNITY_ENTITLEMENT_SECRET`, `TELEGRAM_COMMUNITY_ENTITLEMENT_ENDPOINT=https://<telegram>/integrations/platform/v1/community-entitlements` |
 | Сообщество: разрешение эффекта | `PLATFORM_COMMUNITY_DISPATCH_URL`, `PLATFORM_COMMUNITY_DISPATCH_SECRET` | `https://<platform>/internal/billing-dispatch/authorize` | `TELEGRAM_COMMUNITY_DISPATCH_SECRET` |
@@ -65,13 +65,20 @@ Git; зашифруйте файлы для host и отдельного recover
 - секрет короче 32 символов, включая `TELEGRAM_WEBHOOK_SECRET`;
 - live-режим без токена бота; неполная пара URL и секрета; HTTP вне loopback, учётные данные,
   query или fragment в URL сервиса, включая `PLATFORM_EVIDENCE_DELIVERY_URL` и
-  `PLATFORM_SALES_FUNNEL_EVENTS_URL` и `PLATFORM_COHORTS_URL`;
+  `PLATFORM_SALES_FUNNEL_EVENTS_URL`, `PLATFORM_COHORTS_URL` и `TELEGRAM_SIGN_IN_RETURN_URL`;
 - только одна из `PLATFORM_COHORTS_URL` и `PLATFORM_COHORT_GUIDE_ID`, или `PLATFORM_COHORT_GUIDE_ID`
   не UUID;
 - неполный набор из трёх текстов согласия `TELEGRAM_MARKETING_CONSENT_*`;
 - `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID`, совпадающий с id самого бота или не числовой;
 - один и тот же секрет в двух направлениях: ошибка называет обе переменные;
 - флаг, отличный от `true`/`false`: ошибка называет переменную.
+
+`TELEGRAM_SIGN_IN_RETURN_URL` задаёт публичную страницу Inside, например `https://<platform>/`.
+Кнопка «Открыть Inside» появляется в исходном сообщении только после успешного завершения связи с Account.
+Без настройки worker удаляет клавиатуру и сохраняет прежний текст результата.
+Не указывайте OAuth callback или ссылку с токеном: OAuth завершается в браузере, где пользователь начал вход.
+Кнопка открывает сайт; она не переносит сессию в другой браузер, включая браузер Telegram.
+Настройка независима от activation и marketing. Существующие записи outbox сохраняют свой исходный URL.
 
 Переход на отдельный секрет communications API ([#80](https://github.com/sachkov-inside/inside-telegram/issues/80)):
 до этого выпуска `PLATFORM_INTEGRATION_SECRET` проверял и привязку, и communications. При выкладке

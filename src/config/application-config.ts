@@ -103,6 +103,8 @@ export interface ApplicationConfig {
   readonly senderRate?: SenderRate | undefined;
   readonly signInEnabled?: boolean | undefined;
   readonly signInIntegrationSecret?: string | undefined;
+  /** Public website destination after Account linking; never carries the browser session. */
+  readonly signInReturnUrl?: string | undefined;
   readonly webhookSecret: string;
   readonly welcomeText: string;
   readonly workersEnabled: boolean;
@@ -153,6 +155,10 @@ export function loadApplicationConfig(
       signInIntegrationSecret,
       "TELEGRAM_SIGN_IN_INTEGRATION_SECRET",
     );
+  const signInReturnUrl =
+    environment.TELEGRAM_SIGN_IN_RETURN_URL?.trim() || undefined;
+  if (signInReturnUrl)
+    assertServiceEndpoint(signInReturnUrl, "TELEGRAM_SIGN_IN_RETURN_URL");
 
   const membershipMode = environment.TELEGRAM_MEMBERSHIP_MODE ?? "disabled";
   assertExternalMode(membershipMode, "TELEGRAM_MEMBERSHIP_MODE");
@@ -478,6 +484,7 @@ export function loadApplicationConfig(
     salesFunnel,
     signInEnabled,
     ...(signInIntegrationSecret ? { signInIntegrationSecret } : {}),
+    ...(signInReturnUrl ? { signInReturnUrl } : {}),
     webhookSecret,
     welcomeText: required(environment, "TELEGRAM_WELCOME_TEXT"),
     workersEnabled: parseBoolean(

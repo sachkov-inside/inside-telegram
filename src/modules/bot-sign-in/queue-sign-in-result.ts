@@ -7,6 +7,7 @@ export async function queueSignInResult(
   requestRef: string,
   now: Date,
   text: string,
+  returnUrl?: string,
 ): Promise<void> {
   const request = await database
     .selectFrom("sign_in_requests")
@@ -29,6 +30,9 @@ export async function queueSignInResult(
     telegramUserId: request.telegram_user_id,
     privateChatId: request.private_chat_id,
     messageText: text,
+    ...(returnUrl
+      ? { buttons: [{ text: "Открыть Inside", url: returnUrl }] }
+      : {}),
     sourceKey: `sign-in-result:${requestRef}`,
     signInRequestRef: requestRef,
     editMessageId: request.confirmation_message_id,

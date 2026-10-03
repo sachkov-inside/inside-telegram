@@ -22,6 +22,8 @@ export interface TelegramMessageEdit {
   readonly chatId: string;
   readonly messageId: string;
   readonly text: string;
+  /** Replaces the earlier keyboard; absent removes all controls. */
+  readonly buttons?: readonly TelegramButton[];
 }
 
 export interface TelegramMessages {

@@ -1,6 +1,7 @@
 import { Api, GrammyError } from "grammy";
 
 import type {
+  TelegramButton,
   TelegramDeliveryResult,
   TelegramMessages,
   TelegramMessageEdit,
@@ -23,14 +24,7 @@ export class GrammyMessagesAdapter implements TelegramMessages {
       const sent = message.buttons
         ? await this.api.sendMessage(chatId, message.text, {
             reply_markup: {
-              inline_keyboard: message.buttons.map((button) => [
-                {
-                  text: button.text,
-                  ...(button.callbackData !== undefined
-                    ? { callback_data: button.callbackData }
-                    : { url: button.url }),
-                },
-              ]),
+              inline_keyboard: inlineKeyboard(message.buttons),
             },
           })
         : await this.api.sendMessage(chatId, message.text);
@@ -52,7 +46,7 @@ export class GrammyMessagesAdapter implements TelegramMessages {
         toSafeTelegramNumber(message.messageId),
         message.text,
         {
-          reply_markup: { inline_keyboard: [] },
+          reply_markup: { inline_keyboard: inlineKeyboard(message.buttons) },
         },
       );
       return { kind: "delivered", providerMessageId: message.messageId };
@@ -86,21 +80,36 @@ function deliveryFailure(error: unknown): TelegramDeliveryResult {
   return { kind: "transport_unknown" };
 }
 
+type TelegramInlineKeyboard = ({ text: string } & (
+  { callback_data: string } | { url: string }
+))[][];
+
+function inlineKeyboard(
+  buttons: readonly TelegramButton[] = [],
+): TelegramInlineKeyboard {
+  return buttons.map((button) => [
+    {
+      text: button.text,
+      ...(button.callbackData !== undefined
+        ? { callback_data: button.callbackData }
+        : { url: button.url }),
+    },
+  ]);
+}
+
 interface TelegramApi {
   editMessageText(
     chatId: number,
     messageId: number,
     text: string,
-    options: { reply_markup: { inline_keyboard: [] } },
+    options: { reply_markup: { inline_keyboard: TelegramInlineKeyboard } },
   ): Promise<true | { message_id: number }>;
   sendMessage(
     chatId: number,
     text: string,
     options?: {
       reply_markup: {
-        inline_keyboard: ({ text: string } & (
-          { callback_data: string } | { url: string }
-        ))[][];
+        inline_keyboard: TelegramInlineKeyboard;
       };
     },
   ): Promise<{ message_id: number }>;

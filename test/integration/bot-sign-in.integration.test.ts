@@ -34,7 +34,10 @@ import {
 import { IdentityLinking } from "../../src/modules/identity-linking/identity-linking.js";
 import { StartResponseDeliveryQueue } from "../../src/modules/outbound/start-response-delivery-queue.js";
 import { StartResponseDeliveryProcessor } from "../../src/modules/outbound/start-response-delivery-processor.js";
-import type { TelegramTextMessage } from "../../src/modules/outbound/telegram-messages.js";
+import type {
+  TelegramMessageEdit,
+  TelegramTextMessage,
+} from "../../src/modules/outbound/telegram-messages.js";
 import { TelegramUpdateProcessor } from "../../src/modules/update-inbox/telegram-update-processor.js";
 import { TelegramUpdateInbox } from "../../src/modules/update-inbox/telegram-update-inbox.js";
 import { BotContacts } from "../../src/modules/bot-contacts/bot-contacts.js";
@@ -55,6 +58,7 @@ const config = {
     TELEGRAM_SIGN_IN_ENABLED: "true",
     TELEGRAM_SIGN_IN_INTEGRATION_SECRET:
       "synthetic_sign_in_credential_for_tests_only",
+    TELEGRAM_SIGN_IN_RETURN_URL: "https://platform.test/",
     TELEGRAM_BOT_IDENTITY: "inside",
     TELEGRAM_CANONICAL_CHAT_ID: "-1000000000000",
     TELEGRAM_LINK_RECEIPT_TEXT: "Synthetic link receipt",
@@ -291,14 +295,14 @@ describe("bot sign-in provider", () => {
         message_text: "Вход подтверждён. Вернитесь на сайт.",
       },
     ]);
-    const calls: { chatId: string; messageId: string; text: string }[] = [];
+    const calls: TelegramMessageEdit[] = [];
     const messages = {
       sendText() {
         return Promise.reject(
           new Error("Completion must edit, never send another message"),
         );
       },
-      editText(message: { chatId: string; messageId: string; text: string }) {
+      editText(message: TelegramMessageEdit) {
         calls.push(message);
         return Promise.resolve(
           calls.length === 1
@@ -329,10 +333,17 @@ describe("bot sign-in provider", () => {
     expect(calls).toHaveLength(2);
     expect(calls[0]).toEqual(calls[1]);
     expect(calls[0]).toMatchObject({ chatId: "42", messageId: "100" });
+    expect(calls[0]?.buttons).toEqual([
+      { text: "Открыть Inside", url: "https://platform.test/" },
+    ]);
     expect(await edits()).toMatchObject([
       { state: "delivered", attempt_count: 2 },
     ]);
     expect(await restartedWorker.processAvailable(1, retryAt)).toBe(0);
+    await callback(challenge, 42);
+    expect((await bind()).json()).toMatchObject({ status: "linked" });
+    expect(await restartedWorker.processAvailable(1, retryAt)).toBe(0);
+    expect(calls).toHaveLength(2);
   });
 
   it.each(["before", "after"] as const)(
@@ -377,6 +388,156 @@ describe("bot sign-in provider", () => {
       expect(await queue.claimNext(new Date(), true)).toBeUndefined();
     },
   );
+
+  it.each([
+    "pending",
+    "unfinalized",
+    "denied",
+    "expired",
+    "wrong-identity",
+    "wrong-subject",
+  ] as const)(
+    "never offers a successful return for %s sign-in",
+    async (outcome) => {
+      const challenge = await register();
+      await start(challenge, 42);
+      const edits: TelegramMessageEdit[] = [];
+      const worker = new StartResponseDeliveryProcessor(
+        new StartResponseDeliveryQueue(database),
+        {
+          sendText() {
+            return Promise.resolve({
+              kind: "delivered",
+              providerMessageId: "100",
+            });
+          },
+          editText(message) {
+            edits.push(message);
+            return Promise.resolve({
+              kind: "delivered",
+              providerMessageId: message.messageId,
+            });
+          },
+        },
+        new RuntimeMetrics(),
+        config,
+      );
+      expect(await worker.processAvailable()).toBe(1);
+      if (outcome === "denied") {
+        await callback(challenge, 42, "deny");
+        await callback(challenge, 42);
+        expect(await status(challenge, true)).toMatchObject({
+          status: "denied",
+        });
+      } else if (outcome === "expired") {
+        vi.useFakeTimers({ toFake: ["Date"] });
+        vi.setSystemTime(new Date(challenge.envelope.expiresAt));
+        try {
+          await callback(challenge, 42);
+          expect(await status(challenge, true)).toMatchObject({
+            status: "expired",
+          });
+        } finally {
+          vi.useRealTimers();
+        }
+      } else if (outcome === "wrong-identity") {
+        await callback(challenge, 43);
+        expect(await status(challenge)).toMatchObject({ status: "pending" });
+      } else if (outcome === "unfinalized" || outcome === "wrong-subject") {
+        await callback(challenge, 42);
+        expect(await status(challenge, true)).toMatchObject({
+          status: "verified",
+        });
+        if (outcome === "wrong-subject")
+          expect(
+            (
+              await request(`/${challenge.requestRef}/account-link`, {
+                contractVersion,
+                subjectRef: randomUUID(),
+                accountRef: randomUUID(),
+              })
+            ).json(),
+          ).toMatchObject({ status: "unavailable" });
+      }
+      expect(await worker.processAvailable()).toBe(
+        outcome === "denied" ? 1 : 0,
+      );
+      expect(edits).toEqual(
+        outcome === "denied"
+          ? [
+              {
+                chatId: "42",
+                messageId: "100",
+                text: "Вход отменён.",
+              },
+            ]
+          : [],
+      );
+      expect(await worker.processAvailable()).toBe(0);
+    },
+  );
+
+  it("removes confirmation controls after success when no public URL is configured", async () => {
+    const challenge = await register();
+    await start(challenge, 42);
+    await callback(challenge, 42);
+    const proof = await status(challenge, true);
+    if (proof.status !== "verified") throw new Error("Expected verified proof");
+    const fallbackConfig = { ...config, signInReturnUrl: undefined };
+    const fallbackApplication =
+      await NestFactory.create<NestFastifyApplication>(
+        AppModule.register(fallbackConfig),
+        new FastifyAdapter(),
+        { logger: false },
+      );
+    try {
+      await fallbackApplication.init();
+      const response = await fallbackApplication
+        .getHttpAdapter()
+        .getInstance()
+        .inject({
+          method: "POST",
+          url: `/integrations/identity/v1/sign-in/${challenge.requestRef}/account-link`,
+          headers: {
+            authorization: `Bearer ${config.signInIntegrationSecret}`,
+          },
+          payload: {
+            contractVersion,
+            subjectRef: proof.subjectRef,
+            accountRef: randomUUID(),
+          },
+        });
+      expect(response.json()).toMatchObject({ status: "linked" });
+      const edits: TelegramMessageEdit[] = [];
+      const worker = new StartResponseDeliveryProcessor(
+        new StartResponseDeliveryQueue(database),
+        {
+          sendText() {
+            return Promise.reject(new Error("Must edit, not send"));
+          },
+          editText(message) {
+            edits.push(message);
+            return Promise.resolve({
+              kind: "delivered",
+              providerMessageId: message.messageId,
+            });
+          },
+        },
+        new RuntimeMetrics(),
+        fallbackConfig,
+      );
+      expect(await worker.processAvailable()).toBe(1);
+      expect(edits).toEqual([
+        {
+          chatId: "42",
+          messageId: "100",
+          text: "Вход подтверждён. Вернитесь на сайт.",
+        },
+      ]);
+    } finally {
+      await fallbackApplication.close();
+    }
+  });
 
   it("updates a cancelled prompt once and never lets another identity choose the edit target", async () => {
     const challenge = await register();

@@ -111,6 +111,30 @@ describe("GrammyMessagesAdapter", () => {
       }),
     ).resolves.toEqual({ kind: "delivered", providerMessageId: "100" });
   });
+
+  it("replaces confirmation controls with the public Inside URL on the same message", async () => {
+    let keyboard: unknown;
+    const adapter = new GrammyMessagesAdapter("synthetic", {
+      sendMessage() {
+        return Promise.reject(new Error("Must edit, not send"));
+      },
+      editMessageText(_chatId, _messageId, _text, options) {
+        keyboard = options.reply_markup.inline_keyboard;
+        return Promise.resolve(true);
+      },
+    });
+    await expect(
+      adapter.editText({
+        chatId: "42",
+        messageId: "100",
+        text: "Вход подтверждён. Вернитесь на сайт.",
+        buttons: [{ text: "Открыть Inside", url: "https://platform.test/" }],
+      }),
+    ).resolves.toEqual({ kind: "delivered", providerMessageId: "100" });
+    expect(keyboard).toEqual([
+      [{ text: "Открыть Inside", url: "https://platform.test/" }],
+    ]);
+  });
 });
 
 function adapterThrowing(error: Error): GrammyMessagesAdapter {
