@@ -47,6 +47,7 @@ export class StartResponseDeliveryProcessor {
             chatId: delivery.privateChatId,
             messageId: delivery.editMessageId,
             text: delivery.messageText,
+            ...(delivery.buttons ? { buttons: delivery.buttons } : {}),
           })
         : await this.messages.sendText({
             chatId: delivery.privateChatId,

@@ -59,6 +59,7 @@ export class SignInAccountLink {
             requestRef,
             this.clock.now(),
             "Вход подтверждён. Вернитесь на сайт.",
+            this.config.signInReturnUrl,
           );
           return true;
         }
@@ -85,6 +86,7 @@ export class SignInAccountLink {
           requestRef,
           now,
           "Вход подтверждён. Вернитесь на сайт.",
+          this.config.signInReturnUrl,
         );
         return true;
       });
