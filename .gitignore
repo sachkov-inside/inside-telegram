@@ -1,6 +1,7 @@
 .env
 .credentialed-proof/
 .pnpm-store/
+.reports/
 coverage/
 dist/
 node_modules/

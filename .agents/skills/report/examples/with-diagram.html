@@ -1,0 +1,75 @@
+<!doctype html>
+<html lang="ru">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Сборка шортса: один сценарий</title>
+<style>
+  :root { color-scheme: light dark; --fg: #15181c; --bg: #fff; --mute: #56606b;
+          --was: #eef0f3; --now: #e5f5ec; --ok: #17713f; }
+  @media (prefers-color-scheme: dark) {
+    :root { --fg: #e7eaed; --bg: #171b21; --mute: #a0a9b3; --was: #20262e; --now: #12301f; --ok: #6fcf97; }
+  }
+  body { font: 16px/1.5 system-ui, sans-serif; color: var(--fg); background: var(--bg);
+         max-width: 760px; margin: 2rem auto; padding: 0 16px; }
+  .head { color: var(--mute); white-space: pre-line; }
+  svg { display: block; max-width: 100%; height: auto; }
+  text { fill: var(--fg); font-size: 14px; font-family: inherit; }
+  .cap { font-weight: 600; font-size: 13px; }
+  .sub { fill: var(--mute); font-size: 12px; }
+  .was rect { fill: var(--was); }
+  .now rect { fill: var(--now); }
+  .arrow { fill: none; stroke: var(--mute); stroke-width: 1.5; stroke-linecap: round; }
+  .time { fill: var(--ok); font-weight: 600; }
+</style>
+<h1>Сборка шортса: один сценарий</h1>
+<p class="head">Статус: готово
+Задача: Образец: перевести сборку шортса на один сценарий
+Проект: vertical-content; ветка <code>chore/make-short</code>; worktree <code>/Users/dev/Work/Content/vertical-content</code>
+PR: нет
+Сессия: codex <code>00000000-0000-4000-8000-000000000101</code>
+Создан: 2026-10-03T10:40:00+03:00
+Сдан: 2026-10-03T11:30:00+03:00</p>
+
+<h2>Что сделано</h2>
+<ul>
+  <li>Агент свёл три скрипта сборки шортса в один сценарий <code>make-short</code>.</li>
+  <li>Субтитры теперь строятся до монтажа. Сборка заняла 4 минуты вместо 11.</li>
+</ul>
+<svg viewBox="0 0 640 230" width="640" height="230" role="img" aria-labelledby="t d">
+  <title id="t">Сборка шортса: было и стало</title>
+  <desc id="d">Было: монтаж, субтитры по ролику, повторный монтаж; 11 минут.
+  Стало: субтитры по записи, один монтаж; 4 минуты.</desc>
+  <text class="cap" x="0" y="14">Было: три скрипта</text>
+  <g class="was">
+    <rect x="0" y="26" width="180" height="44" rx="10"/><text x="14" y="53">Монтаж</text>
+    <rect x="220" y="26" width="180" height="44" rx="10"/><text x="234" y="53">Субтитры по ролику</text>
+    <rect x="440" y="26" width="180" height="44" rx="10"/><text x="454" y="53">Монтаж ещё раз</text>
+  </g>
+  <path class="arrow" d="M184 48h30M208 43l6 5-6 5M404 48h30M428 43l6 5-6 5"/>
+  <text class="sub" x="0" y="92">11 минут</text>
+  <text class="cap" x="0" y="140">Стало: один сценарий make-short</text>
+  <g class="now">
+    <rect x="0" y="152" width="180" height="44" rx="10"/><text x="14" y="179">Субтитры по записи</text>
+    <rect x="220" y="152" width="180" height="44" rx="10"/><text x="234" y="179">Монтаж</text>
+  </g>
+  <path class="arrow" d="M184 174h30M208 169l6 5-6 5"/>
+  <text class="time" x="0" y="218">4 минуты</text>
+</svg>
+
+<h2>Что нужно от владельца</h2>
+<p>Нет.</p>
+
+<h2>Проверка</h2>
+<h3>Проверено командой</h3>
+<ul><li>Пробный ролик собран без ошибок за 4 минуты: <code>./make-short drafts/sample</code>.</li></ul>
+<h3>Проверить владельцу</h3>
+<ul><li>Субтитры совпадают с речью: <code>open drafts/sample/out.mp4</code>.</li></ul>
+<h3>Не проверено</h3>
+<ul><li>Ролики длиннее 60 секунд не собирались.</li></ul>
+
+<h2>Решения</h2>
+<p>Субтитры строятся по исходной записи: так монтаж идёт один раз.</p>
+
+<h2>Что дальше</h2>
+<p>Перевести на <code>make-short</code> два оставшихся черновика.</p>
+</html>

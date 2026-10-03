@@ -66,14 +66,19 @@ Nothing protects the gap between the start and the first push.
 - Branch `<type>/<issue>-<slug>` from the current `origin/main`, in its own worktree. Types:
   `feat`, `fix`, `docs`, `chore`, `research`, `prototype`. Trivial untracked work uses
   `<type>/<slug>`.
-- The primary checkout belongs to the owner: read it, do not change it. After the merge,
-  fast-forward it with `git merge --ff-only` only when it is on `main` and its tracked files have
-  no changes. Untracked files stay; the command stops by itself before it overwrites one.
+- The primary checkout belongs to the owner: read it, do not change it. The only exception is
+  `.reports/`, which the skill `report` writes. After the merge, fast-forward it with
+  `git merge --ff-only` only when it is on `main` and its tracked files have no changes. Untracked
+  files stay; the command stops by itself before it overwrites one.
 - Worktree place: `worktrees/<repo>-<task>` at the Workspace root for a checkout under
   `repositories/`; `<parent>/<repo>.worktrees/<task>` for a standalone checkout. `<task>` is the
   branch without its type prefix.
 - One task has one branch, one writing worktree and one open pull request. Another session's worktree,
   branch, containers, volumes and stash entries are live state: leave them alone.
+- One agent session works in one worktree: the one it starts in, or the one it creates for its task.
+  Do not `cd` into any other; another worktree needs a new session. A subagent started in its own
+  worktree is a separate session. Reach the primary checkout for `.reports/` and the fast-forward
+  after the merge through `git -C` or absolute paths.
 - After the first commit, push and open a draft pull request with `Closes #<issue>`. When one task
   needs several pull requests, only the last one closes it; the others say `Part of #<issue>`.
 - Once the branch is pushed, integrate `origin/main` by merge; do not rebase or force-push.
@@ -108,10 +113,15 @@ final head with its real exit code. The agent then:
    diagnosed; when it blocks the task, it is a blocker (see `Tracker`);
 3. reads `closingIssuesReferences` of the pull request and compares it with the task number:
    `gh pr view <pr> --json closingIssuesReferences --jq '.closingIssuesReferences[].number'`;
-4. cleans up with the skill `session-cleanup`;
-5. reports in chat in at most ten lines with links to the pull request and the task.
+4. cleans up with the skill `session-cleanup`; when the cleanup removes the worktree, it runs
+   `report.py new` first;
+5. writes the report by the skill `report` and names in it each leftover of the cleanup;
+6. gives in chat the path to the report file and one line of outcome.
 
-If a check cannot run, name what was not run.
+Steps 4 to 6 apply to any hand-off to the owner: a ready pull request, a stopped task or a result
+that waits for acceptance. The report is one Markdown file in `.reports/` (HTML when it needs a
+diagram). Its subsection `Проверено командой` names the check command and the pull request CI that
+ran; a check that did not run goes to `Не проверено`. The report is delivered when `report.py finish` exits with 0.
 
 ## Rules from session reports
 
