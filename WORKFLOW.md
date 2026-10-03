@@ -15,10 +15,11 @@ There are two flows:
 The owner starts grilling, the specification (`to-spec`) and the ticket breakdown (`to-tickets`),
 each with its own command. Finish such a stage with its outcome and the stage you recommend next,
 then wait. An implementation task labelled `ready-for-agent` runs from `implement` to a ready pull
-request without stopping. The owner starts it with `/implement #<issue>`; when the task arrives as
-plain text, read `.agents/skills/implement/SKILL.md` and follow it. The acceptance criteria of the
-task name the pre-agreed seams for `tdd`: write those seams down, then write the failing test first,
-without asking. A criterion with no behaviour needs no test.
+request without stopping. The owner starts it with `/implement #<issue>` in Claude Code or
+`$implement #<issue>` in Codex CLI/IDE. When the skill is absent from the runtime catalog or the
+task arrives as plain text, read `.agents/skills/implement/SKILL.md` and follow it. The acceptance
+criteria of the task name the pre-agreed seams for `tdd`: write those seams down, then write the
+failing test first, without asking. A criterion with no behaviour needs no test.
 
 Everything that needs an owner decision is decided before tasks exist: in grilling, and for the
 look of an interface in a prototype. A task is one vertical slice sized for one fresh context
