@@ -2,7 +2,9 @@
 
 Связано с [Telegram #51](https://github.com/sachkov-inside/inside-telegram/issues/51).
 Этот вариант меняет только маршрут доставки webhook. Приложение, его база и
-исходящий Telegram transport остаются на application host.
+исходящий Telegram transport остаются на application host; исходящий маршрут и его
+проверка после перезапуска описаны в
+[production.md](production.md#исходящий-relay-до-telegram).
 
 Telegram подключается по HTTPS к relay на TCP 88. `systemd-socket-proxyd` передаёт
 неизменённый TLS поток на TCP 443 application host. Caddy предъявляет прежний
