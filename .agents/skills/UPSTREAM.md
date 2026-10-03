@@ -21,6 +21,9 @@
   `modern-web-guidance`, `playwright-cli`.
 - `karpathy-guidelines`: остаётся до переноса его правил в профиль устройства.
 - Свои skills проекта: `session-cleanup`.
+- `report`: копия из <https://github.com/KirillSachkov/workspace>, путь `skills/report`, commit
+  `15aa6f1a5114ce2e00843413ab32c5e11ec476c6` от 2026-10-03. Каталог не правится: правка идёт в
+  `workspace` и приходит новой копией.
 
 ## Проверка и обновление
 
