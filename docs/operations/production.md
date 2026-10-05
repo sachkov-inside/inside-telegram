@@ -627,8 +627,8 @@ Bot API клиентом: `url=https://<telegram-domain>/webhooks/telegram`,
     Тот же секрет и URL обслуживают приглашения: владелец выдаёт себе приглашение в кабинете
     «Доступ», открывает `t.me/<бот>?start=i_<код>` и получает кнопку «Оплатить» или подтверждение
     подарка. Повторное открытие той же ссылки отвечает тем же результатом. Очередь приглашений
-    после проверки: `select state, diagnostic_code, count(*), min(created_at) from
-    invitation_redemptions group by 1, 2;` — строки `retry` с растущим возрастом означают, что
+    после проверки: `select state, diagnostic_code, count(*), max(attempts) from
+    invitation_redemptions group by 1, 2;` — строки `retry` с растущим `attempts` означают, что
     Platform не отвечает на `invitations/redeem`; `needs_account` ждут привязки Account.
     `TELEGRAM_ACTIVATION_START_CODES` больше не читается (#115): если она есть в `application.env`,
     удалите её.
