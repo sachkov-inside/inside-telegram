@@ -25,6 +25,13 @@
     "Tribute confirmed period preserves exact registry snapshot, finite interval, renewal and independent rights; no client term accepted",
     "Tribute uncertain HTTP write replays exact evidenceRef/payload first; accepted receipt remains immutable; later retry of known pending result uses fresh evidence",
     "duplicate Tribute links and attempts return same source Enrollment and unchanged term; revoked/ended source never auto-restores",
-    "Tribute temporary registry entry grants only existing approved bounded evidence; registry_lookup never acts as member observation"
+    "Tribute temporary registry entry grants only existing approved bounded evidence; registry_lookup never acts as member observation",
+    "invitation: the first identity that opens a code owns it; another identity gets claimed_by_other",
+    "invitation: an unopened code expires 14 days after issue; a claimed code waits 30 days for an Account",
+    "invitation: needs_account keeps the claim; the same request after linking redeems it",
+    "invitation: a repeat after redemption returns already_redeemed with the first payload",
+    "invitation: purchase admits the Account to buy the Offer, including invitation_only, for good",
+    "invitation: gift assigns an Enrollment with origin invitation for giftMonths or without end",
+    "invitation: revoked codes and Offers not on sale or not open for assignment produce no access"
   ]
 }

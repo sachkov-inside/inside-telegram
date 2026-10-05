@@ -1,4 +1,5 @@
 import { SubscriptionActivation } from "../modules/subscription-activation/subscription-activation.js";
+import { InvitationRedemption } from "../modules/subscription-activation/invitation-redemption.js";
 import { AuthorDelivery } from "../modules/communications/author-delivery.js";
 import { FunnelScheduler } from "../modules/communications/funnel-scheduler.js";
 import {
@@ -82,6 +83,8 @@ export class BackgroundWorkers
     @Inject(SalesFunnelDeliveryProcessor)
     private readonly salesFunnel: SalesFunnelDeliveryProcessor,
     @Inject(RuntimeMetrics) private readonly metrics: RuntimeMetrics,
+    @Inject(InvitationRedemption)
+    private readonly invitations: InvitationRedemption,
   ) {}
 
   async onApplicationBootstrap(): Promise<void> {
@@ -107,6 +110,11 @@ export class BackgroundWorkers
         this.metrics.recordActivation(await this.activation.snapshot());
         return processed > 0;
       });
+      add(
+        "invitations",
+        BACKGROUND,
+        async () => (await this.invitations.processAvailable()) > 0,
+      );
     }
 
     const deliveries =

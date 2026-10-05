@@ -8,6 +8,11 @@ Platform определяет Account, тариф, Enrollment, состав и �
 
 ## Версии и границы
 
+Переносимые файлы в `docs/contracts/subscription-activation-v1` побайтно скопированы из Platform
+`main` на commit `6ba1571dd62057c94e2bc26ba2229dd7bfdc8269` (Platform PR #914, приглашения) для
+[Telegram #135](https://github.com/sachkov-inside/inside-telegram/issues/135); копия схемы в
+runtime совпадает с ними. Ниже — история первой версии.
+
 Переносимые файлы в `docs/contracts/subscription-activation-v1` обновлены для
 [Telegram #66](https://github.com/sachkov-inside/inside-telegram/issues/66) из неизменяемого
 контракта Platform #625, опубликованного на commit
@@ -106,6 +111,39 @@ Worker не начинает новую проверку по истёкшему
 `/start a_<code>`, в том числе кнопка владельца в группе курса. Очередь разбора существует только
 внутри Telegram, см.
 [runbook](../operations/course-activation.md#подтверждение-статуса-прежних-участников).
+
+## Приглашения `i_<code>`
+
+Владелец выдаёт в кабинете Platform личное одноразовое приглашение на Offer
+([platform#907](https://github.com/sachkov-inside/platform/issues/907), контракт
+[platform#908](https://github.com/sachkov-inside/platform/issues/908)). Ссылка
+`t.me/<бот>?start=i_<code>` занимает ту же длину 3–42, что `a_` и `m_`; код — 1–40 символов
+`[A-Za-z0-9_-]`. Более длинный payload остаётся legacy linking. Код до обработки update лежит в
+служебном поле, а не в тексте; после обработки inbox стирает payload целиком.
+
+Бот вызывает `POST /integrations/telegram/v1/invitations/redeem` с тем же activation credential.
+Адрес — сосед `PLATFORM_ACTIVATION_URL`: `…/subscription-activation` → `…/invitations/redeem`.
+Запрос несёт только `code` и opaque `identityRef`; Account Platform читает сама. Таблица
+`invitation_redemptions` хранит одну строку на человека и код, пока Platform не ответит окончательно;
+окончательный ответ удаляет строку вместе с кодом.
+
+| Ответ Platform | Что делает бот |
+| --- | --- |
+| `needs_account` | прежнее приглашение войти с кнопками кабинета; повторяет тот же запрос раз в минуту и сразу после «Я связал Telegram — проверить» |
+| `purchase_ready`, `already_redeemed` с `mode: purchase` | кнопка «Оплатить» на `checkoutUrl` |
+| `gift_granted`, `already_redeemed` с `mode: gift` | подтверждает подарок и срок, ведёт в сообщество кнопкой «Вступить в сообщество» и командой `/community`; если срок подарка уже прошёл, просит написать автору |
+| `claimed_by_other`, `expired`, `revoked`, `unavailable` | понятный текст «напишите автору», без повторов |
+| ошибка `identity_conflict` или `invalid_input` | текст «напишите автору», без повторов |
+| ошибка `unavailable` или нет ответа | одно сообщение «повторит сам», затем повтор того же запроса: пауза 1, 2, 4… минуты, не больше часа |
+
+Повтор безопасен: Platform погашает приглашение один раз по паре `(code, identityRef)`, а бот после
+потерянного ответа отправляет тот же запрос. На каждое открытие ссылки и каждый исход бот отвечает
+не больше одного раза. Повторное открытие той же ссылки начинает обращение заново и получает
+`already_redeemed`. Строка без окончательного ответа удаляется через 30 дней после последнего
+открытия: столько Platform ждёт Account для закреплённого приглашения.
+
+Ученик курса, которого нет в группе курса, получает отказ активации с просьбой написать автору:
+владелец выдаёт ему подарочное приглашение на Offer курса.
 
 ## Community v2
 

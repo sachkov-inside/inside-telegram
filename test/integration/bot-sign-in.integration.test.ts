@@ -627,6 +627,7 @@ describe("bot sign-in provider", () => {
         application.get(CommunityProvider),
         application.get(StartResponseDeliveryQueue),
         new GrammyUpdateAdapter(),
+        { start: () => Promise.resolve(), retry: () => Promise.resolve() },
       );
       expect(await processor.processAvailable()).toBe(2);
       expect(claim.mock.calls[0]?.[0]).toEqual(current);

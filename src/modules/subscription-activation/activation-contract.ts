@@ -133,3 +133,50 @@ export type BindingResponse =
     };
 export const validBindingResponse =
   activationValidator<BindingResponse>("bindingResponse");
+
+/** `i_<code>` without its prefix, for the identity that opened the link. */
+export interface InvitationRedeem {
+  readonly contractVersion: typeof ACTIVATION_VERSION;
+  readonly code: string;
+  readonly identityRef: string;
+}
+/** The gift Enrollment fields the bot shows; Platform sends the full view. */
+interface InvitationEnrollment {
+  readonly id: string;
+  readonly tier: { readonly name: string };
+  readonly endsAt: string | null;
+}
+export type InvitationRedeemValue =
+  | {
+      readonly contractVersion: typeof ACTIVATION_VERSION;
+      readonly state:
+        | "needs_account"
+        | "claimed_by_other"
+        | "expired"
+        | "revoked"
+        | "unavailable";
+    }
+  | {
+      readonly contractVersion: typeof ACTIVATION_VERSION;
+      readonly state: "purchase_ready" | "already_redeemed";
+      readonly mode: "purchase";
+      readonly offerName: string;
+      readonly checkoutUrl: string;
+    }
+  | {
+      readonly contractVersion: typeof ACTIVATION_VERSION;
+      readonly state: "gift_granted" | "already_redeemed";
+      readonly mode: "gift";
+      readonly offerName: string;
+      readonly enrollment: InvitationEnrollment;
+    };
+export type InvitationRedeemResponse =
+  | { readonly ok: true; readonly value: InvitationRedeemValue }
+  | {
+      readonly ok: false;
+      readonly error: {
+        readonly code: "invalid_input" | "identity_conflict" | "unavailable";
+      };
+    };
+export const validInvitationRedeemResponse =
+  activationValidator<InvitationRedeemResponse>("invitationRedeemResponse");

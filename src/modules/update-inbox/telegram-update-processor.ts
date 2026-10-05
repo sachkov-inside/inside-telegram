@@ -1,5 +1,6 @@
 import { unhandled } from "../../shared/unhandled.js";
 import { SubscriptionActivation } from "../subscription-activation/subscription-activation.js";
+import { InvitationRedemption } from "../subscription-activation/invitation-redemption.js";
 import { AuthorAdmin } from "../communications/author-admin.js";
 import { MarketingEntry } from "../communications/marketing-entry.js";
 import { Communications } from "../communications/communications.js";
@@ -82,6 +83,8 @@ export class TelegramUpdateProcessor {
     private readonly replies: StartResponseDeliveryQueue,
     @Inject(TELEGRAM_UPDATE_TRANSLATOR)
     private readonly translator: TelegramUpdateTranslator,
+    @Inject(InvitationRedemption)
+    private readonly invitations: Pick<InvitationRedemption, "start" | "retry">,
   ) {
     // Counted by webhook arrival, so a backlog after a processing delay is not refused.
     this.senderLimit = new SenderRateLimit(
@@ -173,6 +176,9 @@ export class TelegramUpdateProcessor {
     switch (command.kind) {
       case "access-action":
         await this.botContacts.observeStart(command.value, "none");
+        // "I linked Telegram" also continues invitations that wait for an Account.
+        if (command.action === "retry")
+          await this.invitations.retry(command.value);
         await this.activation.action(command.value, command.action);
         if (command.callbackQueryId)
           await this.callbackAnswers.answer(command.callbackQueryId);
@@ -231,9 +237,11 @@ export class TelegramUpdateProcessor {
   private async start(
     start: Extract<TelegramUpdateCommand, { kind: "start" }>["value"],
   ): Promise<void> {
+    const accessLink =
+      start.activationCode !== undefined || start.invitationCode !== undefined;
     await this.botContacts.observeStart(
       start.contact,
-      start.activationCode !== undefined
+      accessLink
         ? "none"
         : start.signInToken
           ? "none"
@@ -245,6 +253,8 @@ export class TelegramUpdateProcessor {
     );
     if (start.activationCode !== undefined)
       await this.activation.start(start.contact, start.activationCode);
+    if (start.invitationCode !== undefined)
+      await this.invitations.start(start.contact, start.invitationCode);
     if (start.signInToken?.kind === "digest") {
       await this.signIn.acceptStart(start.contact, start.signInToken.digest);
     }
@@ -257,7 +267,7 @@ export class TelegramUpdateProcessor {
       });
     }
     if (
-      start.activationCode === undefined &&
+      !accessLink &&
       !start.linkToken &&
       !start.signInToken &&
       this.marketing.enabled()

@@ -72,6 +72,7 @@ let source: "member" | "not_member" | "unavailable" = "member";
 let bindingUnavailable = false;
 const rule = { id: randomUUID(), revision: 1, sourceRef: "course" };
 const platform: ActivationPlatform = {
+  redeem: () => Promise.resolve(undefined),
   binding(identityRef) {
     return Promise.resolve(
       bindingUnavailable

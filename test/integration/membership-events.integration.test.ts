@@ -406,6 +406,7 @@ describe("durable Membership events", () => {
       ),
       new StartResponseDeliveryQueue(database, config),
       new GrammyUpdateAdapter(),
+      { start: () => Promise.resolve(), retry: () => Promise.resolve() },
     );
     const webhook = new TelegramWebhook(
       config,

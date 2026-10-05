@@ -409,7 +409,7 @@
             "tier": {
               "id": "62500000-0000-4000-8000-000000000003",
               "revision": 1,
-              "name": "Материалы + сообщество",
+              "name": "Подписка Inside",
               "benefits": [
                 "materials",
                 "community"
@@ -453,7 +453,7 @@
           "tier": {
             "id": "62500000-0000-4000-8000-000000000003",
             "revision": 1,
-            "name": "Материалы + сообщество",
+            "name": "Подписка Inside",
             "benefits": [
               "materials",
               "community"
@@ -490,7 +490,7 @@
             "tier": {
               "id": "62500000-0000-4000-8000-000000000003",
               "revision": 1,
-              "name": "Материалы + сообщество",
+              "name": "Подписка Inside",
               "benefits": [
                 "materials",
                 "community"
@@ -534,7 +534,7 @@
           "tier": {
             "id": "62500000-0000-4000-8000-000000000003",
             "revision": 1,
-            "name": "Материалы + сообщество",
+            "name": "Подписка Inside",
             "benefits": [
               "materials",
               "community"
@@ -699,7 +699,7 @@
           "tier": {
             "id": "62500000-0000-4000-8000-000000000003",
             "revision": 1,
-            "name": "Материалы + сообщество",
+            "name": "Подписка Inside",
             "benefits": [
               "materials",
               "community"
@@ -737,7 +737,7 @@
           "tier": {
             "id": "62500000-0000-4000-8000-000000000003",
             "revision": 1,
-            "name": "Материалы + сообщество",
+            "name": "Подписка Inside",
             "benefits": [
               "materials",
               "community"
@@ -756,6 +756,245 @@
           "renewal": "not_applicable",
           "nextChargeAt": null
         }
+      }
+    }
+  },
+  {
+    "name": "invitation-redeem",
+    "definition": "invitationRedeem",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "code": "Q2l0eVN0YXJ0TGluazAwMQ",
+      "identityRef": "identity-invited-reader"
+    }
+  },
+  {
+    "name": "invitation-redeem-with-start-prefix-rejected",
+    "definition": "invitationRedeem",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "code": "i_Q2l0eVN0YXJ0TGluazAwMQ!",
+      "identityRef": "identity-invited-reader"
+    }
+  },
+  {
+    "name": "invitation-redeem-account-ref-rejected",
+    "definition": "invitationRedeem",
+    "valid": false,
+    "value": {
+      "contractVersion": "inside.subscription-activation.v1",
+      "code": "Q2l0eVN0YXJ0TGluazAwMQ",
+      "identityRef": "identity-invited-reader",
+      "accountRef": "platform-principal"
+    }
+  },
+  {
+    "name": "invitation-needs-account",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "needs_account"
+      }
+    }
+  },
+  {
+    "name": "invitation-purchase-ready",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "purchase_ready",
+        "mode": "purchase",
+        "offerName": "Подписка Inside",
+        "checkoutUrl": "https://inside.example.test/subscription?offer=90800000-0000-4000-8000-000000000003"
+      }
+    }
+  },
+  {
+    "name": "invitation-gift-granted",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "gift_granted",
+        "mode": "gift",
+        "offerName": "Подписка Inside",
+        "enrollment": {
+          "id": "90800000-0000-4000-8000-000000000001",
+          "accountId": "90800000-0000-4000-8000-000000000002",
+          "tier": {
+            "id": "90800000-0000-4000-8000-000000000003",
+            "revision": 2,
+            "name": "Подписка Inside",
+            "benefits": [
+              "community",
+              "materials"
+            ],
+            "contentScope": {
+              "guideIds": [],
+              "materialIds": [],
+              "allGuides": true
+            }
+          },
+          "origin": "invitation",
+          "startsAt": "2030-01-01T00:00:00.000Z",
+          "endsAt": "2030-04-01T00:00:00.000Z",
+          "endPolicy": "fixed",
+          "revision": 1,
+          "state": "active",
+          "renewal": "not_applicable",
+          "nextChargeAt": null
+        }
+      }
+    }
+  },
+  {
+    "name": "invitation-already-redeemed-purchase",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "already_redeemed",
+        "mode": "purchase",
+        "offerName": "Подписка Inside",
+        "checkoutUrl": "https://inside.example.test/subscription?offer=90800000-0000-4000-8000-000000000003"
+      }
+    }
+  },
+  {
+    "name": "invitation-already-redeemed-gift",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "already_redeemed",
+        "mode": "gift",
+        "offerName": "Подписка Inside",
+        "enrollment": {
+          "id": "90800000-0000-4000-8000-000000000001",
+          "accountId": "90800000-0000-4000-8000-000000000002",
+          "tier": {
+            "id": "90800000-0000-4000-8000-000000000003",
+            "revision": 2,
+            "name": "Подписка Inside",
+            "benefits": [
+              "community",
+              "materials"
+            ],
+            "contentScope": {
+              "guideIds": [],
+              "materialIds": [],
+              "allGuides": true
+            }
+          },
+          "origin": "invitation",
+          "startsAt": "2030-01-01T00:00:00.000Z",
+          "endsAt": "2030-04-01T00:00:00.000Z",
+          "endPolicy": "fixed",
+          "revision": 1,
+          "state": "active",
+          "renewal": "not_applicable",
+          "nextChargeAt": null
+        }
+      }
+    }
+  },
+  {
+    "name": "invitation-claimed-by-other",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "claimed_by_other"
+      }
+    }
+  },
+  {
+    "name": "invitation-expired",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "expired"
+      }
+    }
+  },
+  {
+    "name": "invitation-revoked",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "revoked"
+      }
+    }
+  },
+  {
+    "name": "invitation-unavailable",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "unavailable"
+      }
+    }
+  },
+  {
+    "name": "invitation-purchase-without-checkout-url-rejected",
+    "definition": "invitationRedeemResponse",
+    "valid": false,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "purchase_ready",
+        "mode": "purchase",
+        "offerName": "Подписка Inside"
+      }
+    }
+  },
+  {
+    "name": "invitation-refusal-with-offer-rejected",
+    "definition": "invitationRedeemResponse",
+    "valid": false,
+    "value": {
+      "ok": true,
+      "value": {
+        "contractVersion": "inside.subscription-activation.v1",
+        "state": "expired",
+        "offerName": "Подписка Inside"
+      }
+    }
+  },
+  {
+    "name": "invitation-identity-conflict",
+    "definition": "invitationRedeemResponse",
+    "valid": true,
+    "value": {
+      "ok": false,
+      "error": {
+        "code": "identity_conflict"
       }
     }
   }

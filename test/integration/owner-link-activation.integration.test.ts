@@ -89,6 +89,7 @@ const proofs: ActivationEvidence[] = [];
 const memberLookups: string[] = [];
 const grants = new Map<string, number>();
 const platform: ActivationPlatform = {
+  redeem: () => Promise.resolve(undefined),
   binding(identityRef) {
     const binding = bindings.get(identityRef);
     return Promise.resolve({
@@ -373,7 +374,9 @@ describe("the owner's button in the course group", () => {
     expect(required(messages[0]).message_text).toContain(
       "Автоматическая проверка не подтвердила покупку",
     );
-    expect(required(messages[0]).message_text).toContain(OWNER_REVIEW);
+    // One instruction: the person writes to the author; the owner still gets the review.
+    expect(required(messages[0]).message_text).toContain("напишите автору");
+    expect(required(messages[0]).message_text).not.toContain(OWNER_REVIEW);
     const [review] = await openReviews(person.user);
     expect(review).toMatchObject({
       identityRef: person.identityRef,

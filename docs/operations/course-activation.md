@@ -9,12 +9,12 @@
 | Параметр Telegram | Назначение |
 | --- | --- |
 | `TELEGRAM_ACTIVATION_ENABLED` | По умолчанию false; включает durable worker и private course ingress |
-| `PLATFORM_ACTIVATION_URL` | HTTPS base `/integrations/telegram/v1/subscription-activation`; loopback HTTP разрешён локально |
+| `PLATFORM_ACTIVATION_URL` | HTTPS base `/integrations/telegram/v1/subscription-activation`; loopback HTTP разрешён локально. Приглашения `i_` идут на соседний `/integrations/telegram/v1/invitations/redeem`, поэтому путь должен заканчиваться на `/subscription-activation` |
 | `PLATFORM_ACTIVATION_SECRET` | Отдельный activation credential; совпадает с Platform ingress credential |
 | `PLATFORM_ACCOUNT_URL` | Обычный browser Account URL, без токенов, query или fragment |
 | `TELEGRAM_ACTIVATION_SOURCES` | JSON registry: sourceRef, chatId, policy; для confirmed_list — confirmedIdentityRefs |
 | `TELEGRAM_COMMUNITY_CONTRACT_VERSION` | Явный `inside.community-entitlement.v2` на обеих сторонах; другое значение или его отсутствие при настроенном сообществе — отказ при старте |
-| `TELEGRAM_COMMUNITY_REMOVALS_ENABLED` | `false` до переноса участников (#150): бот Inside никого не исключает |
+| `TELEGRAM_COMMUNITY_REMOVALS_ENABLED` | `true` в production по решению владельца 04.10.2026 (platform#907): бот Inside исключает человека, когда Platform присылает `denied`. При `false` бот никого не исключает |
 | `TELEGRAM_COMMUNITY_TRIBUTE_BOT_ID` | Числовой id бота Tribute; его исключения — окончание подписки Tribute, а не модерация |
 | `TELEGRAM_COMMUNITY_READMISSION_TEXT` | Необязательный текст личного сообщения со ссылкой для возвращения |
 | `TELEGRAM_COMMUNITY_WELCOME_TEXT` | Необязательный текст приветствия со ссылкой после первого права на сообщество ([интеграция](../integrations/community-entitlements-v1.md#приветствие-после-первого-права)) |
@@ -121,12 +121,14 @@ Username бота берётся из `getMe`, chat id — из защищённ
 
 Схема действует до переноса участников Tribute и курса
 ([#150](https://github.com/sachkov-inside/workspace/issues/150)), после которого владелец убирает
-бота Tribute. Решение владельца от 15.09.2026: бот Inside приглашает покупателей, удаления с нашей
-стороны выключены, бот Tribute работает как раньше.
+бота Tribute. Решение владельца от 15.09.2026: бот Inside приглашает покупателей, бот Tribute
+работает как раньше. Решение владельца от 04.10.2026
+([platform#907](https://github.com/sachkov-inside/platform/issues/907)) включает удаления и с нашей
+стороны: доступ кончился — бот Inside исключает человека из группы.
 
 | Бот | Права в группе | Кого впускает | Кого исключает | Основание |
 | --- | --- | --- | --- | --- |
-| Inside | administrator: `can_invite_users`, `can_restrict_members` | держателя права Platform по его личной ссылке с заявкой | никого (`TELEGRAM_COMMUNITY_REMOVALS_ENABLED=false`) | право Platform, community v2 |
+| Inside | administrator: `can_invite_users`, `can_restrict_members` | держателя права Platform по его личной ссылке с заявкой | человека без действующего права Platform в момент окончания доступа (`TELEGRAM_COMMUNITY_REMOVALS_ENABLED=true`) | право Platform, community v2 |
 | Tribute | прежние | новых не принимает | участника, у которого закончилась подписка Tribute | подписка Tribute |
 
 Бот Inside различает, кто исключил человека, по событию `chat_member` и его автору:

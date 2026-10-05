@@ -30,6 +30,12 @@ A short-lived, single-use invitation from an authenticated Account flow to prove
 one PlatformLink through the bot.
 _Avoid_: Referral, auth session, permanent link token
 
+**Invitation**:
+Platform's personal single-use admission to one Offer, opened in the bot as `/start i_<code>`.
+Platform owns its claim, redemption and grant; the bot only continues the request until Platform
+answers. It is not a LinkTransaction or a course activation link `a_<code>`.
+_Avoid_: Referral, promo code, activation link
+
 **MembershipObservation**:
 Telegram's authoritative observation that a linked identity is or is not present in the canonical
 closed chat at a specific time.

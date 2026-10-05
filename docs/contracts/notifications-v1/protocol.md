@@ -85,7 +85,8 @@ opaque accountRef/telegramIdentityRef/linkRef/linkRevision; email — accountRef
 Raw chat ID/email отсутствуют. Recipient разрешается только из verified записи канала: событие,
 username, arbitrary URL или пользовательское поле не создают связь.
 
-Subscription принимает только шесть перечисленных billing kinds; material — material_published.
+Subscription принимает только семь перечисленных billing kinds; material — material_published.
+`access_ending` напоминает о конце неоплаченного доступа и несёт ссылку на продление.
 Нельзя переименовать material в subscription для обхода opt-out: authorize проверяет сохранённый
 Notification и source occurrence/category. Text до 3000 символов, email subject до 200 без CR/LF;
 plain text без HTML/parse_mode/media. Кнопки/ссылки первой версии — подготовленный текст со ссылкой
