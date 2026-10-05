@@ -42,6 +42,14 @@ export function accountPrompt(accountUrl: string): {
     ],
   };
 }
+/** The answer already sends a course student outside the group to the author; no second instruction. */
+export function asksToWriteAuthor(
+  result: ActivationResult<ActivationResponse>,
+): boolean {
+  return result.ok
+    ? result.value.state === "rejected"
+    : result.error.code === "source_not_confirmed";
+}
 export function activationMessage(
   result: ActivationResult<ActivationResponse>,
 ): string {

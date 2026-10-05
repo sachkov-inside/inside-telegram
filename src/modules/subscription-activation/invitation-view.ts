@@ -33,6 +33,7 @@ export function invitationNeedsAccount(accountUrl: string): InvitationAnswer {
 /** The final answer to Platform's response; `needs_account` and `unavailable` errors are not final. */
 export function invitationAnswer(
   response: InvitationRedeemResponse,
+  now: Date,
 ): InvitationAnswer {
   if (!response.ok)
     return response.error.code === "identity_conflict"
@@ -48,6 +49,15 @@ export function invitationAnswer(
     case "purchase_ready":
     case "already_redeemed":
     case "gift_granted":
+      if (
+        value.mode === "gift" &&
+        value.enrollment.endsAt !== null &&
+        Date.parse(value.enrollment.endsAt) <= now.getTime()
+      )
+        return {
+          outcome: "gift_ended",
+          text: `Подарок «${value.offerName}» по этому приглашению уже закончился. Напишите автору, если хотите продлить доступ.`,
+        };
       return value.mode === "purchase"
         ? {
             outcome: value.state,

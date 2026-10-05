@@ -32,6 +32,7 @@ import {
   accountPrompt,
   activationMenu,
   activationMessage,
+  asksToWriteAuthor,
   OWNER_REVIEW,
   ownAccessText,
 } from "./activation-view.js";
@@ -555,7 +556,7 @@ export class SubscriptionActivation {
         {
           ...this.delivery(
             this.contact(attempt),
-            review
+            review && !asksToWriteAuthor(result)
               ? `${activationMessage(result)} ${OWNER_REVIEW}`
               : activationMessage(result),
           ),

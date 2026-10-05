@@ -60,8 +60,13 @@ const invitations = new Map<string, Invitation>();
 const linked = new Set<string>();
 const requests: InvitationRedeem[] = [];
 let redemptions = 0;
-let outage: "none" | "lost" | "error" | "unavailable" | "identity_conflict" =
-  "none";
+let outage:
+  | "none"
+  | "lost"
+  | "error"
+  | "unavailable"
+  | "identity_conflict"
+  | "invalid_input" = "none";
 const checkoutUrl = "https://inside.example/subscription?offer=offer-1";
 const enrollment = {
   id: "90800000-0000-4000-8000-000000000001",
@@ -72,7 +77,11 @@ const enrollment = {
 function redeem(input: InvitationRedeem): InvitationRedeemResponse | undefined {
   requests.push(structuredClone(input));
   if (outage === "error") return undefined;
-  if (outage === "unavailable" || outage === "identity_conflict")
+  if (
+    outage === "unavailable" ||
+    outage === "identity_conflict" ||
+    outage === "invalid_input"
+  )
     return { ok: false, error: { code: outage } };
   const invitation = invitations.get(input.code);
   const refusal = (
@@ -207,6 +216,14 @@ async function replies(user: number) {
     .orderBy("id")
     .execute();
 }
+async function rows(user: number) {
+  return db
+    .selectFrom("invitation_redemptions")
+    .select("state")
+    .where("bot_identity", "=", bot)
+    .where("telegram_user_id", "=", String(user))
+    .execute();
+}
 function later(ms = 60_000) {
   clock.value = new Date(clock.now().getTime() + ms);
 }
@@ -242,7 +259,8 @@ describe("invitation link in the bot", () => {
     expect(answer?.message_text).toContain("Подписка Inside");
     expect(answer?.buttons).toEqual([{ text: "Оплатить", url: checkoutUrl }]);
 
-    // Done: no more calls until the person opens the link again.
+    // Done: the row goes with the answer; no more calls until the person opens the link again.
+    expect(await rows(81001)).toEqual([]);
     later();
     await worker.processAvailable();
     expect(requests).toHaveLength(3);
@@ -301,7 +319,7 @@ describe("invitation link in the bot", () => {
     expect((await replies(81004)).at(-1)?.message_text).toContain("/community");
   });
 
-  it("retries a Platform outage and tells the person once", async () => {
+  it("retries a Platform outage with growing pauses and tells the person once", async () => {
     await linkedBefore(81005);
     invitations.set("buy3", { mode: "purchase" });
     outage = "unavailable";
@@ -310,6 +328,11 @@ describe("invitation link in the bot", () => {
     later();
     outage = "error";
     await worker.processAvailable();
+    expect(requests).toHaveLength(2);
+    // The second failure waits two minutes, not one.
+    later();
+    await worker.processAvailable();
+    expect(requests).toHaveLength(2);
     const before = await replies(81005);
     expect(before.at(-1)?.message_text).toContain("повторит");
     expect(
@@ -318,6 +341,7 @@ describe("invitation link in the bot", () => {
     outage = "none";
     later();
     await worker.processAvailable();
+    expect(requests).toHaveLength(3);
     expect(redemptions).toBe(1);
     expect((await replies(81005)).at(-1)?.buttons).toEqual([
       { text: "Оплатить", url: checkoutUrl },
@@ -377,6 +401,20 @@ describe("invitation link in the bot", () => {
     expect(waiting).toContain('"text":"/start"');
     await app.get(TelegramUpdateProcessor).processAvailable();
     expect((await stored()).payload).toBeNull();
+  });
+
+  it("answers invalid_input once and stops", async () => {
+    await linkedBefore(81402);
+    outage = "invalid_input";
+    await send(81402, "/start i_rejected");
+    await worker.processAvailable();
+    later();
+    await worker.processAvailable();
+    expect(requests.filter((r) => r.code === "rejected")).toHaveLength(1);
+    expect((await replies(81402)).at(-1)?.message_text).toContain(
+      "Напишите автору",
+    );
+    expect(await rows(81402)).toEqual([]);
   });
 
   it("asks to write to the author on an identity conflict", async () => {

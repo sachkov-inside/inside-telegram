@@ -10,6 +10,7 @@ import {
   type ActivationResult,
 } from "../../src/modules/subscription-activation/activation-contract.js";
 import { activationMessage } from "../../src/modules/subscription-activation/activation-view.js";
+import { invitationAnswer } from "../../src/modules/subscription-activation/invitation-view.js";
 import fixtures from "../../docs/contracts/subscription-activation-v1/fixtures.json" with { type: "json" };
 import { privateStartUpdate } from "../support/synthetic-telegram-updates.js";
 import { requestBody } from "../support/json.js";
@@ -123,5 +124,32 @@ describe("course activation refusal", () => {
     ];
     for (const result of refusals)
       expect(activationMessage(result)).toContain("напишите автору");
+  });
+});
+
+describe("invitation answer", () => {
+  const gift = (endsAt: string | null) =>
+    invitationAnswer(
+      {
+        ok: true,
+        value: {
+          contractVersion: ACTIVATION_VERSION,
+          state: "already_redeemed",
+          mode: "gift",
+          offerName: "Подписка Inside",
+          enrollment: { id: "e", tier: { name: "Подписка Inside" }, endsAt },
+        },
+      },
+      new Date("2030-05-01T00:00:00Z"),
+    );
+  it("does not lead to the community after a gift has ended", () => {
+    const ended = gift("2030-04-01T00:00:00.000Z");
+    expect(ended.text).toContain("закончился");
+    expect(ended.text).toContain("Напишите автору");
+    expect(ended.buttons).toBeUndefined();
+    expect(gift(null).buttons).toEqual([
+      { text: "Вступить в сообщество", callbackData: "access:community" },
+    ]);
+    expect(gift("2030-06-01T00:00:00.000Z").text).toContain("/community");
   });
 });

@@ -30,6 +30,8 @@ type Redemption = Selectable<ActivationTables["invitation_redemptions"]>;
 /** Platform keeps a claimed invitation 30 days for an Account; the bot waits as long. */
 const RETENTION = 30 * 24 * 60 * 60_000;
 const CADENCE = 60_000;
+/** Failed calls wait twice as long each time, up to an hour; `attempts` counts earlier calls. */
+const MAX_RETRY_DELAY = 60 * 60_000;
 
 /**
  * Continues an invitation link `i_<code>` until Platform answers it. Platform owns the claim,
@@ -80,9 +82,11 @@ export class InvitationRedemption {
         state: "pending" as const,
         expires_at: new Date(now.getTime() + RETENTION),
         due_at: now,
-        // A worker holding the earlier opening loses its lease and leaves this one to answer.
+        // A worker holding the earlier opening loses its lease and leaves this one to answer;
+        // Platform answers the repeated request without a second redemption.
         lease_token: null,
         lease_until: null,
+        attempts: 0,
         diagnostic_code: null,
       };
       await tx
@@ -95,7 +99,6 @@ export class InvitationRedemption {
           identity_ref: identity,
           code,
           created_at: now,
-          attempts: 0,
         })
         .onConflict((c) =>
           c
@@ -209,11 +212,14 @@ export class InvitationRedemption {
       redemption,
       "completed",
       response.ok ? null : response.error.code,
-      invitationAnswer(response),
+      invitationAnswer(response, this.clock.now()),
     );
   }
 
-  /** Stores the next state and its reply together; a lost lease leaves both to the newer run. */
+  /**
+   * Stores the next state and its reply together; a lost lease leaves both to the newer run.
+   * A final answer deletes the row: the reply's source key already prevents a second reply.
+   */
   private async settle(
     redemption: Redemption,
     state: "retry" | "needs_account" | "completed",
@@ -222,19 +228,37 @@ export class InvitationRedemption {
   ): Promise<void> {
     const now = this.clock.now();
     await this.db.transaction().execute(async (tx) => {
-      const stored = await tx
-        .updateTable("invitation_redemptions")
-        .set({
-          state,
-          diagnostic_code: diagnosticCode,
-          lease_token: null,
-          lease_until: null,
-          due_at: new Date(now.getTime() + CADENCE),
-        })
-        .where("redemption_id", "=", redemption.redemption_id)
-        .where("lease_token", "=", redemption.lease_token)
-        .returning("redemption_id")
-        .executeTakeFirst();
+      const stored =
+        state === "completed"
+          ? await tx
+              .deleteFrom("invitation_redemptions")
+              .where("redemption_id", "=", redemption.redemption_id)
+              .where("lease_token", "=", redemption.lease_token)
+              .returning("redemption_id")
+              .executeTakeFirst()
+          : await tx
+              .updateTable("invitation_redemptions")
+              .set({
+                state,
+                diagnostic_code: diagnosticCode,
+                lease_token: null,
+                lease_until: null,
+                // Waiting for an Account is no failure: it keeps the short cadence.
+                ...(state === "needs_account" ? { attempts: 0 } : {}),
+                due_at: new Date(
+                  now.getTime() +
+                    (state === "retry"
+                      ? Math.min(
+                          CADENCE * 2 ** redemption.attempts,
+                          MAX_RETRY_DELAY,
+                        )
+                      : CADENCE),
+                ),
+              })
+              .where("redemption_id", "=", redemption.redemption_id)
+              .where("lease_token", "=", redemption.lease_token)
+              .returning("redemption_id")
+              .executeTakeFirst();
       if (!stored || !answer) return;
       // One reply per opening of the link and outcome: waiting cycles do not repeat it.
       await this.replies.enqueue(

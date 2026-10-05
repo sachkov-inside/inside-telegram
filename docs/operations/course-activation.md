@@ -9,7 +9,7 @@
 | Параметр Telegram | Назначение |
 | --- | --- |
 | `TELEGRAM_ACTIVATION_ENABLED` | По умолчанию false; включает durable worker и private course ingress |
-| `PLATFORM_ACTIVATION_URL` | HTTPS base `/integrations/telegram/v1/subscription-activation`; loopback HTTP разрешён локально |
+| `PLATFORM_ACTIVATION_URL` | HTTPS base `/integrations/telegram/v1/subscription-activation`; loopback HTTP разрешён локально. Приглашения `i_` идут на соседний `/integrations/telegram/v1/invitations/redeem`, поэтому путь должен заканчиваться на `/subscription-activation` |
 | `PLATFORM_ACTIVATION_SECRET` | Отдельный activation credential; совпадает с Platform ingress credential |
 | `PLATFORM_ACCOUNT_URL` | Обычный browser Account URL, без токенов, query или fragment |
 | `TELEGRAM_ACTIVATION_SOURCES` | JSON registry: sourceRef, chatId, policy; для confirmed_list — confirmedIdentityRefs |
