@@ -1,14 +1,15 @@
 {
-  "providerCommit": "de605c09f2afe5143dd96fb1c37ce5b6bd01e846",
-  "remoteBranch": "feat/625-tribute-access-convergence",
-  "status": "final portable contract; provider runtime and aggregate625 acceptance are not established by this commit",
-  "platformAccepted": false,
+  "providerCommit": "6ba1571dd62057c94e2bc26ba2229dd7bfdc8269",
+  "remoteBranch": "main",
+  "status": "final portable contract copied from Platform main after #914 (invitation redemption); Telegram #135",
+  "platformAccepted": true,
   "contractFinal": true,
   "files": {
-    "subscription-activation-v1/manifest.json": "0775b65ef6ffd407a819cbf9581c05573cdde4643397922264a894b4b7fa2be0",
-    "subscription-activation-v1/schema.json": "3615d67fd0a833a2ccadeec0dd3c56f3c98bdb441123a4b32c7eb52ef9164cea",
-    "subscription-activation-v1/fixtures.json": "d89658042a0414fd6a6feefb68a86ff25e950032f82a9010d26a2e0d51fc63b9",
-    "subscription-activation-v1/scenarios.json": "0234397ad37a90f96902c1a67d613446a3762e7fffe1b987dea3fac7b3485c9a",
-    "subscription-activation-v1/protocol.md": "d3e71ed2feca08efc1a505d940d3ddec5217468991b1850c23cf3cf38d33f96b"
-  }
+    "subscription-activation-v1/manifest.json": "0442b1d427f9f67808e08d92fd8dce8cf2b9bc17e9af9785c21e898aeee0b7b1",
+    "subscription-activation-v1/schema.json": "1cfc60f7a38dd562b91db14513eff6eaecac7c5b402ab57ff647bdf7d7c78463",
+    "subscription-activation-v1/fixtures.json": "b798272740266979f3ba4f3943a957edc3b35796070ab9fd8d4f7062130ccdc4",
+    "subscription-activation-v1/scenarios.json": "1bfdc158defcf62544b2c835650efd64ae420117bb0b1dcf40480c12be5d09e4",
+    "subscription-activation-v1/protocol.md": "d56d5c5980ff33794953b338e9705d0ca017768b8943e846ec9d8fe209805cbf"
+  },
+  "localDifference": "protocol.md drops the extra blank line at the end of the Platform file, so git diff --check passes; all other bytes match Platform 6ba1571d."
 }

@@ -61,6 +61,35 @@
     }
   },
   {
+    "name": "access-ending-telegram",
+    "definition": "telegramDelivery",
+    "valid": true,
+    "value": {
+      "contractVersion": "inside.notification-delivery.v1",
+      "operationId": "00000000-0000-4000-8000-000000000044",
+      "notificationRef": "00000000-0000-4000-8000-000000000045",
+      "deliveryRef": "00000000-0000-4000-8000-000000000046",
+      "commandRevision": 1,
+      "sourceEventId": "00000000-0000-4000-8000-000000000001",
+      "content": {
+        "category": "subscription",
+        "kind": "access_ending"
+      },
+      "templateRef": "inside.access_ending",
+      "templateRevision": 1,
+      "text": "Доступ Inside скоро закончится\n\nМатериалы\nДата: 2026-09-11T12:00:00.000Z.\n\nhttps://inside.example/subscription?offer=00000000-0000-4000-8000-000000000047",
+      "issuedAt": "2026-09-08T12:00:00Z",
+      "notAfter": "2026-09-08T12:10:00Z",
+      "binding": {
+        "channel": "telegram",
+        "accountRef": "account-example",
+        "telegramIdentityRef": "identity-example",
+        "linkRef": "00000000-0000-4000-8000-000000000007",
+        "linkRevision": 1
+      }
+    }
+  },
+  {
     "name": "material-telegram",
     "definition": "telegramDelivery",
     "valid": true,

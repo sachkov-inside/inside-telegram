@@ -54,6 +54,8 @@ export type TelegramUpdateCommand =
           | { readonly kind: "malformed" };
         readonly marketingSource?: string;
         readonly activationCode?: string | null;
+        /** `i_<code>` without its prefix; `null` when the payload is malformed. */
+        readonly invitationCode?: string | null;
         readonly linkToken?:
           | { readonly digest: string; readonly kind: "digest" }
           | { readonly kind: "malformed" };

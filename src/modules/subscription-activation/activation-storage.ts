@@ -38,6 +38,23 @@ export interface ActivationTables {
     /** When Platform first granted this ground; never cleared by a later retry. */
     confirmed_at: Timestamp | null;
   };
+  invitation_redemptions: {
+    redemption_id: string;
+    bot_identity: string;
+    telegram_user_id: string;
+    private_chat_id: string;
+    identity_ref: string;
+    code: string;
+    trigger_update_id: string;
+    state: "pending" | "needs_account" | "retry" | "completed";
+    created_at: Timestamp;
+    expires_at: Timestamp;
+    due_at: Timestamp;
+    lease_token: string | null;
+    lease_until: Timestamp | null;
+    attempts: number;
+    diagnostic_code: string | null;
+  };
   activation_review_requests: {
     review_id: string;
     bot_identity: string;

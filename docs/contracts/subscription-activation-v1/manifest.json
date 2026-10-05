@@ -9,5 +9,11 @@
     "path": "/integrations/telegram/v1/subscription-activation/binding",
     "requestDefinition": "bindingQuery",
     "responseDefinition": "bindingResponse"
+  },
+  "invitationRedeem": {
+    "method": "POST",
+    "path": "/integrations/telegram/v1/invitations/redeem",
+    "requestDefinition": "invitationRedeem",
+    "responseDefinition": "invitationRedeemResponse"
   }
 }

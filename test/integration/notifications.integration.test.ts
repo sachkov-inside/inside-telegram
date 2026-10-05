@@ -71,11 +71,10 @@ const concurrent = () =>
   );
 function command(
   category: "subscription" | "material" = "subscription",
+  fixture = "subscription-telegram",
 ): NotificationCommand {
   const c = conforming(
-    structuredClone(
-      required(fixtures.find((f) => f.name === "subscription-telegram")).value,
-    ),
+    structuredClone(required(fixtures.find((f) => f.name === fixture)).value),
     notificationValidator<NotificationCommand>("telegramDelivery"),
   );
   c.operationId = randomUUID();
@@ -461,6 +460,20 @@ describe("Notification provider with real PostgreSQL and synthetic external face
       expect(sends).toHaveLength(0);
     },
   );
+  it("delivers access_ending with its renewal link like any subscription kind", async () => {
+    const c = command("subscription", "access-ending-telegram");
+    expect(c.content).toEqual({
+      category: "subscription",
+      kind: "access_ending",
+    });
+    await linked(c);
+    await receive(c);
+    await provider().processCategory("subscription");
+    expect(sends).toHaveLength(1);
+    expect(required(sends[0]).text).toBe(c.text);
+    expect(required(sends[0]).text).toContain("/subscription?offer=");
+    expect((await result(c)).state).toBe("sent");
+  });
   it("429 records not_sent, defers the shared bot, then uses a new correlated attempt and permit", async () => {
     const c = command();
     await linked(c);

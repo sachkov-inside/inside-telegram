@@ -205,6 +205,23 @@ describe("community v2 exact target, moderation and durable effects", () => {
       kind: "moderation_blocked",
     });
   });
+  it.each([
+    [true, 1],
+    [false, 0],
+  ])(
+    "removes a member whose finite access ended only when removals are enabled (%s)",
+    async (removalsEnabled, bans) => {
+      // A gift or manual Enrollment ends: Platform sends denied at the boundary (Platform #909).
+      const s = await stand({ removalsEnabled });
+      s.chat.membership = "member";
+      await s.set({ kind: "finite", validUntil: "2099-01-01T00:00:00Z" });
+      await s.provider().processDueEffects();
+      expect(s.chat.count("ban")).toBe(0);
+      await s.set({ kind: "denied" });
+      await s.provider().processDueEffects();
+      expect(s.chat.count("ban")).toBe(bans);
+    },
+  );
   it("restores only a positively recorded own removal, then forgets that provenance", async () => {
     const s = await stand();
     s.chat.membership = "member";

@@ -89,6 +89,7 @@ const proofs: ActivationEvidence[] = [];
 const memberLookups: string[] = [];
 const grants = new Map<string, number>();
 const platform: ActivationPlatform = {
+  redeem: () => Promise.resolve(undefined),
   binding(identityRef) {
     const binding = bindings.get(identityRef);
     return Promise.resolve({

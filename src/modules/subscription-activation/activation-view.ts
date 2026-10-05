@@ -14,6 +14,9 @@ const enrollmentStates = {
   suspended_source:
     "Источник Tribute завершён, доступ по нему приостановлен. Обратитесь к владельцу для подтверждения нового периода. Повторная проверка и вступление в группу не восстанавливают это основание",
 };
+/** A course student outside the course group gets access through the author's personal invitation. */
+const OUTSIDE_COURSE_GROUP =
+  "Если вы купили курс, но вас нет в его группе, напишите автору: он пришлёт личное приглашение.";
 /** Tells the person that an unconfirmed ground is now in the owner's review queue. */
 export const OWNER_REVIEW =
   "Запрос передан владельцу: он проверит его вручную.";
@@ -48,8 +51,7 @@ export function activationMessage(
         "Новые активации по этой ссылке приостановлены. Уже выданные права сохраняются.",
       identity_conflict:
         "Связь Telegram требует проверки владельца. Мы не переносим и не объединяем аккаунты автоматически.",
-      source_not_confirmed:
-        "Покупка пока не подтверждена. Если вы больше не состоите в группе курса, обратитесь к владельцу для ручного подтверждения.",
+      source_not_confirmed: `Покупка пока не подтверждена. ${OUTSIDE_COURSE_GROUP}`,
       not_found: "Правило активации не найдено. Проверьте ссылку у владельца.",
       revision_conflict:
         "Условия проверки изменились. Повторите проверку по исходной ссылке.",
@@ -73,7 +75,7 @@ export function activationMessage(
       }
       return "Автоматическая проверка не подтвердила покупку. Обратитесь к владельцу; это не отменяет уже выданные права.";
     case "rejected":
-      return "Автоматическая проверка не подтвердила покупку. Обратитесь к владельцу; это не отменяет уже выданные права.";
+      return `Автоматическая проверка не подтвердила покупку. ${OUTSIDE_COURSE_GROUP} Это не отменяет уже выданные права.`;
     case "checking":
     case "needs_account":
     case "unavailable":

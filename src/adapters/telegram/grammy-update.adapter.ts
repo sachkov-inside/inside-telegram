@@ -32,6 +32,7 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
   Reflect.deleteProperty(message, SIGN_IN_TOKEN_FIELD);
   delete message._inside_marketing_source;
   delete message._inside_activation;
+  delete message._inside_invitation;
   const text = message.text;
   if (typeof text !== "string") {
     return { ...payload, message };
@@ -50,6 +51,20 @@ export function prepareTelegramUpdateForInbox(payload: unknown): unknown {
         text: start.command,
         _inside_activation: {
           code: /^a_[A-Za-z0-9_-]{1,40}$/.test(start.argument)
+            ? start.argument.slice(2)
+            : null,
+        },
+      },
+    };
+  }
+  if (start.argument.startsWith("i_") && start.argument.length < 43) {
+    return {
+      ...payload,
+      message: {
+        ...message,
+        text: start.command,
+        _inside_invitation: {
+          code: /^i_[A-Za-z0-9_-]{1,40}$/.test(start.argument)
             ? start.argument.slice(2)
             : null,
         },
@@ -449,6 +464,11 @@ export class GrammyUpdateAdapter implements TelegramUpdateTranslator {
       (message._inside_activation.code === null ||
         typeof message._inside_activation.code === "string")
         ? { activationCode: message._inside_activation.code }
+        : {}),
+      ...(isRecord(message._inside_invitation) &&
+      (message._inside_invitation.code === null ||
+        typeof message._inside_invitation.code === "string")
+        ? { invitationCode: message._inside_invitation.code }
         : {}),
       ...(linkToken ? { linkToken } : {}),
       ...(signInToken ? { signInToken } : {}),

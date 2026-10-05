@@ -1,3 +1,4 @@
+import { InvitationRedemption } from "./modules/subscription-activation/invitation-redemption.js";
 import { SubscriptionActivation } from "./modules/subscription-activation/subscription-activation.js";
 import { SourceGroupProof } from "./modules/subscription-activation/source-group-proof.js";
 import { ACTIVATION_PLATFORM } from "./modules/subscription-activation/activation-ports.js";
@@ -126,6 +127,7 @@ export class AppModule {
       ],
       providers: [
         SubscriptionActivation,
+        InvitationRedemption,
         {
           provide: ACTIVATION_PLATFORM,
           useFactory: () =>
@@ -139,6 +141,7 @@ export class AppModule {
                   binding: () => Promise.resolve(),
                   evidence: () => Promise.resolve(),
                   own: () => Promise.resolve(),
+                  redeem: () => Promise.resolve(),
                 },
         },
         {

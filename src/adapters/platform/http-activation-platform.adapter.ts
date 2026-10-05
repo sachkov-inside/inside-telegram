@@ -4,11 +4,14 @@ import {
   ACTIVATION_VERSION,
   validActivationResponse,
   validOwnAccessResponse,
+  validInvitationRedeemResponse,
   type ActivationBegin,
   type ActivationBinding,
   type ActivationEvidence,
   type ActivationResponse,
   type ActivationResult,
+  type InvitationRedeem,
+  type InvitationRedeemResponse,
   type OwnAccess,
 } from "../../modules/subscription-activation/activation-contract.js";
 import type { ActivationPlatform } from "../../modules/subscription-activation/activation-ports.js";
@@ -54,23 +57,36 @@ export class HttpActivationPlatform implements ActivationPlatform {
       validOwnAccessResponse,
     );
   }
+  /** A sibling of the activation operations: `<base>/subscription-activation` → `<base>/invitations/redeem`. */
+  redeem(
+    input: InvitationRedeem,
+  ): Promise<InvitationRedeemResponse | undefined> {
+    return this.post(
+      "../invitations/redeem",
+      input,
+      validInvitationRedeemResponse,
+    );
+  }
   private async post<T>(
     path: string,
     input: unknown,
     validate: ValidateFunction<T>,
   ): Promise<T | undefined> {
     try {
-      const response = await this.fetcher(`${this.endpoint}/${path}`, {
-        method: "POST",
-        redirect: "error",
-        cache: "no-store",
-        signal: AbortSignal.timeout(5000),
-        headers: {
-          authorization: `Bearer ${this.secret}`,
-          "content-type": "application/json",
+      const response = await this.fetcher(
+        new URL(path, `${this.endpoint}/`).href,
+        {
+          method: "POST",
+          redirect: "error",
+          cache: "no-store",
+          signal: AbortSignal.timeout(5000),
+          headers: {
+            authorization: `Bearer ${this.secret}`,
+            "content-type": "application/json",
+          },
+          body: JSON.stringify(input),
         },
-        body: JSON.stringify(input),
-      });
+      );
       if (
         response.status !== 200 ||
         !response.body ||
