@@ -1,24 +1,54 @@
 # Sachkov Inside Telegram
 
-Private repository for the Telegram application of Sachkov Inside.
+This public repository is preserved as the historical source after the Telegram application’s
+cutover to Platform. Current development lives in
+[platform/apps/telegram](https://github.com/sachkov-inside/platform/tree/main/apps/telegram).
+Use [Platform Issues](https://github.com/sachkov-inside/platform/issues) for current tasks and the
+[Platform Telegram production runbook](https://github.com/sachkov-inside/platform/blob/main/apps/telegram/docs/operations/production.md)
+for current release, deployment and recovery procedures.
 
-The application starts as a production-grade Membership bridge and later becomes the Telegram
-surface for Inside communications and marketing. Its first delivery connects a Telegram contact
-to a Platform Account, observes membership in the canonical closed chat, and supplies bounded
-evidence to Platform without making content requests wait for Telegram.
+Repository archival is coordinated in
+[platform#961](https://github.com/sachkov-inside/platform/issues/961) after source and Platform
+documentation are complete. This README records the cutover; it does not mark archival complete.
 
-Current stage: **controlled Platform convergence complete**. Final Platform confirmation schedules
-a canonical-chat check, authenticated `chat_member` updates produce ordered newer evidence, and
+## Cutover and preserved releases
+
+The original source point is
+[`10dfbee3c9dd39d2dacdc39f8c7926ecd4498820`](https://github.com/sachkov-inside/inside-telegram/commit/10dfbee3c9dd39d2dacdc39f8c7926ecd4498820),
+the source of legacy `v5`. The later README retirement commit does not change this provenance.
+Repository history, closed Issues, immutable legacy Releases
+[`v1`](https://github.com/sachkov-inside/inside-telegram/releases/tag/v1),
+[`v2`](https://github.com/sachkov-inside/inside-telegram/releases/tag/v2),
+[`v3`](https://github.com/sachkov-inside/inside-telegram/releases/tag/v3),
+[`v4`](https://github.com/sachkov-inside/inside-telegram/releases/tag/v4) and
+[`v5`](https://github.com/sachkov-inside/inside-telegram/releases/tag/v5), and their recorded GHCR
+image digests remain preserved.
+
+The verified cutover in [platform#960](https://github.com/sachkov-inside/platform/issues/960)
+published immutable
+[`telegram-v6`](https://github.com/sachkov-inside/platform/releases/tag/telegram-v6),
+[deployed v6](https://github.com/sachkov-inside/platform/actions/runs/37404652413),
+[rolled back to v5](https://github.com/sachkov-inside/platform/actions/runs/37404793346), and
+[returned to v6](https://github.com/sachkov-inside/platform/actions/runs/37404888023).
+The verified transition rollback is `v5`, with matching migration identity. Compatibility of
+`v4` or other older releases with the current schema is not established by this proof.
+
+## Historical v5 technical snapshot
+
+The sections below preserve the application contracts and source-era instructions at legacy `v5`
+(`10dfbee3c9dd39d2dacdc39f8c7926ecd4498820`). They describe the historical source, including its
+configuration defaults, proof gaps and developer process. Current operations and development use
+the Platform links above.
+
+The v5 snapshot includes the Membership bridge: final Platform confirmation schedules a
+canonical-chat check, authenticated `chat_member` updates produce ordered newer evidence, and
 durable reconciliation repairs missed events before positive evidence can outlive its five-minute
-bound. The production HTTP adapters have passed the two-application conformance journey recorded
-in [`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md). Bot
-registration, real credentials, deployment, and production enablement remain explicit later gates.
+bound. The historical two-application conformance journey is recorded in
+[`docs/verification/platform-conformance.md`](docs/verification/platform-conformance.md).
+The source-era deployment kit is documented in
+[`docs/operations/production.md`](docs/operations/production.md).
 
-The permanent deployment kit and its verification/recovery procedure are documented in
-[`docs/operations/production.md`](docs/operations/production.md). Its presence does not mean the
-production bot has been enabled.
-
-## Author templates and communications contract
+### Author templates and communications contract
 
 The author-template slice adds explicit `/template` intake and authenticated template read/save.
 It also provides versioned contracts for the later communications operations. Platform remains the
@@ -34,7 +64,7 @@ UI/MCP and redirect consumer; cross-application acceptance and production activa
 seeded: the current product direction is one owner-authored common funnel; multiple scenarios
 exist only in synthetic tests.
 
-## Ordinary `/start` runtime
+### Ordinary `/start` runtime
 
 - `POST /webhooks/telegram` requires an exact `X-Telegram-Bot-Api-Secret-Token`. A valid update is
   acknowledged only after the unique `(bot_identity, update_id)` inbox record commits.
@@ -61,7 +91,7 @@ exist only in synthetic tests.
 durable welcome intent, but it never calls Telegram. Enabling `live` requires a bot token and the
 separate owner gate for external messaging.
 
-## Platform identity-linking contract
+### Platform identity-linking contract
 
 - `POST /integrations/platform/v1/identity-links` requires
   `Authorization: Bearer <PLATFORM_INTEGRATION_SECRET>` and an
@@ -91,14 +121,14 @@ The Workspace-owned Membership Evidence schema and fixtures are vendored with a 
 commit and SHA-256 snapshot in
 [`src/contracts/inside-membership-evidence-v1/`](src/contracts/inside-membership-evidence-v1/).
 
-## Bot sign-in provider (disabled; website integration pending)
+### Bot sign-in provider (disabled; website integration pending)
 
 The optional provider proves a private Telegram identity after an explicit confirmation button.
 It does not issue a website session or create/merge an Account. The protocol, server-side switch,
 and remaining Platform integration gates are in
 [`docs/specifications/bot-sign-in-v1.md`](docs/specifications/bot-sign-in-v1.md).
 
-## Initial Membership Evidence
+### Initial Membership Evidence
 
 - `TELEGRAM_CANONICAL_CHAT_ID` is required configuration and contains no committed real chat
   identifier. `TELEGRAM_MEMBERSHIP_MODE=disabled` is the safe default; `live` additionally requires
@@ -118,7 +148,7 @@ and remaining Platform integration gates are in
 - A separate Telegram delivery intent reports linked member, non-member, or temporary unavailable
   state without promising content access before Platform accepts the evidence.
 
-## Durable member-status events
+### Durable member-status events
 
 - Webhook registration must explicitly use
   `allowed_updates=["message","chat_member","my_chat_member","callback_query"]`; omitted registration is unsafe
@@ -139,7 +169,7 @@ and remaining Platform integration gates are in
   canonical correlation, normalized disposition, linked/unlinked state, and redacted actor facts;
   processed inbox payloads are discarded as before.
 
-## Durable Membership reconciliation
+### Durable Membership reconciliation
 
 - Every PlatformLink gets a durable PostgreSQL schedule. The configurable cadence defaults to four
   minutes and cannot be configured at or beyond the five-minute positive-evidence validity.
@@ -156,7 +186,7 @@ and remaining Platform integration gates are in
   evidence delivery backlog. Telegram IDs, usernames, Account references, tokens, and secrets are
   never metric labels.
 
-## Community entitlements from Platform
+### Community entitlements from Platform
 
 - `POST /integrations/platform/v1/community-entitlements` accepts the
   `inside.community-entitlement.v1` command into a durable inbox before it acknowledges anything.
@@ -181,7 +211,7 @@ and remaining Platform integration gates are in
 - `TELEGRAM_COMMUNITY_MODE=disabled` is the safe default. See
   [`docs/integrations/community-entitlements-v1.md`](docs/integrations/community-entitlements-v1.md).
 
-## Durable documents
+### Durable documents
 
 - [`docs/product/telegram-application-brief.md`](docs/product/telegram-application-brief.md) —
   confirmed product outcome and v1 boundary.
@@ -203,14 +233,14 @@ and remaining Platform integration gates are in
 - [Telegram Membership bridge v1 Specification](https://github.com/sachkov-inside/inside-telegram/issues/1)
   — native parent of the approved vertical delivery tickets.
 
-## Delivery
+### Delivery
 
 State of a task is the issue, its labels and its linked pull request. Read
 [`AGENTS.md`](AGENTS.md) first, then [`WORKFLOW.md`](WORKFLOW.md) for branch, pull-request,
-verification and merge rules. The active delivery chain is rooted at
+verification and merge rules. The historical v5 delivery chain was rooted at
 [#1: Telegram Membership bridge v1](https://github.com/sachkov-inside/inside-telegram/issues/1).
 
-## Local development
+### Local development
 
 Use Node from `.node-version`, then:
 
@@ -229,9 +259,11 @@ Every entry point loads `.env`, or the file named by `ENV_FILE`, with Node's
 `process.loadEnvFile()`. Variables already in the environment win unless `ENV_FILE_OVERRIDE=true`;
 production reads its environment from Compose and has no such file.
 
-## Current verification
+<a id="current-verification"></a>
 
-The full repository check uses a real PostgreSQL database:
+### Verification
+
+The historical v5 repository check uses a real PostgreSQL database:
 
 ```bash
 pnpm infra:up
@@ -255,8 +287,8 @@ byte-for-byte copy from `platform`. Check it from a `platform` checkout:
 bash scripts/copy-process.sh --check <path to this repository>
 ```
 
-## Repository boundary
+### Repository boundary
 
-This repository owns Telegram bot identity handling, bot contacts, linking, member-status
+At the v5 source point, this repository owned Telegram bot identity handling, bot contacts, linking, member-status
 updates, reconciliation, normalized Membership Evidence and author communication templates. Platform remains the authority for
 Platform Accounts, permissions, entitlements, profiles, and every content-access decision.
